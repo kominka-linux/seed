@@ -76,26 +76,26 @@ pub(crate) fn format_recent_mtime(
     applet: &'static str,
     seconds: i64,
 ) -> Result<String, AppletError> {
-    let mut now = 0 as libc::time_t;
+    let mut now: libc::c_long = 0;
     // SAFETY: libc initializes `now` for a valid input pointer.
     unsafe {
         libc::time(&mut now);
     }
 
-    let format = if (seconds - now).abs() <= SIX_MONTHS_SECONDS {
+    let format = if (seconds - now as i64).abs() <= SIX_MONTHS_SECONDS {
         "%b %e %H:%M"
     } else {
         "%b %e  %Y"
     };
-    format_local_time(applet, seconds as libc::time_t, format)
+    format_local_time(applet, seconds, format)
 }
 
 pub(crate) fn format_full_timestamp(
     applet: &'static str,
     seconds: u64,
 ) -> Result<String, AppletError> {
-    let seconds = libc::time_t::try_from(seconds)
-        .map_err(|_| AppletError::new(applet, "timestamp out of range"))?;
+    let seconds =
+        i64::try_from(seconds).map_err(|_| AppletError::new(applet, "timestamp out of range"))?;
     format_local_time(applet, seconds, "%Y-%m-%d %H:%M:%S")
 }
 
@@ -138,9 +138,12 @@ fn execute_char(
 
 fn format_local_time(
     applet: &'static str,
-    seconds: libc::time_t,
+    seconds: i64,
     format: &str,
 ) -> Result<String, AppletError> {
+    #[allow(clippy::useless_conversion)]
+    let c_seconds: libc::c_long = libc::c_long::try_from(seconds)
+        .map_err(|_| AppletError::new(applet, "timestamp out of range"))?;
     let mut tm = MaybeUninit::<libc::tm>::uninit();
     let format_c = CString::new(format).expect("strftime formats are NUL-free");
     let mut buffer = [0 as c_char; 64];
@@ -148,7 +151,7 @@ fn format_local_time(
     // SAFETY: `seconds`, `tm`, `buffer`, and `format_c` all point to valid
     // memory for the duration of the call, and `format_c` is NUL-terminated.
     let written = unsafe {
-        if libc::localtime_r(&seconds, tm.as_mut_ptr()).is_null() {
+        if libc::localtime_r(&c_seconds, tm.as_mut_ptr()).is_null() {
             return Err(AppletError::new(applet, "failed to format file time"));
         }
         libc::strftime(

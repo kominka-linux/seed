@@ -247,15 +247,15 @@ fn parse_iso_spec(spec: &str) -> Result<IsoSpec, Vec<AppletError>> {
     }
 }
 
-type AppletResultTime = Result<libc::time_t, Vec<AppletError>>;
+type AppletResultTime = Result<i64, Vec<AppletError>>;
 
 fn current_time() -> AppletResultTime {
-    let mut now = 0 as libc::time_t;
+    let mut now: libc::c_long = 0;
     // SAFETY: `time` writes the current epoch seconds into a valid pointer.
     unsafe {
         libc::time(&mut now);
     }
-    Ok(now)
+    Ok(now as i64)
 }
 
 fn file_mtime_seconds(path: &str) -> AppletResultTime {
@@ -274,7 +274,7 @@ fn file_mtime_seconds(path: &str) -> AppletResultTime {
             format!("{path}: mtime before unix epoch"),
         )]
     })?;
-    libc::time_t::try_from(duration.as_secs()).map_err(|_| {
+    i64::try_from(duration.as_secs()).map_err(|_| {
         vec![AppletError::new(
             APPLET,
             format!("{path}: mtime out of range"),
@@ -284,10 +284,7 @@ fn file_mtime_seconds(path: &str) -> AppletResultTime {
 
 fn parse_time_spec(spec: &str, utc: bool, input_format: Option<&str>) -> AppletResultTime {
     if let Some(epoch) = spec.strip_prefix('@') {
-        return epoch
-            .parse::<i64>()
-            .map_err(|_| invalid_date(spec))
-            .and_then(|seconds| libc::time_t::try_from(seconds).map_err(|_| invalid_date(spec)));
+        return epoch.parse::<i64>().map_err(|_| invalid_date(spec));
     }
 
     if let Some(format) = input_format
@@ -397,9 +394,9 @@ fn parse_time_with_explicit_offset(spec: &str) -> AppletResultOffset {
     Ok(Some(seconds))
 }
 
-type AppletResultOffset = Result<Option<libc::time_t>, Vec<AppletError>>;
+type AppletResultOffset = Result<Option<i64>, Vec<AppletError>>;
 
-fn parse_utc_offset(text: &str) -> Option<libc::time_t> {
+fn parse_utc_offset(text: &str) -> Option<i64> {
     if text.len() != 5 {
         return None;
     }
@@ -414,7 +411,7 @@ fn parse_utc_offset(text: &str) -> Option<libc::time_t> {
         return None;
     }
     let seconds = sign * (hours * 3600 + minutes * 60);
-    libc::time_t::try_from(seconds).ok()
+    Some(seconds)
 }
 
 fn parse_with_format(spec: &str, candidate: &ParseCandidate, utc: bool) -> AppletResultOffset {
@@ -457,7 +454,7 @@ fn parse_tm(
 }
 
 fn current_tm_struct() -> Result<libc::tm, Vec<AppletError>> {
-    let mut now = 0 as libc::time_t;
+    let mut now: libc::c_long = 0;
     // SAFETY: `time` writes the current epoch seconds into a valid pointer.
     unsafe {
         libc::time(&mut now);
@@ -482,7 +479,7 @@ fn to_epoch_local(mut tm: libc::tm) -> AppletResultTime {
     if seconds == -1 {
         Err(invalid_date("time"))
     } else {
-        Ok(seconds)
+        Ok(seconds as i64)
     }
 }
 
@@ -493,15 +490,15 @@ fn to_epoch_utc(mut tm: libc::tm) -> AppletResultTime {
     if seconds == -1 {
         Err(invalid_date("time"))
     } else {
-        Ok(seconds)
+        Ok(seconds as i64)
     }
 }
 
-fn set_system_time(seconds: libc::time_t) -> AppletResult {
-    let tv = libc::timeval {
-        tv_sec: seconds,
-        tv_usec: 0,
-    };
+fn set_system_time(seconds: i64) -> AppletResult {
+    #[allow(clippy::useless_conversion)]
+    let tv_sec: libc::c_long = libc::c_long::try_from(seconds)
+        .map_err(|_| vec![AppletError::new(APPLET, "timestamp out of range")])?;
+    let tv = libc::timeval { tv_sec, tv_usec: 0 };
     // SAFETY: `settimeofday` reads a valid `timeval`; the timezone pointer is null.
     let status = unsafe { libc::settimeofday(&tv, std::ptr::null()) };
     if status == 0 {
@@ -514,7 +511,10 @@ fn set_system_time(seconds: libc::time_t) -> AppletResult {
     }
 }
 
-fn format_time(seconds: libc::time_t, format: &str, utc: bool) -> Result<String, Vec<AppletError>> {
+fn format_time(seconds: i64, format: &str, utc: bool) -> Result<String, Vec<AppletError>> {
+    #[allow(clippy::useless_conversion)]
+    let c_seconds: libc::c_long = libc::c_long::try_from(seconds)
+        .map_err(|_| vec![AppletError::new(APPLET, "timestamp out of range")])?;
     let format_c = CString::new(format)
         .map_err(|_| vec![AppletError::new(APPLET, "invalid format string")])?;
     let mut tm = MaybeUninit::<libc::tm>::uninit();
@@ -524,9 +524,9 @@ fn format_time(seconds: libc::time_t, format: &str, utc: bool) -> Result<String,
     // formatter writes at most `buffer.len()` bytes including the trailing NUL.
     let written = unsafe {
         let tm_ptr = if utc {
-            libc::gmtime_r(&seconds, tm.as_mut_ptr())
+            libc::gmtime_r(&c_seconds, tm.as_mut_ptr())
         } else {
-            libc::localtime_r(&seconds, tm.as_mut_ptr())
+            libc::localtime_r(&c_seconds, tm.as_mut_ptr())
         };
         if tm_ptr.is_null() {
             return Err(vec![AppletError::new(APPLET, "failed to format time")]);
@@ -549,11 +549,7 @@ fn format_time(seconds: libc::time_t, format: &str, utc: bool) -> Result<String,
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-fn format_iso_time(
-    seconds: libc::time_t,
-    spec: IsoSpec,
-    utc: bool,
-) -> Result<String, Vec<AppletError>> {
+fn format_iso_time(seconds: i64, spec: IsoSpec, utc: bool) -> Result<String, Vec<AppletError>> {
     let base = match spec {
         IsoSpec::Date => format_time(seconds, "%Y-%m-%d", utc)?,
         IsoSpec::Hours => format_time(seconds, "%Y-%m-%dT%H", utc)?,
@@ -573,7 +569,7 @@ fn format_iso_time(
     Ok(rendered)
 }
 
-fn format_iso_offset(seconds: libc::time_t, utc: bool) -> Result<String, Vec<AppletError>> {
+fn format_iso_offset(seconds: i64, utc: bool) -> Result<String, Vec<AppletError>> {
     if utc {
         return Ok(String::from("+00:00"));
     }

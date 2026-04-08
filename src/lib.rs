@@ -72,6 +72,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::ls::main,
     },
     AppletEntry {
+        name: "losetup",
+        main: applets::losetup::main,
+    },
+    AppletEntry {
         name: "lzcat",
         main: applets::xz::main_lzcat,
     },
@@ -82,6 +86,10 @@ const APPLETS: &[AppletEntry] = &[
     AppletEntry {
         name: "mkdir",
         main: applets::mkdir::main,
+    },
+    AppletEntry {
+        name: "mknod",
+        main: applets::mknod::main,
     },
     AppletEntry {
         name: "mv",

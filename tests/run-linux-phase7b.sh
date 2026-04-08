@@ -23,7 +23,7 @@ while [ $# -gt 0 ]; do
 done
 
 if [ $# -eq 0 ]; then
-	set -- /src/tests/linux/phase7b-smoke.sh
+	set -- /src/tests/linux/phase7b-applets.sh
 fi
 
 docker build -q -f "$repo_dir/tests/linux/Dockerfile.phase7b" -t "$image_tag" "$repo_dir" >/dev/null

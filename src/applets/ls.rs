@@ -125,7 +125,7 @@ fn render_directory(path: &Path, options: Options) -> Result<String, AppletError
 
     entries.sort_by(|left, right| left.name.as_bytes().cmp(right.name.as_bytes()));
 
-    render_entries(&entries, options)
+    render_entries(&entries, options, true)
 }
 
 fn render_file(
@@ -139,13 +139,17 @@ fn render_file(
         path: path.to_path_buf(),
         metadata,
     };
-    render_entries(&[entry], options)
+    render_entries(&[entry], options, false)
 }
 
-fn render_entries(entries: &[Entry], options: Options) -> Result<String, AppletError> {
+fn render_entries(
+    entries: &[Entry],
+    options: Options,
+    show_total: bool,
+) -> Result<String, AppletError> {
     let mut output = String::new();
 
-    if options.long_format || options.show_blocks {
+    if show_total && (options.long_format || options.show_blocks) {
         output.push_str(&format!("total {}\n", total_blocks(entries)));
     }
 
@@ -354,5 +358,80 @@ fn format_human_size(size: u64) -> String {
         format!("{value:.0}{}", UNITS[unit])
     } else {
         format!("{value:.1}{}", UNITS[unit])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Options, render_target};
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TempDir {
+        path: PathBuf,
+    }
+
+    impl TempDir {
+        fn new() -> Self {
+            let mut path = std::env::temp_dir();
+            let unique = format!(
+                "seed-ls-test-{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("clock drift")
+                    .as_nanos()
+            );
+            path.push(unique);
+            fs::create_dir(&path).expect("create temp dir");
+            Self { path }
+        }
+
+        fn path(&self) -> &PathBuf {
+            &self.path
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    #[test]
+    fn long_listing_for_file_operand_does_not_print_total() {
+        let tempdir = TempDir::new();
+        let file = tempdir.path().join("file");
+        fs::write(&file, b"x").expect("write file");
+
+        let output = render_target(
+            file.to_str().expect("utf8 path"),
+            Options {
+                long_format: true,
+                ..Options::default()
+            },
+        )
+        .expect("render long file");
+
+        assert!(!output.starts_with("total "));
+    }
+
+    #[test]
+    fn block_listing_for_file_operand_does_not_print_total() {
+        let tempdir = TempDir::new();
+        let file = tempdir.path().join("file");
+        fs::write(&file, b"x").expect("write file");
+
+        let output = render_target(
+            file.to_str().expect("utf8 path"),
+            Options {
+                show_blocks: true,
+                ..Options::default()
+            },
+        )
+        .expect("render block file");
+
+        assert!(!output.starts_with("total "));
     }
 }

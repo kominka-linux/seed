@@ -114,7 +114,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox cat chmod cp diff egrep find grep ls mkdir mv od printf rm rmdir sort tee wc; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod cp diff egrep find grep gunzip gzip ls lzcat lzma mkdir mv od printf rm rmdir sort tar tee unlzma unxz wc xz xzcat zcat; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -153,6 +153,26 @@ run_old_style tests/busybox/cp/cp-preserves-hard-links
 run_old_style tests/busybox/cp/cp-preserves-links
 run_old_style tests/busybox/cp/cp-preserves-source-file
 run_old_style tests/busybox/find/find-supports-minus-xdev
+
+run_old_style tests/busybox/gzip/gzip-accepts-single-minus
+run_old_style tests/busybox/gzip/gzip-accepts-multiple-files
+run_old_style tests/busybox/gzip/gzip-compression-levels
+run_old_style tests/busybox/gzip/gzip-removes-original-file
+
+run_old_style tests/busybox/tar/tar-archives-multiple-files
+run_old_style tests/busybox/tar/tar-complains-about-missing-file
+run_old_style tests/busybox/tar/tar-demands-at-least-one-ctx
+run_old_style tests/busybox/tar/tar-demands-at-most-one-ctx
+run_old_style tests/busybox/tar/tar-extracts-all-subdirs
+run_old_style tests/busybox/tar/tar-extracts-file
+run_old_style tests/busybox/tar/tar-extracts-from-standard-input
+run_old_style tests/busybox/tar/tar-extracts-multiple-files
+run_old_style tests/busybox/tar/tar-extracts-to-standard-output
+run_old_style tests/busybox/tar/tar-handles-cz-options
+run_old_style tests/busybox/tar/tar-handles-empty-include-and-non-empty-exclude-list
+run_old_style tests/busybox/tar/tar-handles-exclude-and-extract-lists
+run_old_style tests/busybox/tar/tar-handles-multiple-X-options
+run_old_style tests/busybox/tar/tar-handles-nested-exclude
 
 run_old_style_ls tests/busybox/ls/ls-1-works
 run_old_style_ls tests/busybox/ls/ls-h-works

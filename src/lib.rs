@@ -10,6 +10,9 @@ pub fn dispatch(argv: &[String]) -> i32 {
     };
 
     match applet.name.as_str() {
+        "bunzip2" => applets::bzip2::main_bunzip2(applet.args),
+        "bzip2" => applets::bzip2::main(applet.args),
+        "bzcat" => applets::bzip2::main_bzcat(applet.args),
         "cat" => applets::cat::main(applet.args),
         "chmod" => applets::chmod::main(applet.args),
         "cp" => applets::cp::main(applet.args),
@@ -17,6 +20,8 @@ pub fn dispatch(argv: &[String]) -> i32 {
         "egrep" => applets::grep::main_extended(applet.args),
         "find" => applets::find::main(applet.args),
         "grep" => applets::grep::main(applet.args),
+        "gunzip" => applets::gzip::main_gunzip(applet.args),
+        "gzip" => applets::gzip::main(applet.args),
         "mkdir" => applets::mkdir::main(applet.args),
         "ls" => applets::ls::main(applet.args),
         "mv" => applets::mv::main(applet.args),
@@ -25,8 +30,16 @@ pub fn dispatch(argv: &[String]) -> i32 {
         "rmdir" => applets::rmdir::main(applet.args),
         "printf" => applets::printf::main(applet.args),
         "sort" => applets::sort::main(applet.args),
+        "tar" => applets::tar::main(applet.args),
         "tee" => applets::tee::main(applet.args),
+        "lzcat" => applets::xz::main_lzcat(applet.args),
+        "lzma" => applets::xz::main_lzma(applet.args),
+        "unlzma" => applets::xz::main_unlzma(applet.args),
+        "unxz" => applets::xz::main_unxz(applet.args),
         "wc" => applets::wc::main(applet.args),
+        "xz" => applets::xz::main(applet.args),
+        "xzcat" => applets::xz::main_xzcat(applet.args),
+        "zcat" => applets::gzip::main_zcat(applet.args),
         other => {
             eprintln!("seed: unknown applet: {other}");
             1

@@ -3,12 +3,170 @@
 version = 4
 
 [[package]]
+name = "adler2"
+version = "2.0.1"
+
+[[package]]
+name = "block-buffer"
+version = "0.10.4"
+dependencies = [
+ "generic-array",
+]
+
+[[package]]
+name = "bzip2"
+version = "0.5.2"
+dependencies = [
+ "bzip2-sys",
+]
+
+[[package]]
+name = "bzip2-sys"
+version = "0.1.13+1.0.8"
+dependencies = [
+ "cc",
+ "pkg-config",
+]
+
+[[package]]
+name = "cc"
+version = "1.2.59"
+dependencies = [
+ "find-msvc-tools",
+ "shlex",
+]
+
+[[package]]
+name = "cfg-if"
+version = "1.0.4"
+
+[[package]]
+name = "cpufeatures"
+version = "0.2.17"
+dependencies = [
+ "libc 0.2.184 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "crc32fast"
+version = "1.5.0"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
+name = "crypto-common"
+version = "0.1.7"
+dependencies = [
+ "generic-array",
+ "typenum",
+]
+
+[[package]]
+name = "digest"
+version = "0.10.7"
+dependencies = [
+ "block-buffer",
+ "crypto-common",
+]
+
+[[package]]
+name = "filetime"
+version = "0.2.27"
+dependencies = [
+ "cfg-if",
+ "libc 0.2.184",
+]
+
+[[package]]
+name = "find-msvc-tools"
+version = "0.1.9"
+
+[[package]]
+name = "flate2"
+version = "1.1.9"
+dependencies = [
+ "crc32fast",
+ "miniz_oxide",
+]
+
+[[package]]
+name = "generic-array"
+version = "0.14.7"
+dependencies = [
+ "typenum",
+ "version_check",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.184"
+
+[[package]]
+name = "libc"
+version = "0.2.184"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "48f5d2a454e16a5ea0f4ced81bd44e4cfc7bd3a507b61887c99fd3538b28e4af"
+
+[[package]]
+name = "lzma-rust2"
+version = "0.16.2"
+dependencies = [
+ "sha2",
+]
+
+[[package]]
+name = "miniz_oxide"
+version = "0.8.5"
+dependencies = [
+ "adler2",
+ "simd-adler32",
+]
+
+[[package]]
+name = "pkg-config"
+version = "0.3.32"
 
 [[package]]
 name = "seed"
 version = "0.1.0"
 dependencies = [
- "libc",
+ "bzip2",
+ "flate2",
+ "libc 0.2.184",
+ "lzma-rust2",
+ "tar",
 ]
+
+[[package]]
+name = "sha2"
+version = "0.10.9"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
+]
+
+[[package]]
+name = "shlex"
+version = "1.3.0"
+
+[[package]]
+name = "simd-adler32"
+version = "0.3.8"
+
+[[package]]
+name = "tar"
+version = "0.4.44"
+dependencies = [
+ "filetime",
+ "libc 0.2.184",
+]
+
+[[package]]
+name = "typenum"
+version = "1.19.0"
+
+[[package]]
+name = "version_check"
+version = "0.9.5"

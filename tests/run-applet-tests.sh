@@ -173,6 +173,7 @@ run_new_style_ls
 run_new_style od.tests ':DESKTOP:LONG_OPTS:'
 run_new_style printf.tests
 run_new_style sort.tests ':FEATURE_SORT_BIG:'
+run_new_style tar.tests ':FEATURE_SEAMLESS_GZ:GUNZIP:'
 
 run_old_style tests/busybox/cat/cat-prints-a-file
 run_old_style tests/busybox/cat/cat-prints-a-file-and-standard-input

@@ -335,22 +335,19 @@ fn extract_from_reader<R: Read>(
     options: &Options,
     mut stdout_writer: Option<&mut BufWriter<io::Stdout>>,
 ) -> Result<(), AppletError> {
+    let reader = ensure_archive_has_data(reader, options.archive.as_deref())?;
     let mut archive = Archive::new(reader);
     let selectors = selectors(&options.members, &options.excludes);
     let mut matched = vec![false; selectors.len()];
 
     let entries = archive
         .entries()
-        .map_err(|err| AppletError::from_io(APPLET, "reading", options.archive.as_deref(), err))?;
+        .map_err(|err| read_error(options.archive.as_deref(), err))?;
     for entry_result in entries {
-        let mut entry = entry_result.map_err(|err| {
-            AppletError::from_io(APPLET, "reading", options.archive.as_deref(), err)
-        })?;
+        let mut entry = entry_result.map_err(|err| read_error(options.archive.as_deref(), err))?;
         let path = entry
             .path()
-            .map_err(|err| {
-                AppletError::from_io(APPLET, "reading", options.archive.as_deref(), err)
-            })?
+            .map_err(|err| read_error(options.archive.as_deref(), err))?
             .into_owned();
         if is_apple_double(&path) {
             continue;
@@ -396,7 +393,7 @@ fn extract_from_reader<R: Read>(
 }
 
 fn list_from_reader<R: Read>(reader: R, options: &Options) -> Result<(), AppletError> {
-    let mut reader = BufReader::with_capacity(BUFFER_SIZE, reader);
+    let mut reader = ensure_archive_has_data(reader, options.archive.as_deref())?;
     let selectors = selectors(&options.members, &options.excludes);
     let mut matched = vec![false; selectors.len()];
 
@@ -431,6 +428,33 @@ fn list_from_reader<R: Read>(reader: R, options: &Options) -> Result<(), AppletE
     }
 
     ensure_members_found(&selectors, &matched)
+}
+
+fn ensure_archive_has_data<R: Read>(
+    reader: R,
+    archive: Option<&str>,
+) -> Result<BufReader<R>, AppletError> {
+    let mut reader = BufReader::with_capacity(BUFFER_SIZE, reader);
+    if reader
+        .fill_buf()
+        .map_err(|err| read_error(archive, err))?
+        .is_empty()
+    {
+        return Err(short_read_error());
+    }
+    Ok(reader)
+}
+
+fn short_read_error() -> AppletError {
+    AppletError::new(APPLET, "short read")
+}
+
+fn read_error(archive: Option<&str>, err: io::Error) -> AppletError {
+    if err.kind() == io::ErrorKind::UnexpectedEof {
+        short_read_error()
+    } else {
+        AppletError::from_io(APPLET, "reading", archive, err)
+    }
 }
 
 struct ListEntry {
@@ -554,13 +578,10 @@ fn read_header_block<R: BufRead>(
         match reader.read(&mut block[read..]) {
             Ok(0) if read == 0 => return Ok(None),
             Ok(0) => {
-                return Err(AppletError::new(
-                    APPLET,
-                    format!("reading {}: short read", archive.unwrap_or("-")),
-                ));
+                return Err(short_read_error());
             }
             Ok(bytes) => read += bytes,
-            Err(err) => return Err(AppletError::from_io(APPLET, "reading", archive, err)),
+            Err(err) => return Err(read_error(archive, err)),
         }
     }
 
@@ -579,7 +600,7 @@ fn read_entry_bytes<R: BufRead>(
     let mut data = vec![0; size as usize];
     reader
         .read_exact(&mut data)
-        .map_err(|err| AppletError::from_io(APPLET, "reading", archive, err))?;
+        .map_err(|err| read_error(archive, err))?;
     skip_entry_padding(reader, size, archive)?;
     if let Some(end) = data.iter().position(|byte| *byte == 0) {
         data.truncate(end);
@@ -594,14 +615,9 @@ fn skip_entry_data<R: BufRead>(
 ) -> Result<(), AppletError> {
     let mut remaining = size;
     while remaining > 0 {
-        let available = reader
-            .fill_buf()
-            .map_err(|err| AppletError::from_io(APPLET, "reading", archive, err))?;
+        let available = reader.fill_buf().map_err(|err| read_error(archive, err))?;
         if available.is_empty() {
-            return Err(AppletError::new(
-                APPLET,
-                format!("reading {}: short read", archive.unwrap_or("-")),
-            ));
+            return Err(short_read_error());
         }
         let consume = available.len().min(remaining as usize);
         reader.consume(consume);
@@ -618,14 +634,9 @@ fn skip_entry_padding<R: BufRead>(
     let padded = size.div_ceil(512) * 512;
     let mut remaining = padded.saturating_sub(size);
     while remaining > 0 {
-        let available = reader
-            .fill_buf()
-            .map_err(|err| AppletError::from_io(APPLET, "reading", archive, err))?;
+        let available = reader.fill_buf().map_err(|err| read_error(archive, err))?;
         if available.is_empty() {
-            return Err(AppletError::new(
-                APPLET,
-                format!("reading {}: short read", archive.unwrap_or("-")),
-            ));
+            return Err(short_read_error());
         }
         let consume = available.len().min(remaining as usize);
         reader.consume(consume);
@@ -641,9 +652,7 @@ fn validate_header_checksum(header: &Header, archive: Option<&str>) -> Result<()
         .chain(std::iter::repeat_n(&b' ', 8))
         .chain(bytes[156..].iter())
         .fold(0_u32, |acc, byte| acc + u32::from(*byte));
-    let cksum = header
-        .cksum()
-        .map_err(|err| AppletError::from_io(APPLET, "reading", archive, err))?;
+    let cksum = header.cksum().map_err(|err| read_error(archive, err))?;
     if sum == cksum {
         Ok(())
     } else {
@@ -785,8 +794,8 @@ fn source_path(operand: &Operand) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{CompressionMode, Mode, detect_compression, parse_args};
-    use std::io::Cursor;
+    use super::{CompressionMode, Mode, detect_compression, ensure_archive_has_data, parse_args};
+    use std::io::{self, Cursor};
 
     fn parse(input: &[&str]) -> super::Options {
         let args = input
@@ -847,5 +856,17 @@ mod tests {
             detect_compression(&mut xz).expect("xz detection"),
             Some(CompressionMode::Xz)
         );
+    }
+
+    #[test]
+    fn empty_archive_is_rejected() {
+        let err = ensure_archive_has_data(io::empty(), Some("-")).expect_err("empty archive");
+        assert_eq!(err.to_string(), "tar: short read");
+    }
+
+    #[test]
+    fn zero_filled_archive_is_accepted() {
+        ensure_archive_has_data(Cursor::new(vec![0_u8; 1024]), Some("-"))
+            .expect("zero-filled archive");
     }
 }

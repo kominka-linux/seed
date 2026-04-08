@@ -3,52 +3,152 @@ pub mod common;
 
 use std::path::Path;
 
+type AppletMain = fn(&[String]) -> i32;
+
+struct AppletEntry {
+    name: &'static str,
+    main: AppletMain,
+}
+
+const APPLETS: &[AppletEntry] = &[
+    AppletEntry {
+        name: "bunzip2",
+        main: applets::bzip2::main_bunzip2,
+    },
+    AppletEntry {
+        name: "bzip2",
+        main: applets::bzip2::main,
+    },
+    AppletEntry {
+        name: "bzcat",
+        main: applets::bzip2::main_bzcat,
+    },
+    AppletEntry {
+        name: "cat",
+        main: applets::cat::main,
+    },
+    AppletEntry {
+        name: "chmod",
+        main: applets::chmod::main,
+    },
+    AppletEntry {
+        name: "cp",
+        main: applets::cp::main,
+    },
+    AppletEntry {
+        name: "diff",
+        main: applets::diff::main,
+    },
+    AppletEntry {
+        name: "egrep",
+        main: applets::grep::main_extended,
+    },
+    AppletEntry {
+        name: "find",
+        main: applets::find::main,
+    },
+    AppletEntry {
+        name: "grep",
+        main: applets::grep::main,
+    },
+    AppletEntry {
+        name: "gunzip",
+        main: applets::gzip::main_gunzip,
+    },
+    AppletEntry {
+        name: "gzip",
+        main: applets::gzip::main,
+    },
+    AppletEntry {
+        name: "ls",
+        main: applets::ls::main,
+    },
+    AppletEntry {
+        name: "lzcat",
+        main: applets::xz::main_lzcat,
+    },
+    AppletEntry {
+        name: "lzma",
+        main: applets::xz::main_lzma,
+    },
+    AppletEntry {
+        name: "mkdir",
+        main: applets::mkdir::main,
+    },
+    AppletEntry {
+        name: "mv",
+        main: applets::mv::main,
+    },
+    AppletEntry {
+        name: "od",
+        main: applets::od::main,
+    },
+    AppletEntry {
+        name: "printf",
+        main: applets::printf::main,
+    },
+    AppletEntry {
+        name: "rm",
+        main: applets::rm::main,
+    },
+    AppletEntry {
+        name: "rmdir",
+        main: applets::rmdir::main,
+    },
+    AppletEntry {
+        name: "sort",
+        main: applets::sort::main,
+    },
+    AppletEntry {
+        name: "tar",
+        main: applets::tar::main,
+    },
+    AppletEntry {
+        name: "tee",
+        main: applets::tee::main,
+    },
+    AppletEntry {
+        name: "unlzma",
+        main: applets::xz::main_unlzma,
+    },
+    AppletEntry {
+        name: "unxz",
+        main: applets::xz::main_unxz,
+    },
+    AppletEntry {
+        name: "wc",
+        main: applets::wc::main,
+    },
+    AppletEntry {
+        name: "xz",
+        main: applets::xz::main,
+    },
+    AppletEntry {
+        name: "xzcat",
+        main: applets::xz::main_xzcat,
+    },
+    AppletEntry {
+        name: "zcat",
+        main: applets::gzip::main_zcat,
+    },
+];
+
 pub fn dispatch(argv: &[String]) -> i32 {
     let Some(applet) = determine_applet(argv) else {
         eprintln!("seed: missing applet name");
         return 1;
     };
 
-    match applet.name.as_str() {
-        "bunzip2" => applets::bzip2::main_bunzip2(applet.args),
-        "bzip2" => applets::bzip2::main(applet.args),
-        "bzcat" => applets::bzip2::main_bzcat(applet.args),
-        "cat" => applets::cat::main(applet.args),
-        "chmod" => applets::chmod::main(applet.args),
-        "cp" => applets::cp::main(applet.args),
-        "diff" => applets::diff::main(applet.args),
-        "egrep" => applets::grep::main_extended(applet.args),
-        "find" => applets::find::main(applet.args),
-        "grep" => applets::grep::main(applet.args),
-        "gunzip" => applets::gzip::main_gunzip(applet.args),
-        "gzip" => applets::gzip::main(applet.args),
-        "mkdir" => applets::mkdir::main(applet.args),
-        "ls" => applets::ls::main(applet.args),
-        "mv" => applets::mv::main(applet.args),
-        "od" => applets::od::main(applet.args),
-        "rm" => applets::rm::main(applet.args),
-        "rmdir" => applets::rmdir::main(applet.args),
-        "printf" => applets::printf::main(applet.args),
-        "sort" => applets::sort::main(applet.args),
-        "tar" => applets::tar::main(applet.args),
-        "tee" => applets::tee::main(applet.args),
-        "lzcat" => applets::xz::main_lzcat(applet.args),
-        "lzma" => applets::xz::main_lzma(applet.args),
-        "unlzma" => applets::xz::main_unlzma(applet.args),
-        "unxz" => applets::xz::main_unxz(applet.args),
-        "wc" => applets::wc::main(applet.args),
-        "xz" => applets::xz::main(applet.args),
-        "xzcat" => applets::xz::main_xzcat(applet.args),
-        "zcat" => applets::gzip::main_zcat(applet.args),
-        other => {
-            eprintln!("seed: unknown applet: {other}");
-            1
-        }
+    if let Some(entry) = APPLETS.iter().find(|entry| entry.name == applet.name) {
+        (entry.main)(applet.args)
+    } else {
+        eprintln!("seed: unknown applet: {}", applet.name);
+        1
     }
 }
 
 struct AppletInvocation<'a> {
-    name: String,
+    name: &'a str,
     args: &'a [String],
 }
 
@@ -60,15 +160,15 @@ fn determine_applet(argv: &[String]) -> Option<AppletInvocation<'_>> {
         .unwrap_or(program_name);
 
     if argv0 == "busybox" || argv0 == "seed" {
-        let applet = argv.get(1)?;
+        let applet = argv.get(1)?.as_str();
         return Some(AppletInvocation {
-            name: applet.clone(),
+            name: applet,
             args: &argv[2..],
         });
     }
 
     Some(AppletInvocation {
-        name: argv0.to_owned(),
+        name: argv0,
         args: &argv[1..],
     })
 }

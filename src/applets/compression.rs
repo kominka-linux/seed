@@ -312,15 +312,7 @@ pub(crate) fn input_size_hint(path: &str) -> Option<u64> {
 
 #[cfg(test)]
 pub(crate) fn temp_dir(label: &str) -> PathBuf {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    let unique = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("time")
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("seed-{label}-{unique}"));
-    fs::create_dir_all(&dir).expect("create temp dir");
-    dir
+    crate::common::unix::temp_dir(label)
 }
 
 fn process_to_sink<Process>(

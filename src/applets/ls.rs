@@ -1,4 +1,4 @@
-use std::ffi::{CStr, CString};
+use std::ffi::CString;
 use std::fs;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 
 use crate::common::applet::{AppletResult, finish};
 use crate::common::error::AppletError;
+use crate::common::unix::{self, FileKind};
 
 const APPLET: &str = "ls";
-const SIX_MONTHS_SECONDS: i64 = 15_552_000;
 
 #[derive(Clone, Copy, Debug, Default)]
 struct Options {
@@ -235,14 +235,14 @@ fn total_blocks(entries: &[Entry]) -> u64 {
 fn format_long_entry(entry: &Entry, options: Options) -> Result<String, AppletError> {
     let mode = format_mode(entry)?;
     let links = entry.metadata.nlink();
-    let owner = lookup_user(entry.metadata.uid());
-    let group = lookup_group(entry.metadata.gid());
+    let owner = unix::lookup_user(entry.metadata.uid());
+    let group = unix::lookup_group(entry.metadata.gid());
     let size = if options.human_readable {
         format_human_size(entry.metadata.size())
     } else {
         entry.metadata.size().to_string()
     };
-    let modified = format_mtime(entry.metadata.mtime())?;
+    let modified = unix::format_recent_mtime(APPLET, entry.metadata.mtime())?;
     let mut line = format!(
         "{mode} {} {} {} {} {} {}",
         links, owner, group, size, modified, entry.name
@@ -258,62 +258,11 @@ fn format_long_entry(entry: &Entry, options: Options) -> Result<String, AppletEr
 }
 
 fn format_mode(entry: &Entry) -> Result<String, AppletError> {
-    let mode = entry.metadata.mode();
-    let mut text = String::with_capacity(11);
-    text.push(file_type_char(entry.metadata.file_type()));
-    text.push(permission_char(mode, 0o400, b'r'));
-    text.push(permission_char(mode, 0o200, b'w'));
-    text.push(execute_char(mode, 0o100, 0o4000, b'x', b's', b'S'));
-    text.push(permission_char(mode, 0o040, b'r'));
-    text.push(permission_char(mode, 0o020, b'w'));
-    text.push(execute_char(mode, 0o010, 0o2000, b'x', b's', b'S'));
-    text.push(permission_char(mode, 0o004, b'r'));
-    text.push(permission_char(mode, 0o002, b'w'));
-    text.push(execute_char(mode, 0o001, 0o1000, b'x', b't', b'T'));
-    text.push(attribute_marker(&entry.path)?);
-    Ok(text)
-}
-
-fn file_type_char(file_type: fs::FileType) -> char {
-    if file_type.is_dir() {
-        'd'
-    } else if file_type.is_symlink() {
-        'l'
-    } else if file_type.is_block_device() {
-        'b'
-    } else if file_type.is_char_device() {
-        'c'
-    } else if file_type.is_fifo() {
-        'p'
-    } else if file_type.is_socket() {
-        's'
-    } else {
-        '-'
-    }
-}
-
-fn permission_char(mode: u32, bit: u32, set: u8) -> char {
-    if mode & bit != 0 {
-        char::from(set)
-    } else {
-        '-'
-    }
-}
-
-fn execute_char(
-    mode: u32,
-    execute_bit: u32,
-    special_bit: u32,
-    execute: u8,
-    special: u8,
-    plain_special: u8,
-) -> char {
-    match (mode & execute_bit != 0, mode & special_bit != 0) {
-        (true, true) => char::from(special),
-        (true, false) => char::from(execute),
-        (false, true) => char::from(plain_special),
-        (false, false) => '-',
-    }
+    Ok(unix::format_mode(
+        file_kind(entry.metadata.file_type()),
+        entry.metadata.mode(),
+        Some(attribute_marker(&entry.path)?),
+    ))
 }
 
 fn attribute_marker(path: &Path) -> Result<char, AppletError> {
@@ -331,65 +280,22 @@ fn attribute_marker(path: &Path) -> Result<char, AppletError> {
     if size > 0 { Ok('@') } else { Ok(' ') }
 }
 
-fn lookup_user(uid: u32) -> String {
-    // SAFETY: `getpwuid` returns either null or a pointer to static storage
-    // owned by libc for the current process. We copy the resulting name
-    // immediately into an owned Rust `String`.
-    let passwd = unsafe { libc::getpwuid(uid) };
-    if passwd.is_null() {
-        return uid.to_string();
+fn file_kind(file_type: fs::FileType) -> FileKind {
+    if file_type.is_dir() {
+        FileKind::Directory
+    } else if file_type.is_symlink() {
+        FileKind::Symlink
+    } else if file_type.is_block_device() {
+        FileKind::BlockDevice
+    } else if file_type.is_char_device() {
+        FileKind::CharDevice
+    } else if file_type.is_fifo() {
+        FileKind::Fifo
+    } else if file_type.is_socket() {
+        FileKind::Socket
+    } else {
+        FileKind::Regular
     }
-    // SAFETY: `passwd` was checked for null and points to a valid `passwd`
-    // record for the lifetime of this call.
-    unsafe { CStr::from_ptr((*passwd).pw_name) }
-        .to_string_lossy()
-        .into_owned()
-}
-
-fn lookup_group(gid: u32) -> String {
-    // SAFETY: `getgrgid` returns either null or a pointer to static storage
-    // owned by libc for the current process. We copy the resulting name
-    // immediately into an owned Rust `String`.
-    let group = unsafe { libc::getgrgid(gid) };
-    if group.is_null() {
-        return gid.to_string();
-    }
-    // SAFETY: `group` was checked for null and points to a valid `group`
-    // record for the lifetime of this call.
-    unsafe { CStr::from_ptr((*group).gr_name) }
-        .to_string_lossy()
-        .into_owned()
-}
-
-fn format_mtime(seconds: i64) -> Result<String, AppletError> {
-    let mut tm = std::mem::MaybeUninit::<libc::tm>::uninit();
-    let mut now = 0 as libc::time_t;
-    // SAFETY: libc initializes `now` and `tm` for valid input pointers.
-    unsafe {
-        libc::time(&mut now);
-        if libc::localtime_r(&(seconds as libc::time_t), tm.as_mut_ptr()).is_null() {
-            return Err(AppletError::new(APPLET, "failed to format file time"));
-        }
-    }
-
-    let recent = (seconds - now).abs() <= SIX_MONTHS_SECONDS;
-    let format = if recent { "%b %e %H:%M" } else { "%b %e  %Y" };
-    let format_c = CString::new(format).expect("strftime formats are NUL-free");
-    let mut buf = [0_u8; 64];
-    // SAFETY: `tm` was initialized by `localtime_r`, `buf` is valid writable
-    // memory, and `format_c` is a valid NUL-terminated format string.
-    let written = unsafe {
-        libc::strftime(
-            buf.as_mut_ptr().cast(),
-            buf.len(),
-            format_c.as_ptr(),
-            tm.as_ptr(),
-        )
-    };
-    if written == 0 {
-        return Err(AppletError::new(APPLET, "failed to format file time"));
-    }
-    Ok(String::from_utf8_lossy(&buf[..written]).into_owned())
 }
 
 fn format_blocks(blocks: u64, human_readable: bool) -> String {
@@ -420,9 +326,9 @@ fn format_human_size(size: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::{Options, render_target, render_targets};
+    use crate::common::unix;
     use std::fs;
     use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     struct TempDir {
         path: PathBuf,
@@ -430,18 +336,9 @@ mod tests {
 
     impl TempDir {
         fn new() -> Self {
-            let mut path = std::env::temp_dir();
-            let unique = format!(
-                "seed-ls-test-{}-{}",
-                std::process::id(),
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .expect("clock drift")
-                    .as_nanos()
-            );
-            path.push(unique);
-            fs::create_dir(&path).expect("create temp dir");
-            Self { path }
+            Self {
+                path: unix::temp_dir("ls-test"),
+            }
         }
 
         fn path(&self) -> &PathBuf {

@@ -1,6 +1,5 @@
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
-use std::mem::MaybeUninit;
 use std::path::{Path, PathBuf};
 
 use bzip2::Compression as Bzip2Compression;
@@ -9,13 +8,13 @@ use bzip2::write::BzEncoder;
 use flate2::Compression;
 use flate2::bufread::MultiGzDecoder;
 use flate2::write::GzEncoder;
-use libc::{self, c_char};
 use lzma_rust2::{XzOptions, XzReader, XzWriter};
 use tar::{Archive, Builder, EntryType, Header};
 
 use crate::common::applet::{AppletResult, finish};
 use crate::common::error::AppletError;
 use crate::common::io::{BUFFER_SIZE, Input, open_input, stdout};
+use crate::common::unix::{self, FileKind};
 
 const APPLET: &str = "tar";
 
@@ -684,7 +683,7 @@ fn format_list_entry(entry: &ListEntry) -> Result<String, AppletError> {
         entry.username,
         entry.groupname,
         entry.size,
-        format_timestamp(entry.mtime)?,
+        unix::format_full_timestamp(APPLET, entry.mtime)?,
         entry.path
     );
     if let Some(link_name) = &entry.link_name
@@ -697,72 +696,25 @@ fn format_list_entry(entry: &ListEntry) -> Result<String, AppletError> {
 }
 
 fn format_mode(entry_type: EntryType, mode: u32) -> String {
-    let mut text = String::with_capacity(10);
-    text.push(file_type_char(entry_type));
-    for shift in [6, 3, 0] {
-        let bits = ((mode >> shift) & 0o7) as u8;
-        text.push(if bits & 0o4 != 0 { 'r' } else { '-' });
-        text.push(if bits & 0o2 != 0 { 'w' } else { '-' });
-        let exec = if bits & 0o1 != 0 { 'x' } else { '-' };
-        let special = match shift {
-            6 if mode & 0o4000 != 0 => Some(if exec == 'x' { 's' } else { 'S' }),
-            3 if mode & 0o2000 != 0 => Some(if exec == 'x' { 's' } else { 'S' }),
-            0 if mode & 0o1000 != 0 => Some(if exec == 'x' { 't' } else { 'T' }),
-            _ => None,
-        };
-        text.push(special.unwrap_or(exec));
-    }
-    text
+    unix::format_mode(file_kind(entry_type), mode, None)
 }
 
-fn file_type_char(entry_type: EntryType) -> char {
+fn file_kind(entry_type: EntryType) -> FileKind {
     if entry_type.is_dir() {
-        'd'
+        FileKind::Directory
     } else if entry_type.is_symlink() {
-        'l'
+        FileKind::Symlink
     } else if entry_type.is_hard_link() {
-        'h'
+        FileKind::HardLink
     } else if entry_type.is_character_special() {
-        'c'
+        FileKind::CharDevice
     } else if entry_type.is_block_special() {
-        'b'
+        FileKind::BlockDevice
     } else if entry_type.is_fifo() {
-        'p'
+        FileKind::Fifo
     } else {
-        '-'
+        FileKind::Regular
     }
-}
-
-fn format_timestamp(timestamp: u64) -> Result<String, AppletError> {
-    let timestamp = libc::time_t::try_from(timestamp)
-        .map_err(|_| AppletError::new(APPLET, "timestamp out of range"))?;
-    let mut tm = MaybeUninit::<libc::tm>::uninit();
-    let mut buffer = [0 as c_char; 20];
-    let format = b"%Y-%m-%d %H:%M:%S\0";
-
-    // SAFETY: `timestamp`, `tm`, `buffer`, and `format` all point to valid memory for the
-    // duration of the call, and `format` is NUL-terminated.
-    let written = unsafe {
-        if libc::localtime_r(&timestamp, tm.as_mut_ptr()).is_null() {
-            return Err(AppletError::new(APPLET, "failed to format timestamp"));
-        }
-        libc::strftime(
-            buffer.as_mut_ptr(),
-            buffer.len(),
-            format.as_ptr().cast(),
-            tm.as_ptr(),
-        )
-    };
-
-    if written == 0 {
-        return Err(AppletError::new(APPLET, "failed to format timestamp"));
-    }
-
-    let bytes = buffer[..written]
-        .iter()
-        .map(|byte| *byte as u8)
-        .collect::<Vec<_>>();
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 fn selectors(members: &[String], excludes: &[String]) -> Vec<String> {

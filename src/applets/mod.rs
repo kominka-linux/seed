@@ -1,1 +1,14 @@
 pub mod cat;
+pub mod chmod;
+pub mod cp;
+pub mod diff;
+pub mod grep;
+pub mod mkdir;
+pub mod mv;
+pub mod od;
+pub mod printf;
+pub mod rm;
+pub mod rmdir;
+pub mod sort;
+pub mod tee;
+pub mod wc;

@@ -1,5 +1,5 @@
 fn main() {
-    seed::install_signal_handlers();
-    let code = seed::dispatch(&seed::argv());
+    seed::common::runtime::install_signal_handlers();
+    let code = seed::dispatch(&seed::common::runtime::argv());
     std::process::exit(code);
 }

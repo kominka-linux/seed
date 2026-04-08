@@ -26,6 +26,10 @@ impl AppletError {
     pub fn print(&self) {
         eprintln!("{}: {}", self.applet, self.message);
     }
+
+    pub fn invalid_option(applet: &'static str, flag: char) -> Self {
+        Self::new(applet, format!("invalid option -- '{flag}'"))
+    }
 }
 
 impl fmt::Display for AppletError {

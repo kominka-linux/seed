@@ -1,23 +1,7 @@
 pub mod applets;
 pub mod common;
 
-use std::ffi::CString;
 use std::path::Path;
-
-const SIGPIPE: i32 = 13;
-const SIG_IGN: usize = 1;
-
-unsafe extern "C" {
-    fn signal(signum: i32, handler: usize) -> usize;
-}
-
-pub fn install_signal_handlers() {
-    // SAFETY: `signal` is called with a valid signal number and the process-wide
-    // disposition `SIG_IGN` so writes to a closed pipe terminate cleanly.
-    unsafe {
-        signal(SIGPIPE, SIG_IGN);
-    }
-}
 
 pub fn dispatch(argv: &[String]) -> i32 {
     let Some(applet) = determine_applet(argv) else {
@@ -27,6 +11,20 @@ pub fn dispatch(argv: &[String]) -> i32 {
 
     match applet.name.as_str() {
         "cat" => applets::cat::main(applet.args),
+        "chmod" => applets::chmod::main(applet.args),
+        "cp" => applets::cp::main(applet.args),
+        "diff" => applets::diff::main(applet.args),
+        "egrep" => applets::grep::main_extended(applet.args),
+        "grep" => applets::grep::main(applet.args),
+        "mkdir" => applets::mkdir::main(applet.args),
+        "mv" => applets::mv::main(applet.args),
+        "od" => applets::od::main(applet.args),
+        "rm" => applets::rm::main(applet.args),
+        "rmdir" => applets::rmdir::main(applet.args),
+        "printf" => applets::printf::main(applet.args),
+        "sort" => applets::sort::main(applet.args),
+        "tee" => applets::tee::main(applet.args),
+        "wc" => applets::wc::main(applet.args),
         other => {
             eprintln!("seed: unknown applet: {other}");
             1
@@ -58,15 +56,4 @@ fn determine_applet(argv: &[String]) -> Option<AppletInvocation<'_>> {
         name: argv0.to_owned(),
         args: &argv[1..],
     })
-}
-
-pub fn argv() -> Vec<String> {
-    std::env::args_os()
-        .map(|arg| {
-            CString::new(arg.as_encoded_bytes())
-                .ok()
-                .and_then(|cstr| cstr.into_string().ok())
-                .unwrap_or_else(|| String::from_utf8_lossy(arg.as_encoded_bytes()).into_owned())
-        })
-        .collect()
 }

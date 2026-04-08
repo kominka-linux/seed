@@ -218,6 +218,7 @@ run_old_style tests/busybox/gzip/gzip-compression-levels
 run_old_style tests/busybox/gzip/gzip-removes-original-file
 
 run_old_style tests/busybox/tar/tar-archives-multiple-files
+run_old_style tests/busybox/tar/tar--overwrite-preserves-hardlinks
 run_old_style tests/busybox/tar/tar-complains-about-missing-file
 run_old_style tests/busybox/tar/tar-demands-at-least-one-ctx
 run_old_style tests/busybox/tar/tar-demands-at-most-one-ctx
@@ -234,8 +235,11 @@ run_old_style tests/busybox/tar/tar-handles-multiple-X-options
 run_old_style tests/busybox/tar/tar-handles-nested-exclude
 run_old_style tests/busybox/tar/tar-hardlinks-and-repeated-files
 run_old_style tests/busybox/tar/tar-hardlinks-mode
+run_old_style tests/busybox/tar/tar-k-does-not-extract-into-symlinks
+run_old_style tests/busybox/tar/tar-pax-utf8-names-and-symlinks
 run_old_style tests/busybox/tar/tar-symlink-attack-is-contained
 run_old_style tests/busybox/tar/tar-symlinks-mode
+run_old_style tests/busybox/tar/tar-symlinks-and-hardlinks-coexist
 run_old_style tests/busybox/tar/tar-strips-dotdot-components
 run_old_style tests/busybox/tar/tar-writing-into-read-only-dir
 run_old_style tests/busybox/tar/tar_with_link_with_size

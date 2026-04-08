@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
@@ -42,6 +42,8 @@ struct Options {
     compression: Option<CompressionMode>,
     to_stdout: bool,
     verbose: bool,
+    keep_old: bool,
+    overwrite: bool,
     chdir: Option<PathBuf>,
     excludes: Vec<String>,
     operands: Vec<Operand>,
@@ -107,6 +109,21 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
             continue;
         }
 
+        if parsing_flags && arg.starts_with("--") {
+            match arg.as_str() {
+                "--overwrite" => {
+                    options.overwrite = true;
+                    continue;
+                }
+                _ => {
+                    return Err(vec![AppletError::new(
+                        APPLET,
+                        format!("unrecognized option '{arg}'"),
+                    )]);
+                }
+            }
+        }
+
         let old_style = parsing_flags && index == 0 && !arg.starts_with('-');
         if parsing_flags && ((arg.starts_with('-') && arg.len() > 1) || old_style) {
             let flags = if old_style { arg.as_str() } else { &arg[1..] };
@@ -117,6 +134,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
                     't' => set_mode(&mut options, Mode::List)?,
                     'f' => pending_archive = true,
                     'j' => set_compression(&mut options, CompressionMode::Bzip2)?,
+                    'k' => options.keep_old = true,
                     'O' => options.to_stdout = true,
                     'v' => options.verbose = true,
                     'C' => pending_chdir = true,
@@ -513,6 +531,7 @@ fn extract_from_reader<R: Read>(
                 &path,
                 &path_text,
                 &mut deferred_dirs,
+                options,
             )?;
         }
     }
@@ -539,10 +558,14 @@ fn extract_entry<R: Read>(
     path: &Path,
     path_text: &str,
     deferred_dirs: &mut Vec<DeferredDirectory>,
+    options: &Options,
 ) -> Result<(), AppletError> {
     let entry_type = entry.header().entry_type();
     if entry_type.is_dir() {
         let output_path = archive_path_in(destination, path, path_text)?;
+        if options.keep_old && output_path.exists() {
+            return Ok(());
+        }
         fs::create_dir_all(&output_path)
             .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))?;
         let mode = entry
@@ -557,11 +580,22 @@ fn extract_entry<R: Read>(
     }
 
     if entry_type.is_symlink() {
-        return extract_symlink(entry, destination, path, path_text);
+        return extract_symlink(entry, destination, path, path_text, options);
     }
 
     if entry_type.is_hard_link() {
-        return extract_hardlink(entry, destination, path, path_text);
+        return extract_hardlink(entry, destination, path, path_text, options);
+    }
+
+    if options.keep_old {
+        let output_path = archive_path_in(destination, path, path_text)?;
+        if path_exists(&output_path)? {
+            return drain_entry(entry, path_text);
+        }
+    }
+
+    if options.overwrite && entry_type.is_file() {
+        return extract_regular_file_overwrite(entry, destination, path, path_text);
     }
 
     entry
@@ -575,8 +609,12 @@ fn extract_symlink<R: Read>(
     destination: &Path,
     path: &Path,
     path_text: &str,
+    options: &Options,
 ) -> Result<(), AppletError> {
     let output_path = archive_path_in(destination, path, path_text)?;
+    if options.keep_old && path_exists(&output_path)? {
+        return drain_entry(entry, path_text);
+    }
     ensure_parent_dir(&output_path, path_text)?;
     remove_existing_path(&output_path, path_text)?;
     let Some(target) = entry
@@ -597,8 +635,12 @@ fn extract_hardlink<R: Read>(
     destination: &Path,
     path: &Path,
     path_text: &str,
+    options: &Options,
 ) -> Result<(), AppletError> {
     let output_path = archive_path_in(destination, path, path_text)?;
+    if options.keep_old && path_exists(&output_path)? {
+        return drain_entry(entry, path_text);
+    }
     ensure_parent_dir(&output_path, path_text)?;
     let Some(target) = entry
         .link_name()
@@ -633,6 +675,54 @@ fn extract_hardlink<R: Read>(
     }
 }
 
+fn extract_regular_file_overwrite<R: Read>(
+    entry: &mut tar::Entry<'_, R>,
+    destination: &Path,
+    path: &Path,
+    path_text: &str,
+) -> Result<(), AppletError> {
+    let output_path = archive_path_in(destination, path, path_text)?;
+    ensure_parent_dir(&output_path, path_text)?;
+
+    match fs::symlink_metadata(&output_path) {
+        Ok(metadata) if metadata.is_dir() => {
+            return Err(AppletError::new(
+                APPLET,
+                format!("extracting {path_text}: cannot overwrite directory"),
+            ));
+        }
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            remove_existing_path(&output_path, path_text)?;
+        }
+        Ok(_) => {}
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Err(err) => {
+            return Err(AppletError::from_io(
+                APPLET,
+                "extracting",
+                Some(path_text),
+                err,
+            ));
+        }
+    }
+
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&output_path)
+        .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))?;
+    io::copy(entry, &mut file)
+        .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))?;
+
+    let mode = entry
+        .header()
+        .mode()
+        .map_err(|err| read_error(Some(path_text), err))?;
+    fs::set_permissions(&output_path, fs::Permissions::from_mode(mode))
+        .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))
+}
+
 fn archive_path_in(
     destination: &Path,
     archive_path: &Path,
@@ -660,6 +750,25 @@ fn ensure_parent_dir(path: &Path, display: &str) -> Result<(), AppletError> {
             .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(display), err))?;
     }
     Ok(())
+}
+
+fn path_exists(path: &Path) -> Result<bool, AppletError> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(err) => Err(AppletError::from_io(
+            APPLET,
+            "extracting",
+            Some(path.to_string_lossy().as_ref()),
+            err,
+        )),
+    }
+}
+
+fn drain_entry<R: Read>(entry: &mut tar::Entry<'_, R>, path_text: &str) -> Result<(), AppletError> {
+    io::copy(entry, &mut io::sink())
+        .map(|_| ())
+        .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))
 }
 
 fn remove_existing_path(path: &Path, display: &str) -> Result<(), AppletError> {
@@ -1148,6 +1257,15 @@ mod tests {
 
         let options = parse(&["-cjf", "archive.tar.bz2", "foo"]);
         assert_eq!(options.compression, Some(CompressionMode::Bzip2));
+    }
+
+    #[test]
+    fn keep_old_and_overwrite_flags_are_parsed() {
+        let options = parse(&["-xkf", "archive.tar"]);
+        assert!(options.keep_old);
+
+        let options = parse(&["-xf", "archive.tar", "--overwrite"]);
+        assert!(options.overwrite);
     }
 
     #[test]

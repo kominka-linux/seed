@@ -1,0 +1,25 @@
+# FEATURE: CONFIG_FEATURE_SEAMLESS_BZ2
+
+set -eu
+
+cleanup() {
+	rm -f /tmp/passwd input attack.tar.bz2 attack.b64 passwd
+}
+
+trap cleanup EXIT HUP INT TERM
+
+cat >attack.b64 <<'EOF'
+begin-base64 644 attack.tar.bz2
+QlpoOTFBWSZTWRVn/bIAAKt7hMqwAEBAAP2QAhB0Y96AAACACCAAlISgpqe0
+po0DIaDynqAkpDRP1ANAhiYNSPR8VchKhAz0AK59+DA6FcMKBggOARIJdVHL
+DGllrjs20ATUgR1HmccBX3EhoMnpMJaNyggmxgLDMz54lBnBTJO/1L1lbMS4
+l4/V8LDoe90yiWJhOJvIypgEfxdyRThQkBVn/bI=
+====
+EOF
+
+: >/tmp/passwd
+uudecode -o input attack.b64
+busybox tar xf input -k >/dev/null 2>&1
+
+test -L passwd
+test ! -s /tmp/passwd

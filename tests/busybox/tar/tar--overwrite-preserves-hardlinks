@@ -1,0 +1,16 @@
+# FEATURE: CONFIG_FEATURE_TAR_CREATE
+# FEATURE: CONFIG_FEATURE_TAR_LONG_OPTIONS
+
+set -eu
+
+printf 'Ok\n' >input
+ln input input_hard
+busybox tar cf test.tar input_hard
+printf 'WRONG\n' >input
+busybox tar xf test.tar --overwrite
+
+test "$(cat input)" = "Ok"
+test "$(cat input_hard)" = "Ok"
+inode_input=$(/bin/ls -i input | awk '{print $1}')
+inode_hard=$(/bin/ls -i input_hard | awk '{print $1}')
+test "$inode_input" = "$inode_hard"

@@ -1,0 +1,21 @@
+# FEATURE: CONFIG_FEATURE_SEAMLESS_BZ2
+
+set -eu
+
+repo_dir=$(CDPATH= cd -- "$(dirname "$0")/../../.." && pwd)
+archive="$repo_dir/tests/busybox/tar.utf8.tar.bz2"
+
+export LANG=en_US.UTF-8
+output=$(busybox tar xvf "$archive" 2>&1)
+test "$output" = "etc/ssl/certs/3b2716e5.0
+etc/ssl/certs/EBG_Elektronik_Sertifika_Hizmet_Sağlayıcısı.pem
+etc/ssl/certs/f80cc7f6.0
+usr/share/ca-certificates/mozilla/EBG_Elektronik_Sertifika_Hizmet_Sağlayıcısı.crt"
+
+/bin/ls -l etc/ssl/certs/* | sed "s:.*etc/:etc/:" | sort >actual
+cat >expected <<'EOF'
+etc/ssl/certs/3b2716e5.0 -> EBG_Elektronik_Sertifika_Hizmet_Sağlayıcısı.pem
+etc/ssl/certs/EBG_Elektronik_Sertifika_Hizmet_Sağlayıcısı.pem -> /usr/share/ca-certificates/mozilla/EBG_Elektronik_Sertifika_Hizmet_Sağlayıcısı.crt
+etc/ssl/certs/f80cc7f6.0 -> EBG_Elektronik_Sertifika_Hizmet_Sağlayıcısı.pem
+EOF
+diff -u expected actual

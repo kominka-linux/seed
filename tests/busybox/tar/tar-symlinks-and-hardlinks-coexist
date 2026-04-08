@@ -1,0 +1,17 @@
+# FEATURE: CONFIG_FEATURE_TAR_CREATE
+
+set -eu
+
+mkdir dir new
+: >dir/a
+ln -s ../dir/a dir/b
+ln dir/b dir/c
+
+busybox tar cf - dir/* | busybox tar -C new -xvf - >/dev/null
+
+test -f new/dir/a
+test -L new/dir/b
+test "$(readlink new/dir/b)" = "../dir/a"
+inode_a=$(/bin/ls -i new/dir/a | awk '{print $1}')
+inode_c=$(/bin/ls -i new/dir/c | awk '{print $1}')
+test "$inode_a" = "$inode_c"

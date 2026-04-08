@@ -18,4 +18,5 @@ pub mod sort;
 pub mod tar;
 pub mod tee;
 pub mod wc;
+pub mod wget;
 pub mod xz;

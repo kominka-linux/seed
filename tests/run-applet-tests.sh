@@ -114,7 +114,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod cp diff egrep find grep gunzip gzip ls lzcat lzma mkdir mv od printf rm rmdir sort tar tee unlzma unxz wc xz xzcat zcat; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod cp diff egrep find grep gunzip gzip ls lzcat lzma mkdir mv od printf rm rmdir sort tar tee unlzma unxz wc wget xz xzcat zcat; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 

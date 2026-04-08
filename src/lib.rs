@@ -120,6 +120,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::wc::main,
     },
     AppletEntry {
+        name: "wget",
+        main: applets::wget::main,
+    },
+    AppletEntry {
         name: "xz",
         main: applets::xz::main,
     },

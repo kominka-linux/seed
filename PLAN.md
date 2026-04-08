@@ -55,8 +55,9 @@ As of 2026-04-08:
 
 - Phase 1 is complete.
 - Phase 2 is complete for the implemented applets.
-- Phase 3 has a working baseline implementation, but is not complete
-  against the full planned busybox surface.
+- Phase 3 is effectively complete for the locally enabled BusyBox
+  surface, with one intentionally deferred `od` bucket left out.
+- Phase 4 now has a working local baseline for `find` and `ls`.
 
 Implemented applets so far:
 
@@ -65,6 +66,8 @@ Implemented applets so far:
 - `cp`
 - `diff`
 - `grep`
+- `find`
+- `ls`
 - `mkdir`
 - `mv`
 - `od`
@@ -91,10 +94,11 @@ Current verification floor:
 
 Important caveat:
 
-- Some Phase 3 busybox tests are still intentionally skipped in the
-  local runner because the corresponding option surface is not fully
-  implemented yet. In particular, `sort`, `grep`, `diff`, and `od`
-  still have skipped feature buckets.
+- One Phase 3 BusyBox bucket is still intentionally deferred in the
+  local runner: the non-desktop `od -e` / `od -F` surface.
+- Phase 4 is only covered against the bundled local `find`/`ls` tests.
+  `ls` in particular is still a minimal compatibility implementation,
+  not a full BusyBox flag-surface clone yet.
 
 ### Phase 1 — Scaffold + cat
 
@@ -123,14 +127,21 @@ Implement: `grep`, `sort`, `diff`, `wc`, `tee`, `printf`, `od`.
 Pass all busybox tests for each.
 
 Status: baseline implementation exists for all listed applets and the
-current local runner passes. This is not full completion against the
-plan yet: some busybox `.tests` cases are still skipped in the runner
-because the corresponding feature sets are not implemented.
+current local runner passes. The remaining deliberate gap is the
+non-desktop `od -e` / `od -F` bucket, which is not important for the
+current macOS-driven workflow and is intentionally left for later.
 
 ### Phase 4 — Find + ls
 
 Implement: `find` (with full `-exec` support via fork/exec), `ls`.
 Pass all busybox tests for each.
+
+Status: local baseline implemented and passing the current runner.
+`find` covers the bundled `-type`, `-exec`, `-ok`, `-maxdepth`, and
+`-xdev` tests. `ls` covers the bundled symlink-to-directory behavior
+and the old-style `-1`, `-h`, `-l`, and `-s` comparisons under a
+controlled fixture. It does not yet claim the full BusyBox `ls`
+surface from the plan.
 
 ### Phase 5 — Compression
 

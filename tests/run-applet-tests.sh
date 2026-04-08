@@ -67,6 +67,23 @@ run_new_style() {
 	rm -rf "$tmpdir"
 }
 
+run_new_style_ls() {
+	test_name=ls.tests
+	script_name=$test_name
+	tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/seed-test.XXXXXX")
+	printf 'new-style: %s\n' "$test_name"
+	(
+		ln -sf "$repo_dir/tests/busybox/testing.sh" "$tmpdir/testing.sh"
+		ln -sf "$repo_dir/tests/busybox/$test_name" "$tmpdir/$script_name"
+		cd "$tmpdir"
+		PATH="$links_dir:$PATH" \
+			ECHO="$echo_ne" \
+			CONFIG_FEATURE_LS_SORTFILES=y \
+			sh "./$script_name"
+	)
+	rm -rf "$tmpdir"
+}
+
 run_old_style() {
 	test_script=$1
 	tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/seed-test.XXXXXX")
@@ -78,10 +95,26 @@ run_old_style() {
 	rm -rf "$tmpdir"
 }
 
+run_old_style_ls() {
+	test_script=$1
+	tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/seed-test.XXXXXX")
+	fixture_dir="$tmpdir/ls-fixture"
+	diff_dir=$(dirname "$(command -v diff)")
+	printf 'old-style: %s\n' "$test_script"
+	mkdir -p "$fixture_dir"
+	printf 'a\n' >"$fixture_dir/a"
+	printf '1234567890' >"$fixture_dir/big"
+	(
+		cd "$tmpdir"
+		PATH="$diff_dir:$links_dir:$PATH" d="$fixture_dir" sh "$repo_dir/$test_script"
+	)
+	rm -rf "$tmpdir"
+}
+
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox cat chmod cp diff egrep grep mkdir mv od printf rm rmdir sort tee wc; do
+for applet in busybox cat chmod cp diff egrep find grep ls mkdir mv od printf rm rmdir sort tee wc; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -92,7 +125,9 @@ make_echo_ne "$echo_ne"
 run_new_style cat.tests ':FEATURE_CATV:FEATURE_CATN:'
 run_new_style cp.tests
 run_new_style diff.tests ':FEATURE_DIFF_DIR:'
+run_new_style find.tests ':FEATURE_FIND_TYPE:FEATURE_FIND_EXEC:FEATURE_FIND_EXEC_PLUS:FEATURE_FIND_EXEC_OK:FEATURE_FIND_MAXDEPTH:'
 run_new_style grep.tests ':EXTRA_COMPAT:EGREP:'
+run_new_style_ls
 run_new_style od.tests ':DESKTOP:LONG_OPTS:'
 run_new_style printf.tests
 run_new_style sort.tests ':FEATURE_SORT_BIG:'
@@ -117,6 +152,12 @@ run_old_style tests/busybox/cp/cp-parents
 run_old_style tests/busybox/cp/cp-preserves-hard-links
 run_old_style tests/busybox/cp/cp-preserves-links
 run_old_style tests/busybox/cp/cp-preserves-source-file
+run_old_style tests/busybox/find/find-supports-minus-xdev
+
+run_old_style_ls tests/busybox/ls/ls-1-works
+run_old_style_ls tests/busybox/ls/ls-h-works
+run_old_style_ls tests/busybox/ls/ls-l-works
+run_old_style_ls tests/busybox/ls/ls-s-works
 
 run_old_style tests/busybox/mkdir/mkdir-makes-a-directory
 run_old_style tests/busybox/mkdir/mkdir-makes-parent-directories

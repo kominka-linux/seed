@@ -1,6 +1,7 @@
 pub mod bzip2;
 pub mod cat;
 pub mod chmod;
+pub(crate) mod compression;
 pub mod cp;
 pub mod diff;
 pub mod find;

@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
+use std::mem::MaybeUninit;
 use std::path::{Path, PathBuf};
 
 use bzip2::Compression as Bzip2Compression;
@@ -8,8 +9,9 @@ use bzip2::write::BzEncoder;
 use flate2::Compression;
 use flate2::bufread::MultiGzDecoder;
 use flate2::write::GzEncoder;
+use libc::{self, c_char};
 use lzma_rust2::{XzOptions, XzReader, XzWriter};
-use tar::{Archive, Builder};
+use tar::{Archive, Builder, EntryType, Header};
 
 use crate::common::applet::{AppletResult, finish};
 use crate::common::error::AppletError;
@@ -395,34 +397,25 @@ fn extract_from_reader<R: Read>(
 }
 
 fn list_from_reader<R: Read>(reader: R, options: &Options) -> Result<(), AppletError> {
-    let mut archive = Archive::new(reader);
+    let mut reader = BufReader::with_capacity(BUFFER_SIZE, reader);
     let selectors = selectors(&options.members, &options.excludes);
     let mut matched = vec![false; selectors.len()];
 
-    let entries = archive
-        .entries()
-        .map_err(|err| AppletError::from_io(APPLET, "reading", options.archive.as_deref(), err))?;
-    for entry_result in entries {
-        let entry = entry_result.map_err(|err| {
-            AppletError::from_io(APPLET, "reading", options.archive.as_deref(), err)
-        })?;
-        let path = entry
-            .path()
-            .map_err(|err| {
-                AppletError::from_io(APPLET, "reading", options.archive.as_deref(), err)
-            })?
-            .into_owned();
+    let mut long_path = None;
+    let mut long_link = None;
+
+    while let Some(entry) = read_list_entry(&mut reader, &mut long_path, &mut long_link, options)? {
+        let path = PathBuf::from(&entry.path);
         if is_apple_double(&path) {
             continue;
         }
-        let path_text = path.to_string_lossy().into_owned();
-        if is_excluded(&path_text, &options.excludes) {
+        if is_excluded(&entry.path, &options.excludes) {
             continue;
         }
         if !selectors.is_empty() {
             let mut selected = false;
             for (index, selector) in selectors.iter().enumerate() {
-                if matches_member(&path_text, selector) {
+                if matches_member(&entry.path, selector) {
                     matched[index] = true;
                     selected = true;
                 }
@@ -431,10 +424,345 @@ fn list_from_reader<R: Read>(reader: R, options: &Options) -> Result<(), AppletE
                 continue;
             }
         }
-        println!("{path_text}");
+        if options.verbose {
+            println!("{}", format_list_entry(&entry)?);
+        } else {
+            println!("{}", entry.path);
+        }
     }
 
     ensure_members_found(&selectors, &matched)
+}
+
+struct ListEntry {
+    path: String,
+    link_name: Option<String>,
+    entry_type: EntryType,
+    mode: u32,
+    size: u64,
+    mtime: u64,
+    username: String,
+    groupname: String,
+}
+
+fn read_list_entry<R: BufRead>(
+    reader: &mut R,
+    long_path: &mut Option<Vec<u8>>,
+    long_link: &mut Option<Vec<u8>>,
+    options: &Options,
+) -> Result<Option<ListEntry>, AppletError> {
+    loop {
+        let block = match read_header_block(reader, options.archive.as_deref())? {
+            Some(block) => block,
+            None => return Ok(None),
+        };
+
+        let header = Header::from_byte_slice(&block);
+        validate_header_checksum(header, options.archive.as_deref())?;
+        let entry_type = header.entry_type();
+        let header_size = header.entry_size().map_err(|err| {
+            AppletError::from_io(APPLET, "reading", options.archive.as_deref(), err)
+        })?;
+
+        if entry_type.is_gnu_longname() {
+            *long_path = Some(read_entry_bytes(
+                reader,
+                header_size,
+                options.archive.as_deref(),
+            )?);
+            continue;
+        }
+        if entry_type.is_gnu_longlink() {
+            *long_link = Some(read_entry_bytes(
+                reader,
+                header_size,
+                options.archive.as_deref(),
+            )?);
+            continue;
+        }
+
+        let mut path = path_from_header(header, long_path.take()).map_err(|err| {
+            AppletError::from_io(APPLET, "reading", options.archive.as_deref(), err)
+        })?;
+        if entry_type.is_dir() && !path.ends_with('/') {
+            path.push('/');
+        }
+
+        let link_name = link_name_from_header(header, long_link.take()).map_err(|err| {
+            AppletError::from_io(APPLET, "reading", options.archive.as_deref(), err)
+        })?;
+        let mode = header.mode().map_err(|err| {
+            AppletError::from_io(APPLET, "reading", options.archive.as_deref(), err)
+        })?;
+        let mtime = header.mtime().map_err(|err| {
+            AppletError::from_io(APPLET, "reading", options.archive.as_deref(), err)
+        })?;
+        let username = header
+            .username()
+            .ok()
+            .flatten()
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                header
+                    .uid()
+                    .map(|uid| uid.to_string())
+                    .unwrap_or_else(|_| String::from("0"))
+            });
+        let groupname = header
+            .groupname()
+            .ok()
+            .flatten()
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                header
+                    .gid()
+                    .map(|gid| gid.to_string())
+                    .unwrap_or_else(|_| String::from("0"))
+            });
+        let size = if entry_type.is_symlink() || entry_type.is_hard_link() {
+            0
+        } else {
+            header_size
+        };
+
+        let skip_size = if entry_type.is_symlink() || entry_type.is_hard_link() {
+            0
+        } else {
+            header_size
+        };
+        skip_entry_data(reader, skip_size, options.archive.as_deref())?;
+
+        return Ok(Some(ListEntry {
+            path,
+            link_name,
+            entry_type,
+            mode,
+            size,
+            mtime,
+            username,
+            groupname,
+        }));
+    }
+}
+
+fn read_header_block<R: BufRead>(
+    reader: &mut R,
+    archive: Option<&str>,
+) -> Result<Option<[u8; 512]>, AppletError> {
+    let mut block = [0_u8; 512];
+    let mut read = 0;
+    while read < block.len() {
+        match reader.read(&mut block[read..]) {
+            Ok(0) if read == 0 => return Ok(None),
+            Ok(0) => {
+                return Err(AppletError::new(
+                    APPLET,
+                    format!("reading {}: short read", archive.unwrap_or("-")),
+                ));
+            }
+            Ok(bytes) => read += bytes,
+            Err(err) => return Err(AppletError::from_io(APPLET, "reading", archive, err)),
+        }
+    }
+
+    if block.iter().all(|byte| *byte == 0) {
+        return Ok(None);
+    }
+
+    Ok(Some(block))
+}
+
+fn read_entry_bytes<R: BufRead>(
+    reader: &mut R,
+    size: u64,
+    archive: Option<&str>,
+) -> Result<Vec<u8>, AppletError> {
+    let mut data = vec![0; size as usize];
+    reader
+        .read_exact(&mut data)
+        .map_err(|err| AppletError::from_io(APPLET, "reading", archive, err))?;
+    skip_entry_padding(reader, size, archive)?;
+    if let Some(end) = data.iter().position(|byte| *byte == 0) {
+        data.truncate(end);
+    }
+    Ok(data)
+}
+
+fn skip_entry_data<R: BufRead>(
+    reader: &mut R,
+    size: u64,
+    archive: Option<&str>,
+) -> Result<(), AppletError> {
+    let mut remaining = size;
+    while remaining > 0 {
+        let available = reader
+            .fill_buf()
+            .map_err(|err| AppletError::from_io(APPLET, "reading", archive, err))?;
+        if available.is_empty() {
+            return Err(AppletError::new(
+                APPLET,
+                format!("reading {}: short read", archive.unwrap_or("-")),
+            ));
+        }
+        let consume = available.len().min(remaining as usize);
+        reader.consume(consume);
+        remaining -= consume as u64;
+    }
+    skip_entry_padding(reader, size, archive)
+}
+
+fn skip_entry_padding<R: BufRead>(
+    reader: &mut R,
+    size: u64,
+    archive: Option<&str>,
+) -> Result<(), AppletError> {
+    let padded = size.div_ceil(512) * 512;
+    let mut remaining = padded.saturating_sub(size);
+    while remaining > 0 {
+        let available = reader
+            .fill_buf()
+            .map_err(|err| AppletError::from_io(APPLET, "reading", archive, err))?;
+        if available.is_empty() {
+            return Err(AppletError::new(
+                APPLET,
+                format!("reading {}: short read", archive.unwrap_or("-")),
+            ));
+        }
+        let consume = available.len().min(remaining as usize);
+        reader.consume(consume);
+        remaining -= consume as u64;
+    }
+    Ok(())
+}
+
+fn validate_header_checksum(header: &Header, archive: Option<&str>) -> Result<(), AppletError> {
+    let bytes = header.as_bytes();
+    let sum = bytes[..148]
+        .iter()
+        .chain(std::iter::repeat_n(&b' ', 8))
+        .chain(bytes[156..].iter())
+        .fold(0_u32, |acc, byte| acc + u32::from(*byte));
+    let cksum = header
+        .cksum()
+        .map_err(|err| AppletError::from_io(APPLET, "reading", archive, err))?;
+    if sum == cksum {
+        Ok(())
+    } else {
+        Err(AppletError::new(
+            APPLET,
+            format!(
+                "reading {}: archive header checksum mismatch",
+                archive.unwrap_or("-")
+            ),
+        ))
+    }
+}
+
+fn path_from_header(header: &Header, override_bytes: Option<Vec<u8>>) -> io::Result<String> {
+    match override_bytes {
+        Some(bytes) => Ok(String::from_utf8_lossy(&bytes).into_owned()),
+        None => Ok(header.path()?.to_string_lossy().into_owned()),
+    }
+}
+
+fn link_name_from_header(
+    header: &Header,
+    override_bytes: Option<Vec<u8>>,
+) -> io::Result<Option<String>> {
+    match override_bytes {
+        Some(bytes) => Ok(Some(String::from_utf8_lossy(&bytes).into_owned())),
+        None => Ok(header
+            .link_name()?
+            .map(|path| path.to_string_lossy().into_owned())),
+    }
+}
+
+fn format_list_entry(entry: &ListEntry) -> Result<String, AppletError> {
+    let mut line = format!(
+        "{} {}/{} {:>9} {} {}",
+        format_mode(entry.entry_type, entry.mode),
+        entry.username,
+        entry.groupname,
+        entry.size,
+        format_timestamp(entry.mtime)?,
+        entry.path
+    );
+    if let Some(link_name) = &entry.link_name
+        && (entry.entry_type.is_symlink() || entry.entry_type.is_hard_link())
+    {
+        line.push_str(" -> ");
+        line.push_str(link_name);
+    }
+    Ok(line)
+}
+
+fn format_mode(entry_type: EntryType, mode: u32) -> String {
+    let mut text = String::with_capacity(10);
+    text.push(file_type_char(entry_type));
+    for shift in [6, 3, 0] {
+        let bits = ((mode >> shift) & 0o7) as u8;
+        text.push(if bits & 0o4 != 0 { 'r' } else { '-' });
+        text.push(if bits & 0o2 != 0 { 'w' } else { '-' });
+        let exec = if bits & 0o1 != 0 { 'x' } else { '-' };
+        let special = match shift {
+            6 if mode & 0o4000 != 0 => Some(if exec == 'x' { 's' } else { 'S' }),
+            3 if mode & 0o2000 != 0 => Some(if exec == 'x' { 's' } else { 'S' }),
+            0 if mode & 0o1000 != 0 => Some(if exec == 'x' { 't' } else { 'T' }),
+            _ => None,
+        };
+        text.push(special.unwrap_or(exec));
+    }
+    text
+}
+
+fn file_type_char(entry_type: EntryType) -> char {
+    if entry_type.is_dir() {
+        'd'
+    } else if entry_type.is_symlink() {
+        'l'
+    } else if entry_type.is_hard_link() {
+        'h'
+    } else if entry_type.is_character_special() {
+        'c'
+    } else if entry_type.is_block_special() {
+        'b'
+    } else if entry_type.is_fifo() {
+        'p'
+    } else {
+        '-'
+    }
+}
+
+fn format_timestamp(timestamp: u64) -> Result<String, AppletError> {
+    let timestamp = libc::time_t::try_from(timestamp)
+        .map_err(|_| AppletError::new(APPLET, "timestamp out of range"))?;
+    let mut tm = MaybeUninit::<libc::tm>::uninit();
+    let mut buffer = [0 as c_char; 20];
+    let format = b"%Y-%m-%d %H:%M:%S\0";
+
+    // SAFETY: `timestamp`, `tm`, `buffer`, and `format` all point to valid memory for the
+    // duration of the call, and `format` is NUL-terminated.
+    let written = unsafe {
+        if libc::localtime_r(&timestamp, tm.as_mut_ptr()).is_null() {
+            return Err(AppletError::new(APPLET, "failed to format timestamp"));
+        }
+        libc::strftime(
+            buffer.as_mut_ptr(),
+            buffer.len(),
+            format.as_ptr().cast(),
+            tm.as_ptr(),
+        )
+    };
+
+    if written == 0 {
+        return Err(AppletError::new(APPLET, "failed to format timestamp"));
+    }
+
+    let bytes = buffer[..written]
+        .iter()
+        .map(|byte| *byte as u8)
+        .collect::<Vec<_>>();
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 fn selectors(members: &[String], excludes: &[String]) -> Vec<String> {

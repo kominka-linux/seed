@@ -25,6 +25,14 @@ struct Entry {
     metadata: fs::Metadata,
 }
 
+#[derive(Debug)]
+struct Target {
+    display: String,
+    path: PathBuf,
+    metadata: fs::Metadata,
+    lists_directory: bool,
+}
+
 pub fn main(args: &[String]) -> i32 {
     finish(run(args))
 }
@@ -37,16 +45,7 @@ fn run(args: &[String]) -> AppletResult {
         paths
     };
 
-    let mut output = String::new();
-    let mut errors = Vec::new();
-
-    for path in &targets {
-        match render_target(path, options) {
-            Ok(text) => output.push_str(&text),
-            Err(err) => errors.push(err),
-        }
-    }
-
+    let (output, errors) = render_targets(&targets, options);
     print!("{output}");
 
     if errors.is_empty() {
@@ -54,6 +53,51 @@ fn run(args: &[String]) -> AppletResult {
     } else {
         Err(errors)
     }
+}
+
+fn render_targets(targets: &[String], options: Options) -> (String, Vec<AppletError>) {
+    let mut files = Vec::new();
+    let mut directories = Vec::new();
+    let mut errors = Vec::new();
+
+    for path in targets {
+        match classify_target(path) {
+            Ok(target) => {
+                if target.lists_directory {
+                    directories.push(target);
+                } else {
+                    files.push(target);
+                }
+            }
+            Err(err) => errors.push(err),
+        }
+    }
+
+    let mut output = String::new();
+
+    for file in files {
+        match render_file(&file.display, &file.path, file.metadata, options) {
+            Ok(text) => output.push_str(&text),
+            Err(err) => errors.push(err),
+        }
+    }
+
+    let show_directory_headers = targets.len() > 1;
+    for (index, directory) in directories.iter().enumerate() {
+        if !output.is_empty() || index > 0 {
+            output.push('\n');
+        }
+        if show_directory_headers {
+            output.push_str(&directory.display);
+            output.push_str(":\n");
+        }
+        match render_directory(&directory.path, options) {
+            Ok(text) => output.push_str(&text),
+            Err(err) => errors.push(err),
+        }
+    }
+
+    (output, errors)
 }
 
 fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError>> {
@@ -84,16 +128,28 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
     Ok((options, paths))
 }
 
+#[cfg(test)]
 fn render_target(path: &str, options: Options) -> Result<String, AppletError> {
+    let target = classify_target(path)?;
+    if target.lists_directory {
+        render_directory(&target.path, options)
+    } else {
+        render_file(&target.display, &target.path, target.metadata, options)
+    }
+}
+
+fn classify_target(path: &str) -> Result<Target, AppletError> {
     let path_ref = Path::new(path);
     let metadata = fs::symlink_metadata(path_ref)
         .map_err(|err| AppletError::from_io(APPLET, "reading", Some(path), err))?;
+    let lists_directory = should_list_directory(path_ref, &metadata);
 
-    if should_list_directory(path_ref, &metadata) {
-        render_directory(path_ref, options)
-    } else {
-        render_file(path, path_ref, metadata, options)
-    }
+    Ok(Target {
+        display: path.to_owned(),
+        path: path_ref.to_path_buf(),
+        metadata,
+        lists_directory,
+    })
 }
 
 fn should_list_directory(path: &Path, metadata: &fs::Metadata) -> bool {
@@ -363,7 +419,7 @@ fn format_human_size(size: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Options, render_target};
+    use super::{Options, render_target, render_targets};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -433,5 +489,56 @@ mod tests {
         .expect("render block file");
 
         assert!(!output.starts_with("total "));
+    }
+
+    #[test]
+    fn multiple_directory_operands_print_headers_and_blank_lines() {
+        let tempdir = TempDir::new();
+        let dir1 = tempdir.path().join("dir1");
+        let dir2 = tempdir.path().join("dir2");
+        fs::create_dir(&dir1).expect("create dir1");
+        fs::create_dir(&dir2).expect("create dir2");
+        fs::write(dir1.join("a"), b"a").expect("write dir1 file");
+        fs::write(dir2.join("b"), b"b").expect("write dir2 file");
+
+        let output = render_targets(
+            &[
+                dir1.to_str().expect("utf8 path").to_owned(),
+                dir2.to_str().expect("utf8 path").to_owned(),
+            ],
+            Options {
+                single_column: true,
+                ..Options::default()
+            },
+        );
+
+        let expected = format!("{}:\na\n\n{}:\nb\n", dir1.display(), dir2.display(),);
+        assert!(output.1.is_empty(), "unexpected errors: {:?}", output.1);
+        assert_eq!(output.0, expected);
+    }
+
+    #[test]
+    fn file_operands_are_listed_before_directory_operands() {
+        let tempdir = TempDir::new();
+        let dir = tempdir.path().join("dir");
+        let file = tempdir.path().join("file");
+        fs::create_dir(&dir).expect("create dir");
+        fs::write(dir.join("inside"), b"x").expect("write dir file");
+        fs::write(&file, b"y").expect("write file");
+
+        let output = render_targets(
+            &[
+                dir.to_str().expect("utf8 path").to_owned(),
+                file.to_str().expect("utf8 path").to_owned(),
+            ],
+            Options {
+                single_column: true,
+                ..Options::default()
+            },
+        );
+
+        let expected = format!("{}\n\n{}:\ninside\n", file.display(), dir.display());
+        assert!(output.1.is_empty(), "unexpected errors: {:?}", output.1);
+        assert_eq!(output.0, expected);
     }
 }

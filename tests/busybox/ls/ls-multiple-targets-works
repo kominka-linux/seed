@@ -1,0 +1,8 @@
+# FEATURE: CONFIG_FEATURE_LS_SORTFILES
+
+[ -n "$d" ] || d=..
+mkdir "$d/dir"
+printf 'inside\n' > "$d/dir/inside"
+LC_ALL=C /bin/ls -1 "$d/dir" "$d/a" > logfile.gnu
+LC_ALL=C busybox ls -1 "$d/dir" "$d/a" > logfile.bb
+diff -ubw logfile.gnu logfile.bb

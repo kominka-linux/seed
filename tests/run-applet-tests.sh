@@ -90,7 +90,7 @@ run_old_style() {
 	printf 'old-style: %s\n' "$test_script"
 	(
 		cd "$tmpdir"
-		PATH="$links_dir:$PATH" sh "$repo_dir/$test_script"
+		PATH="$links_dir:$PATH" ECHO="$echo_ne" sh "$repo_dir/$test_script"
 	)
 	rm -rf "$tmpdir"
 }
@@ -106,7 +106,7 @@ run_old_style_ls() {
 	printf '1234567890' >"$fixture_dir/big"
 	(
 		cd "$tmpdir"
-		PATH="$diff_dir:$links_dir:$PATH" d="$fixture_dir" sh "$repo_dir/$test_script"
+		PATH="$diff_dir:$links_dir:$PATH" ECHO="$echo_ne" d="$fixture_dir" sh "$repo_dir/$test_script"
 	)
 	rm -rf "$tmpdir"
 }
@@ -173,10 +173,13 @@ run_old_style tests/busybox/tar/tar-handles-empty-include-and-non-empty-exclude-
 run_old_style tests/busybox/tar/tar-handles-exclude-and-extract-lists
 run_old_style tests/busybox/tar/tar-handles-multiple-X-options
 run_old_style tests/busybox/tar/tar-handles-nested-exclude
+run_old_style tests/busybox/tar/tar_with_link_with_size
+run_old_style tests/busybox/tar/tar_with_prefix_fields
 
 run_old_style_ls tests/busybox/ls/ls-1-works
 run_old_style_ls tests/busybox/ls/ls-h-works
 run_old_style_ls tests/busybox/ls/ls-l-works
+run_old_style_ls tests/busybox/ls/ls-multiple-targets-works
 run_old_style_ls tests/busybox/ls/ls-s-works
 
 run_old_style tests/busybox/mkdir/mkdir-makes-a-directory

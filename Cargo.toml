@@ -4,32 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bzip2 = { path = "vendor/bzip2", features = ["static"] }
-flate2 = { path = "vendor/flate2", default-features = false, features = ["miniz_oxide"] }
-libc = { path = "vendor/libc" }
-lzma-rust2 = { path = "vendor/lzma-rust2" }
-tar = { path = "vendor/tar", default-features = false }
-
-[patch.crates-io]
-adler2 = { path = "vendor/adler2" }
-block-buffer = { path = "vendor/block-buffer" }
-bzip2-sys = { path = "vendor/bzip2-sys" }
-cc = { path = "vendor/cc" }
-cfg-if = { path = "vendor/cfg-if" }
-cpufeatures = { path = "vendor/cpufeatures" }
-crc32fast = { path = "vendor/crc32fast" }
-crypto-common = { path = "vendor/crypto-common" }
-digest = { path = "vendor/digest" }
-filetime = { path = "vendor/filetime" }
-find-msvc-tools = { path = "vendor/find-msvc-tools" }
-generic-array = { path = "vendor/generic-array" }
-miniz_oxide = { path = "vendor/miniz_oxide" }
-pkg-config = { path = "vendor/pkg-config" }
-sha2 = { path = "vendor/sha2" }
-shlex = { path = "vendor/shlex" }
-simd-adler32 = { path = "vendor/simd-adler32" }
-typenum = { path = "vendor/typenum" }
-version_check = { path = "vendor/version_check" }
+bzip2 = { version = "0.5.2", features = ["static"] }
+flate2 = { version = "1.1.9", default-features = false, features = ["miniz_oxide"] }
+libc = "0.2.184"
+lzma-rust2 = { version = "0.16.2", default-features = false, features = ["std", "encoder", "xz"] }
+tar = { version = "0.4.44", default-features = false }
 
 [profile.dev]
 debug = "line-tables-only"

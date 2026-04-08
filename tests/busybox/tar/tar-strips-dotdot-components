@@ -1,0 +1,7 @@
+mkdir input_dir
+printf 'Ok\n' > input_dir/file
+
+tar cf test.tar ./../$(basename "$PWD")/input_dir/../input_dir 2>&1
+rm -rf input_dir
+tar -vxf test.tar 2>&1
+cat input_dir/file 2>&1

@@ -1,0 +1,31 @@
+# FEATURE: CONFIG_FEATURE_SEAMLESS_BZ2
+
+set -eu
+
+cleanup() {
+	rm -f input attack.tar.bz2
+	rm -rf symlink anything.txt bb_test_evilfile /tmp/bb_test_evilfile
+}
+
+trap cleanup EXIT HUP INT TERM
+
+cat >attack.b64 <<'EOF'
+begin-base64 644 tar_symlink_attack.tar.bz2
+QlpoOTFBWSZTWZgs7bQAALT/hMmQAFBAAf+AEMAGJPPv32AAAIAIMAC5thlR
+omAjAmCMADQT1BqNE0AEwAAjAEwElTKeo9NTR6h6gaeoA0DQNLVdwZZ5iNTk
+AQwCAV6S00QFJYhrlfFkVCEDEGtgNVqYrI0uK3ggnt30gqk4e1TTQm5QIAKa
+SJqzRGSFLMmOloHSAcvLiFxxRiQtQZF+qPxbo173ZDISOAoNoPN4PQPhBhKS
+n8fYaKlioCTzL2oXYczyUUIP4u5IpwoSEwWdtoA=
+====
+EOF
+
+uudecode -o input attack.b64
+if busybox tar xvf input >/dev/null 2>&1; then
+	exit 1
+fi
+
+test -f anything.txt
+test -L symlink
+test ! -e bb_test_evilfile
+test ! -e symlink/bb_test_evilfile
+test ! -e /tmp/bb_test_evilfile

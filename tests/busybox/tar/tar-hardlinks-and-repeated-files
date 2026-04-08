@@ -1,0 +1,80 @@
+# FEATURE: CONFIG_FEATURE_TAR_CREATE
+
+set -eu
+
+normalize_tar_listing() {
+	python3 -c '
+import re
+import sys
+
+for raw in sys.stdin:
+    line = raw.rstrip("\n")
+    match = re.search(r"([^ ]+) link to (.*)$", line)
+    if match:
+        print(f"{match.group(1)} -> {match.group(2)}")
+        continue
+    match = re.search(r"([^ ]+) -> (.*)$", line)
+    if match:
+        print(f"{match.group(1)} -> {match.group(2)}")
+        continue
+    match = re.search(r"([^ ]+)$", line)
+    if match:
+        print(match.group(1))
+'
+}
+
+normalize_ls_listing() {
+	python3 -c '
+import re
+import sys
+
+for raw in sys.stdin:
+    line = raw.rstrip("\n")
+    match = re.match(r"^([^ @]+)@?.* ([^ ]+) -> ([^ ]+)$", line)
+    if match:
+        print(f"{match.group(1)} {match.group(2)} -> {match.group(3)}")
+        continue
+    match = re.match(r"^([^ @]+)@?.* ([^ ]+)$", line)
+    if match:
+        print(f"{match.group(1)} {match.group(2)}")
+'
+}
+
+setup_case() {
+	: >input_hard1
+	ln input_hard1 input_hard2
+	mkdir input_dir
+	: >input_dir/file
+	chmod -R 644 *
+	chmod 755 input_dir
+}
+
+setup_case
+busybox tar cf test.tar input_dir/ input_hard1 input_hard2 input_hard1 input_dir/
+busybox tar tvf test.tar | normalize_tar_listing >actual.list
+rm -rf input_dir input_hard1 input_hard2
+busybox tar xf test.tar
+/bin/ls -l . input_dir/* | grep input_ | normalize_ls_listing >actual.extract
+
+cat >expected.list <<'EOF'
+input_dir/
+input_dir/file
+input_hard1
+input_hard2 -> input_hard1
+input_hard1 -> input_hard1
+input_dir/
+input_dir/file
+EOF
+
+cat >expected.extract <<'EOF'
+-rw-r--r-- input_dir/file
+drwxr-xr-x input_dir
+-rw-r--r-- input_hard1
+-rw-r--r-- input_hard2
+EOF
+
+diff -u expected.list actual.list
+diff -u expected.extract actual.extract
+
+chmod -R u+w .
+rm -rf input_dir input_hard1 input_hard2 test.tar expected.list expected.extract actual.list actual.extract

@@ -1,0 +1,85 @@
+# FEATURE: CONFIG_FEATURE_TAR_CREATE
+
+set -eu
+
+normalize_tar_listing() {
+	python3 -c '
+import re
+import sys
+
+for raw in sys.stdin:
+    line = raw.rstrip("\n")
+    match = re.search(r"([^ ]+) link to (.*)$", line)
+    if match:
+        print(f"{match.group(1)} -> {match.group(2)}")
+        continue
+    match = re.search(r"([^ ]+) -> (.*)$", line)
+    if match:
+        print(f"{match.group(1)} -> {match.group(2)}")
+        continue
+    match = re.search(r"([^ ]+)$", line)
+    if match:
+        print(match.group(1))
+'
+}
+
+normalize_ls_listing() {
+	python3 -c '
+import re
+import sys
+
+for raw in sys.stdin:
+    line = raw.rstrip("\n")
+    match = re.match(r"^([^ @]+)@?.* ([^ ]+) -> ([^ ]+)$", line)
+    if match:
+        print(f"{match.group(1)} {match.group(2)} -> {match.group(3)}")
+        continue
+    match = re.match(r"^([^ @]+)@?.* ([^ ]+)$", line)
+    if match:
+        print(f"{match.group(1)} {match.group(2)}")
+'
+}
+
+setup_case() {
+	: >input_file
+	chmod 741 input_file
+	ln -s input_file input_soft
+	mkdir input_dir
+	ln input_file input_dir
+	ln input_soft input_dir
+	chmod 550 input_dir
+}
+
+run_case() {
+	mode=$1
+	setup_case
+	case "$mode" in
+		system)
+			tar_bin=/usr/bin/tar
+			;;
+		busybox)
+			tar_bin='busybox tar'
+			;;
+	esac
+	sh -c "$tar_bin cf test.tar input_dir/* input_[fs]*"
+	sh -c "$tar_bin tvf test.tar" | normalize_tar_listing >"$mode.list"
+	chmod 770 input_dir
+	rm -rf input_dir input_file input_soft
+	sh -c "$tar_bin xf test.tar"
+	/bin/ls -l . input_dir/* | grep 'input_[fs]' | normalize_ls_listing >"$mode.extract"
+	chmod -R u+w .
+	rm -rf input_dir input_file input_soft test.tar
+}
+
+mkdir system busybox
+(
+	cd system || exit 1
+	run_case system
+)
+(
+	cd busybox || exit 1
+	run_case busybox
+)
+
+diff -u system/system.list busybox/busybox.list
+diff -u system/system.extract busybox/busybox.extract

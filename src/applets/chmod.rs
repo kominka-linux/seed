@@ -109,7 +109,6 @@ fn parse_mode_spec(input: &str) -> Result<ModeSpec, Vec<AppletError>> {
 }
 
 fn chmod_path(path: &Path, mode: &ModeSpec, recursive: bool) -> std::io::Result<()> {
-    apply_mode(path, mode)?;
     if recursive {
         let metadata = fs::symlink_metadata(path)?;
         if metadata.is_dir() && !metadata.file_type().is_symlink() {
@@ -119,7 +118,7 @@ fn chmod_path(path: &Path, mode: &ModeSpec, recursive: bool) -> std::io::Result<
             }
         }
     }
-    Ok(())
+    apply_mode(path, mode)
 }
 
 fn apply_mode(path: &Path, mode: &ModeSpec) -> std::io::Result<()> {
@@ -285,7 +284,12 @@ fn expand_bits(who: u8, bits: u32) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
+
     use super::{apply_symbolic_mode, parse_symbolic_mode};
+    use crate::common::unix::temp_dir;
 
     #[test]
     fn symbolic_plus_updates_expected_classes() {
@@ -301,5 +305,32 @@ mod tests {
         let dir_mode = apply_symbolic_mode(&clauses, 0o644, true).expect("dir mode");
         assert_eq!(file_mode, 0o644);
         assert_eq!(dir_mode, 0o755);
+    }
+
+    #[test]
+    fn recursive_numeric_mode_descends_before_changing_directory() {
+        let dir = temp_dir("chmod-recursive");
+        let parent = dir.join("parent");
+        let child = parent.join("child");
+        fs::create_dir(&parent).expect("create parent dir");
+        fs::write(&child, b"ok").expect("create child file");
+
+        super::chmod_path(Path::new(&parent), &super::ModeSpec::Numeric(0o644), true)
+            .expect("recursive chmod");
+
+        let parent_mode = fs::metadata(&parent)
+            .expect("parent metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o755))
+            .expect("restore parent search bit");
+        let child_mode = fs::metadata(&child)
+            .expect("child metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(parent_mode, 0o644);
+        assert_eq!(child_mode, 0o644);
     }
 }

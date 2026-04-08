@@ -1,6 +1,9 @@
-use std::fs::File;
+use std::collections::HashMap;
+use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
-use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
+use std::path::{Component, Path, PathBuf};
 
 use bzip2::Compression as Bzip2Compression;
 use bzip2::bufread::MultiBzDecoder;
@@ -49,6 +52,11 @@ struct Options {
 struct Operand {
     base_dir: Option<PathBuf>,
     name: String,
+}
+
+struct ArchiveName {
+    path: PathBuf,
+    stripped_prefix: Option<String>,
 }
 
 pub fn main(args: &[String]) -> i32 {
@@ -228,11 +236,15 @@ fn create_archive(options: &Options) -> Result<(), AppletError> {
 fn write_archive<W: Write>(writer: W, options: &Options) -> Result<(), AppletError> {
     let mut builder = Builder::new(writer);
     builder.follow_symlinks(false);
+    let mut seen_hardlinks = HashMap::new();
 
     for operand in &options.operands {
         let source = source_path(operand);
-        let archive_name = Path::new(&operand.name);
-        append_operand(&mut builder, &source, archive_name)
+        let archive_name = sanitize_archive_name(&operand.name)?;
+        if let Some(prefix) = &archive_name.stripped_prefix {
+            eprintln!("{APPLET}: removing leading '{prefix}' from member names");
+        }
+        append_operand(&mut builder, &source, &archive_name, &mut seen_hardlinks)
             .map_err(|err| AppletError::from_io(APPLET, "archiving", Some(&operand.name), err))?;
     }
 
@@ -245,14 +257,131 @@ fn write_archive<W: Write>(writer: W, options: &Options) -> Result<(), AppletErr
 fn append_operand<W: Write>(
     builder: &mut Builder<W>,
     source: &Path,
+    archive_name: &ArchiveName,
+    seen_hardlinks: &mut HashMap<(u64, u64), PathBuf>,
+) -> io::Result<()> {
+    append_path(builder, source, &archive_name.path, seen_hardlinks)
+}
+
+fn append_path<W: Write>(
+    builder: &mut Builder<W>,
+    source: &Path,
     archive_name: &Path,
+    seen_hardlinks: &mut HashMap<(u64, u64), PathBuf>,
 ) -> io::Result<()> {
     let metadata = std::fs::symlink_metadata(source)?;
     if metadata.is_dir() {
-        builder.append_dir_all(archive_name, source)
+        if !archive_name.as_os_str().is_empty() {
+            builder.append_dir(archive_name, source)?;
+        }
+        let mut entries = std::fs::read_dir(source)?.collect::<Result<Vec<_>, _>>()?;
+        entries.sort_by_key(|entry| entry.file_name());
+        for entry in entries {
+            let file_name = entry.file_name();
+            let child_source = entry.path();
+            let child_archive = if archive_name.as_os_str().is_empty() {
+                PathBuf::from(file_name)
+            } else {
+                archive_name.join(file_name)
+            };
+            append_path(builder, &child_source, &child_archive, seen_hardlinks)?;
+        }
+        Ok(())
     } else {
-        builder.append_path_with_name(source, archive_name)
+        match hardlink_target(&metadata, archive_name, seen_hardlinks) {
+            Some(target) => append_hardlink(builder, &metadata, archive_name, &target),
+            None => {
+                builder.append_path_with_name(source, archive_name)?;
+                remember_hardlink(&metadata, archive_name, seen_hardlinks);
+                Ok(())
+            }
+        }
     }
+}
+
+fn hardlink_target(
+    metadata: &std::fs::Metadata,
+    archive_name: &Path,
+    seen_hardlinks: &HashMap<(u64, u64), PathBuf>,
+) -> Option<PathBuf> {
+    if !should_track_hardlink(metadata) {
+        return None;
+    }
+    let key = hardlink_key(metadata);
+    seen_hardlinks
+        .get(&key)
+        .cloned()
+        .filter(|target| target != archive_name)
+        .or_else(|| seen_hardlinks.get(&key).cloned())
+}
+
+fn remember_hardlink(
+    metadata: &std::fs::Metadata,
+    archive_name: &Path,
+    seen_hardlinks: &mut HashMap<(u64, u64), PathBuf>,
+) {
+    if should_track_hardlink(metadata) {
+        seen_hardlinks
+            .entry(hardlink_key(metadata))
+            .or_insert_with(|| archive_name.to_path_buf());
+    }
+}
+
+fn should_track_hardlink(metadata: &std::fs::Metadata) -> bool {
+    metadata.nlink() > 1 && metadata.is_file()
+}
+
+fn hardlink_key(metadata: &std::fs::Metadata) -> (u64, u64) {
+    (metadata.dev(), metadata.ino())
+}
+
+fn append_hardlink<W: Write>(
+    builder: &mut Builder<W>,
+    metadata: &std::fs::Metadata,
+    archive_name: &Path,
+    target: &Path,
+) -> io::Result<()> {
+    let mut header = Header::new_gnu();
+    header.set_metadata(metadata);
+    header.set_entry_type(EntryType::Link);
+    header.set_size(0);
+    builder.append_link(&mut header, archive_name, target)
+}
+
+fn sanitize_archive_name(name: &str) -> Result<ArchiveName, AppletError> {
+    let mut parts = name.split('/').collect::<Vec<_>>();
+    let stripped_prefix = parts.iter().rposition(|part| *part == "..").map(|index| {
+        let prefix = format!("{}/", parts[..=index].join("/"));
+        parts.drain(..=index);
+        prefix
+    });
+
+    let normalized = parts
+        .into_iter()
+        .filter(|part| !part.is_empty() && *part != ".")
+        .collect::<Vec<_>>();
+    if normalized.is_empty() {
+        if name.split('/').all(|part| part.is_empty() || part == ".") {
+            return Ok(ArchiveName {
+                path: PathBuf::new(),
+                stripped_prefix,
+            });
+        }
+        return Err(AppletError::new(
+            APPLET,
+            format!("{name}: refusing to store empty member name"),
+        ));
+    }
+
+    let mut path = PathBuf::new();
+    for part in normalized {
+        path.push(part);
+    }
+
+    Ok(ArchiveName {
+        path,
+        stripped_prefix,
+    })
 }
 
 fn extract_archive(options: &Options) -> Result<(), AppletError> {
@@ -339,6 +468,7 @@ fn extract_from_reader<R: Read>(
     let mut archive = Archive::new(reader);
     let selectors = selectors(&options.members, &options.excludes);
     let mut matched = vec![false; selectors.len()];
+    let mut deferred_dirs = Vec::new();
 
     let entries = archive
         .entries()
@@ -352,7 +482,7 @@ fn extract_from_reader<R: Read>(
         if is_apple_double(&path) {
             continue;
         }
-        let path_text = path.to_string_lossy().into_owned();
+        let path_text = display_entry_path(&path, entry.header().entry_type());
         if is_excluded(&path_text, &options.excludes) {
             continue;
         }
@@ -377,9 +507,13 @@ fn extract_from_reader<R: Read>(
             io::copy(&mut entry, writer)
                 .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(&path_text), err))?;
         } else {
-            entry
-                .unpack_in(destination)
-                .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(&path_text), err))?;
+            extract_entry(
+                &mut entry,
+                destination,
+                &path,
+                &path_text,
+                &mut deferred_dirs,
+            )?;
         }
     }
 
@@ -387,9 +521,179 @@ fn extract_from_reader<R: Read>(
         writer
             .flush()
             .map_err(|err| AppletError::from_io(APPLET, "flushing", None, err))?;
+    } else {
+        apply_deferred_directory_modes(&deferred_dirs)?;
     }
 
     ensure_members_found(&selectors, &matched)
+}
+
+struct DeferredDirectory {
+    path: PathBuf,
+    mode: u32,
+}
+
+fn extract_entry<R: Read>(
+    entry: &mut tar::Entry<'_, R>,
+    destination: &Path,
+    path: &Path,
+    path_text: &str,
+    deferred_dirs: &mut Vec<DeferredDirectory>,
+) -> Result<(), AppletError> {
+    let entry_type = entry.header().entry_type();
+    if entry_type.is_dir() {
+        let output_path = archive_path_in(destination, path, path_text)?;
+        fs::create_dir_all(&output_path)
+            .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))?;
+        let mode = entry
+            .header()
+            .mode()
+            .map_err(|err| read_error(Some(path_text), err))?;
+        deferred_dirs.push(DeferredDirectory {
+            path: output_path,
+            mode,
+        });
+        return Ok(());
+    }
+
+    if entry_type.is_symlink() {
+        return extract_symlink(entry, destination, path, path_text);
+    }
+
+    if entry_type.is_hard_link() {
+        return extract_hardlink(entry, destination, path, path_text);
+    }
+
+    entry
+        .unpack_in(destination)
+        .map(|_| ())
+        .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))
+}
+
+fn extract_symlink<R: Read>(
+    entry: &mut tar::Entry<'_, R>,
+    destination: &Path,
+    path: &Path,
+    path_text: &str,
+) -> Result<(), AppletError> {
+    let output_path = archive_path_in(destination, path, path_text)?;
+    ensure_parent_dir(&output_path, path_text)?;
+    remove_existing_path(&output_path, path_text)?;
+    let Some(target) = entry
+        .link_name()
+        .map_err(|err| read_error(Some(path_text), err))?
+    else {
+        return Err(AppletError::new(
+            APPLET,
+            format!("extracting {path_text}: missing symlink target"),
+        ));
+    };
+    symlink(&target, &output_path)
+        .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))
+}
+
+fn extract_hardlink<R: Read>(
+    entry: &mut tar::Entry<'_, R>,
+    destination: &Path,
+    path: &Path,
+    path_text: &str,
+) -> Result<(), AppletError> {
+    let output_path = archive_path_in(destination, path, path_text)?;
+    ensure_parent_dir(&output_path, path_text)?;
+    let Some(target) = entry
+        .link_name()
+        .map_err(|err| read_error(Some(path_text), err))?
+    else {
+        return Err(AppletError::new(
+            APPLET,
+            format!("extracting {path_text}: missing hardlink target"),
+        ));
+    };
+    let target_path = archive_path_in(destination, &target, path_text)?;
+    if output_path == target_path {
+        if output_path.exists() {
+            return Ok(());
+        }
+        return Err(AppletError::new(
+            APPLET,
+            format!("extracting {path_text}: missing hardlink target"),
+        ));
+    }
+    remove_existing_path(&output_path, path_text)?;
+    let target_metadata = fs::symlink_metadata(&target_path)
+        .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))?;
+    if target_metadata.file_type().is_symlink() {
+        let link_target = fs::read_link(&target_path)
+            .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))?;
+        symlink(&link_target, &output_path)
+            .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))
+    } else {
+        fs::hard_link(&target_path, &output_path)
+            .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))
+    }
+}
+
+fn archive_path_in(
+    destination: &Path,
+    archive_path: &Path,
+    display: &str,
+) -> Result<PathBuf, AppletError> {
+    let mut output = destination.to_path_buf();
+    for component in archive_path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(part) => output.push(part),
+            Component::RootDir | Component::ParentDir | Component::Prefix(_) => {
+                return Err(AppletError::new(
+                    APPLET,
+                    format!("extracting {display}: invalid path"),
+                ));
+            }
+        }
+    }
+    Ok(output)
+}
+
+fn ensure_parent_dir(path: &Path, display: &str) -> Result<(), AppletError> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(display), err))?;
+    }
+    Ok(())
+}
+
+fn remove_existing_path(path: &Path, display: &str) -> Result<(), AppletError> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+            fs::remove_dir_all(path)
+                .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(display), err))
+        }
+        Ok(_) => fs::remove_file(path)
+            .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(display), err)),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(AppletError::from_io(
+            APPLET,
+            "extracting",
+            Some(display),
+            err,
+        )),
+    }
+}
+
+fn apply_deferred_directory_modes(directories: &[DeferredDirectory]) -> Result<(), AppletError> {
+    for directory in directories.iter().rev() {
+        fs::set_permissions(&directory.path, fs::Permissions::from_mode(directory.mode)).map_err(
+            |err| {
+                AppletError::from_io(
+                    APPLET,
+                    "extracting",
+                    Some(directory.path.to_string_lossy().as_ref()),
+                    err,
+                )
+            },
+        )?;
+    }
+    Ok(())
 }
 
 fn list_from_reader<R: Read>(reader: R, options: &Options) -> Result<(), AppletError> {
@@ -713,8 +1017,6 @@ fn file_kind(entry_type: EntryType) -> FileKind {
         FileKind::Directory
     } else if entry_type.is_symlink() {
         FileKind::Symlink
-    } else if entry_type.is_hard_link() {
-        FileKind::HardLink
     } else if entry_type.is_character_special() {
         FileKind::CharDevice
     } else if entry_type.is_block_special() {
@@ -724,6 +1026,14 @@ fn file_kind(entry_type: EntryType) -> FileKind {
     } else {
         FileKind::Regular
     }
+}
+
+fn display_entry_path(path: &Path, entry_type: EntryType) -> String {
+    let mut text = path.to_string_lossy().into_owned();
+    if entry_type.is_dir() && !text.ends_with('/') {
+        text.push('/');
+    }
+    text
 }
 
 fn selectors(members: &[String], excludes: &[String]) -> Vec<String> {
@@ -794,7 +1104,10 @@ fn source_path(operand: &Operand) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{CompressionMode, Mode, detect_compression, ensure_archive_has_data, parse_args};
+    use super::{
+        CompressionMode, Mode, detect_compression, ensure_archive_has_data, parse_args,
+        sanitize_archive_name,
+    };
     use std::io::{self, Cursor};
 
     fn parse(input: &[&str]) -> super::Options {
@@ -868,5 +1181,30 @@ mod tests {
     fn zero_filled_archive_is_accepted() {
         ensure_archive_has_data(Cursor::new(vec![0_u8; 1024]), Some("-"))
             .expect("zero-filled archive");
+    }
+
+    #[test]
+    fn strips_leading_prefix_through_last_parent_dir() {
+        let archive_name = sanitize_archive_name("./../tar.tempdir/input_dir/../input_dir")
+            .expect("sanitize archive name");
+        assert_eq!(archive_name.path, std::path::PathBuf::from("input_dir"));
+        assert_eq!(
+            archive_name.stripped_prefix.as_deref(),
+            Some("./../tar.tempdir/input_dir/../")
+        );
+    }
+
+    #[test]
+    fn preserves_normal_relative_archive_name() {
+        let archive_name = sanitize_archive_name("foo/./bar").expect("sanitize archive name");
+        assert_eq!(archive_name.path, std::path::PathBuf::from("foo/bar"));
+        assert_eq!(archive_name.stripped_prefix, None);
+    }
+
+    #[test]
+    fn dot_archive_name_maps_to_archive_root() {
+        let archive_name = sanitize_archive_name("./.").expect("sanitize archive name");
+        assert!(archive_name.path.as_os_str().is_empty());
+        assert_eq!(archive_name.stripped_prefix, None);
     }
 }

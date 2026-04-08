@@ -178,6 +178,8 @@ run_new_style tar.tests ':FEATURE_SEAMLESS_GZ:GUNZIP:'
 run_old_style tests/busybox/cat/cat-prints-a-file
 run_old_style tests/busybox/cat/cat-prints-a-file-and-standard-input
 
+run_old_style tests/busybox/chmod/chmod-R-descends-before-changing-directory
+
 run_old_style tests/busybox/date/date-@-works
 run_old_style tests/busybox/date/date-D-works
 run_old_style tests/busybox/date/date-I-works
@@ -219,6 +221,7 @@ run_old_style tests/busybox/tar/tar-archives-multiple-files
 run_old_style tests/busybox/tar/tar-complains-about-missing-file
 run_old_style tests/busybox/tar/tar-demands-at-least-one-ctx
 run_old_style tests/busybox/tar/tar-demands-at-most-one-ctx
+run_old_style tests/busybox/tar/tar-does-not-extract-into-symlinks
 run_old_style tests/busybox/tar/tar-extracts-all-subdirs
 run_old_style tests/busybox/tar/tar-extracts-file
 run_old_style tests/busybox/tar/tar-extracts-from-standard-input
@@ -229,6 +232,12 @@ run_old_style tests/busybox/tar/tar-handles-empty-include-and-non-empty-exclude-
 run_old_style tests/busybox/tar/tar-handles-exclude-and-extract-lists
 run_old_style tests/busybox/tar/tar-handles-multiple-X-options
 run_old_style tests/busybox/tar/tar-handles-nested-exclude
+run_old_style tests/busybox/tar/tar-hardlinks-and-repeated-files
+run_old_style tests/busybox/tar/tar-hardlinks-mode
+run_old_style tests/busybox/tar/tar-symlink-attack-is-contained
+run_old_style tests/busybox/tar/tar-symlinks-mode
+run_old_style tests/busybox/tar/tar-strips-dotdot-components
+run_old_style tests/busybox/tar/tar-writing-into-read-only-dir
 run_old_style tests/busybox/tar/tar_with_link_with_size
 run_old_style tests/busybox/tar/tar_with_prefix_fields
 

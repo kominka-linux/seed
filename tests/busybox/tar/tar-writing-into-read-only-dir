@@ -1,0 +1,58 @@
+# FEATURE: CONFIG_FEATURE_TAR_CREATE
+
+set -eu
+
+normalize_ls_listing() {
+	python3 -c '
+import re
+import sys
+
+for raw in sys.stdin:
+    line = raw.rstrip("\n")
+    match = re.match(r"^([^ @]+)@?.* ([^ ]+) -> ([^ ]+)$", line)
+    if match:
+        print(f"{match.group(1)} {match.group(2)} -> {match.group(3)}")
+        continue
+    match = re.match(r"^([^ @]+)@?.* ([^ ]+)$", line)
+    if match:
+        print(f"{match.group(1)} {match.group(2)}")
+'
+}
+
+setup_case() {
+	mkdir input_dir
+	: >input_dir/input_file
+	chmod 550 input_dir
+}
+
+run_case() {
+	mode=$1
+	setup_case
+	case "$mode" in
+		system)
+			tar_bin=/usr/bin/tar
+			;;
+		busybox)
+			tar_bin='busybox tar'
+			;;
+	esac
+	sh -c "$tar_bin cf test.tar input_dir"
+	chmod 770 input_dir
+	rm -rf input_dir
+	sh -c "$tar_bin xf test.tar"
+	/bin/ls -ld . input_dir input_dir/* | grep input_ | normalize_ls_listing >"$mode.extract"
+	chmod -R u+w .
+	rm -rf input_dir test.tar
+}
+
+mkdir system busybox
+(
+	cd system || exit 1
+	run_case system
+)
+(
+	cd busybox || exit 1
+	run_case busybox
+)
+
+diff -u system/system.extract busybox/busybox.extract

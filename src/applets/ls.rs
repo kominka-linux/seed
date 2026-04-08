@@ -270,14 +270,19 @@ fn attribute_marker(path: &Path) -> Result<char, AppletError> {
     let path_c = CString::new(bytes)
         .map_err(|_| AppletError::new(APPLET, format!("unsupported path '{}'", path.display())))?;
     #[cfg(target_os = "macos")]
-    // SAFETY: `path_c` is a valid NUL-terminated path string. Passing a null
-    // buffer with size 0 asks `listxattr` for the required size only.
-    let size = unsafe { libc::listxattr(path_c.as_ptr(), std::ptr::null_mut(), 0, 0) };
+    {
+        // SAFETY: `path_c` is a valid NUL-terminated path string. Passing a
+        // null buffer with size 0 asks `listxattr` for the required size only.
+        let size = unsafe { libc::listxattr(path_c.as_ptr(), std::ptr::null_mut(), 0, 0) };
+        Ok(if size > 0 { '@' } else { ' ' })
+    }
     #[cfg(not(target_os = "macos"))]
-    // SAFETY: `path_c` is a valid NUL-terminated path string. Passing a null
-    // buffer with size 0 asks `listxattr` for the required size only.
-    let size = unsafe { libc::listxattr(path_c.as_ptr(), std::ptr::null_mut(), 0) };
-    if size > 0 { Ok('@') } else { Ok(' ') }
+    {
+        // SAFETY: `path_c` is a valid NUL-terminated path string. Passing a null
+        // buffer with size 0 asks `listxattr` for the required size only.
+        let size = unsafe { libc::listxattr(path_c.as_ptr(), std::ptr::null_mut(), 0) };
+        Ok(if size > 0 { '@' } else { ' ' })
+    }
 }
 
 fn file_kind(file_type: fs::FileType) -> FileKind {

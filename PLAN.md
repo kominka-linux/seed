@@ -70,8 +70,7 @@ Pass all busybox tests for each.
 
 ### Phase 4 — Find + ls
 
-Implement: `find` (including internal handling of `-exec` patterns to
-avoid needing `sh`), `ls`.
+Implement: `find` (with full `-exec` support via fork/exec), `ls`.
 Pass all busybox tests for each.
 
 ### Phase 5 — Compression
@@ -127,6 +126,46 @@ Fully static. No dynamic linking. No runtime dependencies.
 applets should work). Linux-specific applets (`losetup`, `mknod`) and
 the final integration test require Linux (use Docker if needed).
 
+**Suggested module layout:**
+```
+src/
+  main.rs              # argv[0] dispatch table
+  lib.rs               # re-exports
+  common/
+    args.rs            # argument parsing utilities
+    error.rs           # AppletError type, die() helper, exit code constants
+    io.rs              # BufReader/BufWriter wrappers, line iteration, copy_stream
+    fs.rs              # recursive copy/remove, symlink handling, permission ops
+    path.rs            # path manipulation, canonicalization
+    pattern.rs         # glob matching (for find -name, tar --exclude)
+    regex.rs           # BRE/ERE engine (for grep, find -regex)
+  applets/
+    cat.rs
+    chmod.rs
+    cp.rs              # thin wrapper over common::fs
+    ...
+  compression/
+    deflate.rs         # inflate/deflate (gzip internals)
+    bzip2.rs
+    lzma.rs            # LZMA1 + LZMA2 (shared by lzma and xz applets)
+    xz.rs              # XZ container format
+  net/
+    http.rs            # HTTP/1.1 client
+    tls.rs             # TLS 1.2/1.3 record layer
+```
+
+Applets should be thin — a `parse_args` function that returns a typed
+options struct, then a call into shared library code. When `cp` and
+`mv` both need recursive copy, that lives in `common::fs`, not in
+either applet.
+
+**Compression aliases:** The multi-call dispatch table must also handle
+these symlink names, mapping each to the appropriate applet + flags:
+- `gunzip`, `zcat` → `gzip -d` / `gzip -dc`
+- `bunzip2`, `bzcat` → `bzip2 -d` / `bzip2 -dc`
+- `unlzma`, `lzcat` → `lzma -d` / `lzma -dc`
+- `unxz`, `xzcat` → `xz -d` / `xz -dc`
+
 **Style:**
 - No `unsafe` unless strictly necessary (raw syscalls, ioctl). Document
   every `unsafe` block with a `// SAFETY:` comment.
@@ -151,8 +190,14 @@ command, and compares stdout against `expected_stdout`.
 **Old-style** (directories): Each file is a standalone shell script.
 Uses `busybox <applet>` invocations. Exit 0 = pass, nonzero = fail.
 
-To run tests against our binary, set `PATH` so that `seed` symlinks
-come first, or adapt the harness to invoke `./seed <applet>` directly.
+To run tests against our binary:
+1. Build: `cargo build`
+2. Create a symlink directory: `mkdir -p /tmp/seed-links && for applet in cat cp chmod ...;  do ln -sf /path/to/seed /tmp/seed-links/$applet; done`
+3. For new-style tests: `cd tests/busybox && PATH=/tmp/seed-links:$PATH sh cat.tests`
+4. For old-style tests: replace `busybox` invocations with the seed
+   binary path, or symlink `seed` as `busybox` in the links dir (seed
+   should recognize `busybox <applet>` as an invocation form, same as
+   `seed <applet>`).
 
 Available tests (19 of 28 applets covered):
 - `.tests` files: cat, cp, diff, find, grep, ls, od, printf, sort, tar
@@ -162,8 +207,7 @@ Available tests (19 of 28 applets covered):
 
 ## Applets
 
-28 applets total (sh is not included — find handles `-exec sh -c`
-patterns internally). Each section lists the full busybox 1.37.0 interface.
+28 applets total. Each section lists the full busybox 1.37.0 interface.
 
 ---
 
@@ -408,6 +452,17 @@ action is `-print`.
 | `-prune` | Don't descend into directory **[pm]** |
 | `-delete` | Delete file/directory (turns on `-depth`) |
 | `-quit` | Exit immediately |
+
+**`-exec` implementation:** Must support arbitrary external commands via
+`fork`/`exec`. The `;` form runs the command once per matched file
+(replacing `{}` in each arg). The `+` form batches — appends all
+matched paths as arguments and runs the command once (or in chunks if
+`ARG_MAX` would be exceeded).
+
+Note: pm.ysh passes `sh -c 'mv ...' {} +` through find. Since we don't
+implement `sh`, this works because find `exec`s the real `/bin/sh` (or
+whatever `sh` is on the system). find does NOT need to interpret shell
+commands itself — it just calls `execvp("sh", ...)`.
 
 **pm.ysh usage patterns:**
 ```
@@ -940,6 +995,78 @@ compression — must support both. **[pm]**
 
 ---
 
+## Implementation Notes
+
+These are non-obvious details that will cause subtle test failures or
+wasted time if missed.
+
+**Argument parsing quirks.** Most applets use standard short-option
+parsing where `-rf` is `-r -f`. But several have non-standard syntax:
+- `tar`: first argument can be `xzf` without a leading dash (old-style).
+  `tar xzf -` and `tar -x -z -f -` must both work.
+- `find`: arguments are an expression tree, not flags. Implement as a
+  recursive-descent parser with `-a` binding tighter than `-o`.
+- `sort -k`: has its own sub-syntax: `START[.OFS][OPTS][,END[.OFS][OPTS]]`
+  where OPTS are per-key modifier characters like `n`, `r`, `b`.
+- `chmod`: MODE argument is positional, not a flag. Must parse both
+  octal (`755`) and symbolic (`u+rwx,go-w`) forms.
+- `od`: both traditional (`-c`, `-x`) and POSIX (`-t c`, `-t x2`)
+  option forms must work simultaneously.
+
+**Regex engine (grep, find -regex).** Implement a simple NFA-based
+engine. Required features: `.`, `*`, `^`, `$`, `[...]` character
+classes (including POSIX classes like `[:alpha:]`), `\(\)` grouping
+and `\1`-`\9` backreferences (BRE), `+`, `?`, `|`, `()` (ERE).
+Word boundary for `-w`: match at start/end of string or where adjacent
+character is/isn't `[a-zA-Z0-9_]`.
+
+**diff algorithm.** Use Myers' O(ND) diff algorithm (the standard).
+Unified output only (busybox limitation we inherit).
+
+**tar format details.**
+- On create: detect hard links (nlink > 1) and emit hardlink entries
+  pointing to the first occurrence. The tar tests explicitly check this.
+- Pax extended headers: key-value format `<length> <key>=<value>\n`.
+  Must handle at least `path` and `linkpath` (long filenames).
+- On extract: strip `../` path components to prevent directory traversal
+  attacks (busybox does this, tests verify it).
+
+**mv cross-filesystem.** Try `rename(2)` first. If it returns `EXDEV`,
+fall back to recursive copy + remove. The copy must preserve all
+attributes (mode, ownership, timestamps, symlinks).
+
+**ls output format.** Tests compare exact output. Column alignment in
+long format matters. Use `getpwuid`/`getgrgid` from libc for
+user/group name lookup.
+
+**date and strftime.** Use libc's `strftime(3)`, `mktime(3)`,
+`localtime_r(3)`, and `strptime(3)` via the `libc` crate rather than
+reimplementing calendar math. These are available in musl. Same for
+`getpwuid`/`getgrgid` — use libc, don't reimplement passwd parsing.
+
+**uname.** Use libc's `uname(2)` — it fills a `utsname` struct with
+all the fields. Trivial wrapper.
+
+**Compression reference algorithms.**
+- Deflate (gzip): RFC 1951. Inflate is ~500 lines, deflate is much
+  larger. Study zlib or miniz for reference.
+- Bzip2: Burrows-Wheeler transform + Huffman + run-length encoding.
+  Study the bzip2 source or Julian Seward's original paper.
+- LZMA/LZMA2 (xz): Range coder + LZ77. Study the LZMA SDK or
+  `lzma-rs` for the decoder structure. LZMA2 is a framing layer
+  over LZMA1 with reset capabilities.
+
+**TLS (wget).** This is the single hardest component. Minimum viable:
+TLS 1.2 with one cipher suite (e.g., `TLS_RSA_WITH_AES_128_GCM_SHA256`
+or `TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256`). Requires implementing:
+record layer framing, handshake state machine, RSA or ECDHE key
+exchange, AES-GCM, SHA-256, X.509 certificate parsing (for non
+`--no-check-certificate` mode). Consider studying `rustls` internals
+or BearSSL (compact C TLS library) for architecture guidance.
+Since pm.ysh always passes `--no-check-certificate`, cert verification
+can be deferred — but the TLS handshake and encryption are still
+required.
+
 ## Cross-Cutting Concerns
 
 **SIGPIPE:** Install a SIGPIPE handler or check `BrokenPipe`. Exit
@@ -957,4 +1084,8 @@ follow by default. `rm -rf` removes without following.
 
 **Locale:** None needed. Byte-order sort. ASCII/UTF-8 only.
 
-**`--help`:** Each applet responds to `--help` with usage to stderr.
+**`--help`:** Each applet responds to `--help` with a usage summary
+printed to stderr, then exits 0. Match busybox's terse format.
+
+**grep aliases:** The dispatch table should also map `egrep` → `grep -E`
+and `fgrep` → `grep -F`.

@@ -1,0 +1,18 @@
+FROM alpine:latest
+
+RUN apk add --no-cache \
+    bash \
+    build-base \
+    cargo \
+    coreutils \
+    linux-headers \
+    make \
+    python3 \
+    rust \
+    rustfmt \
+    util-linux
+
+WORKDIR /src
+
+ENV CARGO_HOME=/cargo
+ENV CARGO_TARGET_DIR=/target

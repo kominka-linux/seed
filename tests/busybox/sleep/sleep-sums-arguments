@@ -1,0 +1,15 @@
+elapsed=$(python3 - <<'PY'
+import subprocess
+import time
+
+start = time.monotonic()
+subprocess.check_call(["busybox", "sleep", "0.05", "0.05"])
+print(time.monotonic() - start)
+PY
+)
+
+python3 - <<PY
+elapsed = float("$elapsed")
+assert elapsed >= 0.08, elapsed
+assert elapsed < 1.0, elapsed
+PY

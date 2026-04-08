@@ -13,6 +13,15 @@ const APPLET: &str = "date";
 const DEFAULT_FORMAT: &str = "%a %b %e %H:%M:%S %Z %Y";
 const RFC2822_FORMAT: &str = "%a, %d %b %Y %H:%M:%S %z";
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IsoSpec {
+    Date,
+    Hours,
+    Minutes,
+    Seconds,
+    Ns,
+}
+
 #[derive(Debug, Default)]
 struct Options {
     utc: bool,
@@ -21,6 +30,8 @@ struct Options {
     set_time: Option<String>,
     reference_file: Option<String>,
     format: Option<String>,
+    input_format: Option<String>,
+    iso_spec: Option<IsoSpec>,
 }
 
 pub fn main(args: &[String]) -> i32 {
@@ -35,12 +46,16 @@ fn run(args: &[String]) -> AppletResult {
         set_system_time(seconds)?;
     }
 
-    let format = options.format.as_deref().unwrap_or(if options.rfc2822 {
-        RFC2822_FORMAT
+    let rendered = if let Some(spec) = options.iso_spec {
+        format_iso_time(seconds, spec, options.utc)?
     } else {
-        DEFAULT_FORMAT
-    });
-    let rendered = format_time(seconds, format, options.utc)?;
+        let format = options.format.as_deref().unwrap_or(if options.rfc2822 {
+            RFC2822_FORMAT
+        } else {
+            DEFAULT_FORMAT
+        });
+        format_time(seconds, format, options.utc)?
+    };
 
     let mut out = stdout();
     writeln!(out, "{rendered}")
@@ -115,6 +130,37 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
             continue;
         }
 
+        if parsing_flags && arg == "-D" {
+            let Some(value) = args.get(index + 1) else {
+                return Err(vec![AppletError::new(
+                    APPLET,
+                    "option requires an argument -- 'D'",
+                )]);
+            };
+            if options.input_format.is_some() {
+                return Err(vec![AppletError::new(
+                    APPLET,
+                    "multiple input formats specified",
+                )]);
+            }
+            options.input_format = Some(value.clone());
+            index += 2;
+            continue;
+        }
+
+        if parsing_flags && arg == "-I" {
+            assign_iso_spec(&mut options, IsoSpec::Date)?;
+            index += 1;
+            continue;
+        }
+
+        if parsing_flags && arg.starts_with("-I") && arg.len() > 2 {
+            let spec = parse_iso_spec(&arg[2..])?;
+            assign_iso_spec(&mut options, spec)?;
+            index += 1;
+            continue;
+        }
+
         if parsing_flags && arg.starts_with('-') && arg.len() > 1 {
             for flag in arg[1..].chars() {
                 match flag {
@@ -168,12 +214,37 @@ fn resolve_time(options: &Options) -> AppletResultTime {
         return file_mtime_seconds(path);
     }
     if let Some(spec) = &options.display_time {
-        return parse_time_spec(spec, options.utc);
+        return parse_time_spec(spec, options.utc, options.input_format.as_deref());
     }
     if let Some(spec) = &options.set_time {
-        return parse_time_spec(spec, options.utc);
+        return parse_time_spec(spec, options.utc, options.input_format.as_deref());
     }
     current_time()
+}
+
+fn assign_iso_spec(options: &mut Options, spec: IsoSpec) -> Result<(), Vec<AppletError>> {
+    if options.iso_spec.is_some() {
+        return Err(vec![AppletError::new(
+            APPLET,
+            "multiple iso formats specified",
+        )]);
+    }
+    options.iso_spec = Some(spec);
+    Ok(())
+}
+
+fn parse_iso_spec(spec: &str) -> Result<IsoSpec, Vec<AppletError>> {
+    match spec {
+        "date" => Ok(IsoSpec::Date),
+        "hours" => Ok(IsoSpec::Hours),
+        "minutes" => Ok(IsoSpec::Minutes),
+        "seconds" => Ok(IsoSpec::Seconds),
+        "ns" => Ok(IsoSpec::Ns),
+        _ => Err(vec![AppletError::new(
+            APPLET,
+            format!("invalid argument '{spec}' for '-I'"),
+        )]),
+    }
 }
 
 type AppletResultTime = Result<libc::time_t, Vec<AppletError>>;
@@ -211,12 +282,18 @@ fn file_mtime_seconds(path: &str) -> AppletResultTime {
     })
 }
 
-fn parse_time_spec(spec: &str, utc: bool) -> AppletResultTime {
+fn parse_time_spec(spec: &str, utc: bool, input_format: Option<&str>) -> AppletResultTime {
     if let Some(epoch) = spec.strip_prefix('@') {
         return epoch
             .parse::<i64>()
             .map_err(|_| invalid_date(spec))
             .and_then(|seconds| libc::time_t::try_from(seconds).map_err(|_| invalid_date(spec)));
+    }
+
+    if let Some(format) = input_format
+        && let Some(seconds) = parse_custom_time_spec(spec, format, utc)?
+    {
+        return Ok(seconds);
     }
 
     if let Some(seconds) = parse_time_with_explicit_offset(spec)? {
@@ -230,6 +307,20 @@ fn parse_time_spec(spec: &str, utc: bool) -> AppletResultTime {
     }
 
     Err(invalid_date(spec))
+}
+
+fn parse_custom_time_spec(spec: &str, format: &str, utc: bool) -> AppletResultOffset {
+    let zero_seconds = !format.contains("%S");
+    let tm = match parse_tm(spec, format, zero_seconds)? {
+        Some(tm) => tm,
+        None => return Ok(None),
+    };
+    let seconds = if utc {
+        to_epoch_utc(tm)?
+    } else {
+        to_epoch_local(tm)?
+    };
+    Ok(Some(seconds))
 }
 
 struct ParseCandidate {
@@ -458,17 +549,56 @@ fn format_time(seconds: libc::time_t, format: &str, utc: bool) -> Result<String,
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
+fn format_iso_time(
+    seconds: libc::time_t,
+    spec: IsoSpec,
+    utc: bool,
+) -> Result<String, Vec<AppletError>> {
+    let base = match spec {
+        IsoSpec::Date => format_time(seconds, "%Y-%m-%d", utc)?,
+        IsoSpec::Hours => format_time(seconds, "%Y-%m-%dT%H", utc)?,
+        IsoSpec::Minutes => format_time(seconds, "%Y-%m-%dT%H:%M", utc)?,
+        IsoSpec::Seconds | IsoSpec::Ns => format_time(seconds, "%Y-%m-%dT%H:%M:%S", utc)?,
+    };
+
+    if spec == IsoSpec::Date {
+        return Ok(base);
+    }
+
+    let mut rendered = base;
+    if spec == IsoSpec::Ns {
+        rendered.push_str(".000000000");
+    }
+    rendered.push_str(&format_iso_offset(seconds, utc)?);
+    Ok(rendered)
+}
+
+fn format_iso_offset(seconds: libc::time_t, utc: bool) -> Result<String, Vec<AppletError>> {
+    if utc {
+        return Ok(String::from("+00:00"));
+    }
+
+    let offset = format_time(seconds, "%z", false)?;
+    if offset.len() != 5 {
+        return Err(vec![AppletError::new(
+            APPLET,
+            "failed to format timezone offset",
+        )]);
+    }
+    Ok(format!("{}:{}", &offset[..3], &offset[3..]))
+}
+
 fn invalid_date(spec: &str) -> Vec<AppletError> {
     vec![AppletError::new(APPLET, format!("invalid date '{spec}'"))]
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_time_spec, parse_utc_offset};
+    use super::{IsoSpec, format_iso_time, parse_iso_spec, parse_time_spec, parse_utc_offset};
 
     #[test]
     fn parses_epoch_spec() {
-        let seconds = parse_time_spec("@0", false).expect("parse epoch");
+        let seconds = parse_time_spec("@0", false, None).expect("parse epoch");
         assert_eq!(seconds, 0);
     }
 
@@ -481,7 +611,29 @@ mod tests {
 
     #[test]
     fn parses_compact_datetime() {
-        let seconds = parse_time_spec("200001231133.30", true).expect("parse datetime");
+        let seconds = parse_time_spec("200001231133.30", true, None).expect("parse datetime");
         assert!(seconds > 0);
+    }
+
+    #[test]
+    fn parses_custom_input_format() {
+        let seconds = parse_time_spec("1999/01/02-03:04:05", true, Some("%Y/%m/%d-%H:%M:%S"))
+            .expect("parse custom datetime");
+        assert_eq!(seconds, 915_246_245);
+    }
+
+    #[test]
+    fn parses_iso_specifiers() {
+        assert_eq!(parse_iso_spec("date").expect("date"), IsoSpec::Date);
+        assert_eq!(
+            parse_iso_spec("seconds").expect("seconds"),
+            IsoSpec::Seconds
+        );
+    }
+
+    #[test]
+    fn formats_iso_seconds_in_utc() {
+        let rendered = format_iso_time(915_246_245, IsoSpec::Seconds, true).expect("format iso");
+        assert_eq!(rendered, "1999-01-02T03:04:05+00:00");
     }
 }

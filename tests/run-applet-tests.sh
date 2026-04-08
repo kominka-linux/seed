@@ -178,12 +178,17 @@ run_old_style tests/busybox/cat/cat-prints-a-file
 run_old_style tests/busybox/cat/cat-prints-a-file-and-standard-input
 
 run_old_style tests/busybox/date/date-@-works
+run_old_style tests/busybox/date/date-D-works
+run_old_style tests/busybox/date/date-I-works
 run_old_style tests/busybox/date/date-R-works
 run_old_style tests/busybox/date/date-format-works
 run_old_style tests/busybox/date/date-timezone
 run_old_style tests/busybox/date/date-u-works
 run_old_style tests/busybox/date/date-works
 run_old_style tests/busybox/date/date-works-1
+
+run_old_style tests/busybox/env/env-runs-command-with-assignment
+run_old_style tests/busybox/env/env-unsets-variable
 
 run_old_style tests/busybox/cp/cp-RHL-does_not_preserve-links
 run_old_style tests/busybox/cp/cp-a-files-to-dir
@@ -252,8 +257,12 @@ run_old_style tests/busybox/mv/mv-removes-source-file
 
 run_old_style tests/busybox/rm/rm-removes-file
 run_old_style tests/busybox/rmdir/rmdir-removes-parent-directories
+run_old_style tests/busybox/sleep/sleep-rejects-invalid-interval
+run_old_style tests/busybox/sleep/sleep-sums-arguments
 run_old_style tests/busybox/tee/tee-appends-input
 run_old_style tests/busybox/tee/tee-tees-input
+run_old_style tests/busybox/uname/uname-machine-matches-host
+run_old_style tests/busybox/uname/uname-sysname-matches-host
 run_old_style tests/busybox/wc/wc-counts-all
 run_old_style tests/busybox/wc/wc-counts-characters
 run_old_style tests/busybox/wc/wc-counts-lines

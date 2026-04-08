@@ -1,0 +1,1 @@
+busybox env -i FOO=bar sh -c 'test x"$FOO" = xbar && test -z "${HOME:-}"'

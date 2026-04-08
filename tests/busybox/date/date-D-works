@@ -1,0 +1,1 @@
+test x"03:04:05" = x"`TZ=UTC0 busybox date -u -D '%Y/%m/%d-%H:%M:%S' -d '1999/01/02-03:04:05' +%T`"

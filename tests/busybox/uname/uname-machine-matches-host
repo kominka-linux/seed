@@ -1,0 +1,1 @@
+test x"`busybox uname -m`" = x"`uname -m`"

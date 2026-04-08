@@ -1,0 +1,1 @@
+FOO=bar busybox env -u FOO sh -c 'test -z "${FOO:-}"'

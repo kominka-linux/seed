@@ -1,16 +1,25 @@
 use std::io::{BufReader, Write};
-use std::path::{Path, PathBuf};
 
 use flate2::Compression;
 use flate2::bufread::MultiGzDecoder;
 use flate2::write::GzEncoder;
 
-use crate::applets::compression::{self, Invocation, LevelRange, Options};
+use crate::applets::compression::{self, Codec, Invocation, Options};
 use crate::common::applet::finish;
 use crate::common::error::AppletError;
 use crate::common::io::{BUFFER_SIZE, Input, copy_stream};
 
 const APPLET: &str = "gzip";
+const DECOMPRESSED_SUFFIXES: &[(&[u8], &[u8])] =
+    &[(b".tgz", b".tar"), (b".taz", b".tar"), (b".gz", b"")];
+const CODEC: Codec<'static> = Codec {
+    applet: APPLET,
+    level_range: compression::LevelRange::OneToNine,
+    compressed_suffix: b".gz",
+    decompressed_suffixes: DECOMPRESSED_SUFFIXES,
+    input_size_hint: |_| None,
+    process_reader_to_writer,
+};
 
 pub fn main(args: &[String]) -> i32 {
     finish(run(args, Invocation::default()))
@@ -37,13 +46,7 @@ pub fn main_zcat(args: &[String]) -> i32 {
 }
 
 fn run(args: &[String], invocation: Invocation) -> Result<(), Vec<AppletError>> {
-    compression::run(
-        APPLET,
-        args,
-        invocation,
-        LevelRange::OneToNine,
-        process_target,
-    )
+    compression::run_with_codec(&CODEC, args, invocation)
 }
 
 #[cfg(test)]
@@ -51,19 +54,7 @@ fn parse_args(
     args: &[String],
     invocation: Invocation,
 ) -> Result<(Options, Vec<String>), Vec<AppletError>> {
-    compression::parse_args(APPLET, args, invocation, LevelRange::OneToNine)
-}
-
-fn process_target(path: &str, options: Options) -> Result<(), AppletError> {
-    compression::process_target(
-        APPLET,
-        path,
-        options,
-        compressed_path,
-        decompressed_path,
-        |_| None,
-        process_reader_to_writer,
-    )
+    compression::parse_args_with_codec(&CODEC, args, invocation)
 }
 
 fn process_reader_to_writer(
@@ -95,22 +86,10 @@ fn process_reader_to_writer(
         .flush()
         .map_err(|err| AppletError::from_io(APPLET, "flushing", path, err))
 }
-
-fn compressed_path(path: &Path) -> PathBuf {
-    compression::compressed_path_with_suffix(path, b".gz")
-}
-
-fn decompressed_path(path: &Path) -> Result<PathBuf, AppletError> {
-    compression::decompressed_path_with_suffixes(
-        APPLET,
-        path,
-        &[(b".tgz", b".tar"), (b".taz", b".tar"), (b".gz", b"")],
-    )
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Invocation, compressed_path, decompressed_path, parse_args};
+    use super::{APPLET, CODEC, DECOMPRESSED_SUFFIXES, Invocation, parse_args};
+    use crate::applets::compression;
     use std::os::unix::ffi::OsStrExt;
     use std::path::Path;
 
@@ -133,26 +112,43 @@ mod tests {
     #[test]
     fn decompression_suffixes_follow_gzip_conventions() {
         assert_eq!(
-            decompressed_path(Path::new("archive.tgz"))
-                .expect("tgz path")
-                .as_os_str()
-                .as_bytes(),
+            compression::decompressed_path_with_suffixes(
+                APPLET,
+                Path::new("archive.tgz"),
+                DECOMPRESSED_SUFFIXES
+            )
+            .expect("tgz path")
+            .as_os_str()
+            .as_bytes(),
             b"archive.tar"
         );
         assert_eq!(
-            decompressed_path(Path::new("archive.gz"))
-                .expect("gz path")
-                .as_os_str()
-                .as_bytes(),
+            compression::decompressed_path_with_suffixes(
+                APPLET,
+                Path::new("archive.gz"),
+                DECOMPRESSED_SUFFIXES
+            )
+            .expect("gz path")
+            .as_os_str()
+            .as_bytes(),
             b"archive"
         );
-        assert!(decompressed_path(Path::new("archive")).is_err());
+        assert!(
+            compression::decompressed_path_with_suffixes(
+                APPLET,
+                Path::new("archive"),
+                DECOMPRESSED_SUFFIXES
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn compression_adds_gzip_suffix() {
         assert_eq!(
-            compressed_path(Path::new("archive")).as_os_str().as_bytes(),
+            compression::compressed_path_with_suffix(Path::new("archive"), CODEC.compressed_suffix)
+                .as_os_str()
+                .as_bytes(),
             b"archive.gz"
         );
     }

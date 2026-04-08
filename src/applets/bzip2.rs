@@ -1,16 +1,25 @@
 use std::io::{BufReader, Write};
-use std::path::{Path, PathBuf};
 
 use bzip2::Compression;
 use bzip2::bufread::MultiBzDecoder;
 use bzip2::write::BzEncoder;
 
-use crate::applets::compression::{self, Invocation, LevelRange, Options};
+use crate::applets::compression::{self, Codec, Invocation, Options};
 use crate::common::applet::finish;
 use crate::common::error::AppletError;
 use crate::common::io::{BUFFER_SIZE, Input, copy_stream};
 
 const APPLET: &str = "bzip2";
+const DECOMPRESSED_SUFFIXES: &[(&[u8], &[u8])] =
+    &[(b".tbz2", b".tar"), (b".tbz", b".tar"), (b".bz2", b"")];
+const CODEC: Codec<'static> = Codec {
+    applet: APPLET,
+    level_range: compression::LevelRange::OneToNine,
+    compressed_suffix: b".bz2",
+    decompressed_suffixes: DECOMPRESSED_SUFFIXES,
+    input_size_hint: |_| None,
+    process_reader_to_writer,
+};
 
 pub fn main(args: &[String]) -> i32 {
     finish(run(args, Invocation::default()))
@@ -37,13 +46,7 @@ pub fn main_bzcat(args: &[String]) -> i32 {
 }
 
 fn run(args: &[String], invocation: Invocation) -> Result<(), Vec<AppletError>> {
-    compression::run(
-        APPLET,
-        args,
-        invocation,
-        LevelRange::OneToNine,
-        process_target,
-    )
+    compression::run_with_codec(&CODEC, args, invocation)
 }
 
 #[cfg(test)]
@@ -51,19 +54,7 @@ fn parse_args(
     args: &[String],
     invocation: Invocation,
 ) -> Result<(Options, Vec<String>), Vec<AppletError>> {
-    compression::parse_args(APPLET, args, invocation, LevelRange::OneToNine)
-}
-
-fn process_target(path: &str, options: Options) -> Result<(), AppletError> {
-    compression::process_target(
-        APPLET,
-        path,
-        options,
-        compressed_path,
-        decompressed_path,
-        |_| None,
-        process_reader_to_writer,
-    )
+    compression::parse_args_with_codec(&CODEC, args, invocation)
 }
 
 fn process_reader_to_writer(
@@ -95,36 +86,13 @@ fn process_reader_to_writer(
         .flush()
         .map_err(|err| AppletError::from_io(APPLET, "flushing", path, err))
 }
-
-fn compressed_path(path: &Path) -> PathBuf {
-    compression::compressed_path_with_suffix(path, b".bz2")
-}
-
-fn decompressed_path(path: &Path) -> Result<PathBuf, AppletError> {
-    compression::decompressed_path_with_suffixes(
-        APPLET,
-        path,
-        &[(b".tbz2", b".tar"), (b".tbz", b".tar"), (b".bz2", b"")],
-    )
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Invocation, compressed_path, decompressed_path, parse_args};
+    use super::{APPLET, CODEC, DECOMPRESSED_SUFFIXES, Invocation, parse_args};
+    use crate::applets::compression;
     use std::fs;
     use std::os::unix::ffi::OsStrExt;
-    use std::path::{Path, PathBuf};
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn temp_dir(label: &str) -> PathBuf {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time")
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("seed-{label}-{unique}"));
-        fs::create_dir_all(&dir).expect("create temp dir");
-        dir
-    }
+    use std::path::Path;
 
     #[test]
     fn parse_aliases_seed_default_behavior() {
@@ -145,33 +113,50 @@ mod tests {
     #[test]
     fn decompression_suffixes_follow_bzip2_conventions() {
         assert_eq!(
-            decompressed_path(Path::new("archive.tbz2"))
-                .expect("tbz2 path")
-                .as_os_str()
-                .as_bytes(),
+            compression::decompressed_path_with_suffixes(
+                APPLET,
+                Path::new("archive.tbz2"),
+                DECOMPRESSED_SUFFIXES,
+            )
+            .expect("tbz2 path")
+            .as_os_str()
+            .as_bytes(),
             b"archive.tar"
         );
         assert_eq!(
-            decompressed_path(Path::new("archive.bz2"))
-                .expect("bz2 path")
-                .as_os_str()
-                .as_bytes(),
+            compression::decompressed_path_with_suffixes(
+                APPLET,
+                Path::new("archive.bz2"),
+                DECOMPRESSED_SUFFIXES,
+            )
+            .expect("bz2 path")
+            .as_os_str()
+            .as_bytes(),
             b"archive"
         );
-        assert!(decompressed_path(Path::new("archive")).is_err());
+        assert!(
+            compression::decompressed_path_with_suffixes(
+                APPLET,
+                Path::new("archive"),
+                DECOMPRESSED_SUFFIXES,
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn compression_adds_bzip2_suffix() {
         assert_eq!(
-            compressed_path(Path::new("archive")).as_os_str().as_bytes(),
+            compression::compressed_path_with_suffix(Path::new("archive"), CODEC.compressed_suffix)
+                .as_os_str()
+                .as_bytes(),
             b"archive.bz2"
         );
     }
 
     #[test]
     fn round_trip_file_compression() {
-        let dir = temp_dir("bzip2");
+        let dir = compression::temp_dir("bzip2");
         let input = dir.join("hello.txt");
         fs::write(&input, b"hello bzip2\n").expect("write input");
 

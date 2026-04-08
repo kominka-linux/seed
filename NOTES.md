@@ -5,13 +5,20 @@ Implementation notes and handoff context for future agents.
 ## Current State
 
 - The repo currently implements:
+  - `bunzip2`
+  - `bzip2`
+  - `bzcat`
   - `cat`
   - `chmod`
   - `cp`
   - `diff`
   - `find`
   - `grep`
+  - `gunzip`
+  - `gzip`
   - `ls`
+  - `lzcat`
+  - `lzma`
   - `mkdir`
   - `mv`
   - `od`
@@ -19,8 +26,14 @@ Implementation notes and handoff context for future agents.
   - `rm`
   - `rmdir`
   - `sort`
+  - `tar`
   - `tee`
+  - `unlzma`
+  - `unxz`
   - `wc`
+  - `xz`
+  - `xzcat`
+  - `zcat`
 - The current quality floor is:
   - `cargo clippy --all-targets --all-features -- -D warnings`
   - `make test`
@@ -38,17 +51,12 @@ Implementation notes and handoff context for future agents.
   - The earlier leaked `'static` stdio handles were removed.
 - `src/common/runtime.rs`
   - Holds argv collection and SIGPIPE setup.
-  - Now uses vendored `libc` instead of hand-written FFI declarations.
+  - Uses `libc` instead of hand-written FFI declarations.
 - `src/common/applet.rs`
   - Small shared applet result plumbing.
-
-## Dependency Note
-
-- `libc` is vendored at `vendor/libc` and used as a path dependency.
-- Reason:
-  - we already needed Unix FFI
-  - `libc` is safer than maintaining hand-written ABI declarations and magic constants
-  - the environment used by agents may not have network access, so vendoring avoids crates.io resolution failures
+- `src/applets/compression.rs`
+  - Holds the shared compression workflow used by `gzip`, `bzip2`, `xz`, and `lzma`.
+  - Owns flag parsing, stdin/stdout/temp-output flow, suffix mapping, and the shared codec abstraction.
 
 ## Test Runner
 
@@ -73,11 +81,21 @@ Implementation notes and handoff context for future agents.
   implementation aimed at the exercised tests rather than the entire BusyBox
   option surface.
 
+## Dependency Note
+
+- The repo now uses normal crates.io dependencies with a checked-in `Cargo.lock`.
+- Compression/archive dependencies are intentionally slimmed:
+  - `flate2` uses `miniz_oxide` only
+  - `tar` builds without default features
+  - `lzma-rust2` builds with `std`, `encoder`, and `xz`
+- `bzip2` still uses the `static` feature because that is the practical path for current Linux/macOS support.
+
 ## Architecture Assessment
 
 - The codebase is in decent shape for continued work, but it is not yet fully disciplined.
 - Good:
   - shared filesystem/platform code is starting to consolidate properly
+  - compression applets now share a single codec-driven workflow instead of duplicating file-processing logic
   - Phase 3 allocation debt was reduced by making `grep` line-streaming and `od` block-streaming
   - verification discipline is good
 - Still weak:

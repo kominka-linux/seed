@@ -43,6 +43,18 @@ pub(crate) enum LevelRange {
     OneToNine,
 }
 
+pub(crate) type ProcessReaderToWriter =
+    fn(Input, &mut dyn Write, Options, Option<&str>, Option<u64>) -> Result<(), AppletError>;
+
+pub(crate) struct Codec<'a> {
+    pub(crate) applet: &'static str,
+    pub(crate) level_range: LevelRange,
+    pub(crate) compressed_suffix: &'a [u8],
+    pub(crate) decompressed_suffixes: &'a [(&'a [u8], &'a [u8])],
+    pub(crate) input_size_hint: fn(&str) -> Option<u64>,
+    pub(crate) process_reader_to_writer: ProcessReaderToWriter,
+}
+
 impl LevelRange {
     fn parse_digit(self, flag: char) -> Option<u32> {
         match self {
@@ -82,6 +94,20 @@ where
     } else {
         Err(errors)
     }
+}
+
+pub(crate) fn run_with_codec(
+    codec: &Codec<'_>,
+    args: &[String],
+    invocation: Invocation,
+) -> AppletResult {
+    run(
+        codec.applet,
+        args,
+        invocation,
+        codec.level_range,
+        |path, options| process_target_with_codec(codec, path, options),
+    )
 }
 
 pub(crate) fn parse_args(
@@ -131,6 +157,15 @@ pub(crate) fn parse_args(
     }
 
     Ok((options, files))
+}
+
+#[cfg(test)]
+pub(crate) fn parse_args_with_codec(
+    codec: &Codec<'_>,
+    args: &[String],
+    invocation: Invocation,
+) -> Result<(Options, Vec<String>), Vec<AppletError>> {
+    parse_args(codec.applet, args, invocation, codec.level_range)
 }
 
 pub(crate) fn process_target<CompressPath, DecompressPath, InputSizeHint, Process>(
@@ -219,6 +254,22 @@ where
     Ok(())
 }
 
+pub(crate) fn process_target_with_codec(
+    codec: &Codec<'_>,
+    path: &str,
+    options: Options,
+) -> Result<(), AppletError> {
+    process_target(
+        codec.applet,
+        path,
+        options,
+        |source| compressed_path_with_suffix(source, codec.compressed_suffix),
+        |source| decompressed_path_with_suffixes(codec.applet, source, codec.decompressed_suffixes),
+        codec.input_size_hint,
+        codec.process_reader_to_writer,
+    )
+}
+
 pub(crate) fn compressed_path_with_suffix(path: &Path, suffix: &[u8]) -> PathBuf {
     let mut name = path
         .file_name()
@@ -257,6 +308,19 @@ pub(crate) fn decompressed_path_with_suffixes(
 
 pub(crate) fn input_size_hint(path: &str) -> Option<u64> {
     fs::metadata(path).ok().map(|metadata| metadata.len())
+}
+
+#[cfg(test)]
+pub(crate) fn temp_dir(label: &str) -> PathBuf {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("seed-{label}-{unique}"));
+    fs::create_dir_all(&dir).expect("create temp dir");
+    dir
 }
 
 fn process_to_sink<Process>(

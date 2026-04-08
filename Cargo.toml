@@ -8,8 +8,9 @@ bzip2 = { version = "0.5.2", features = ["static"] }
 flate2 = { version = "1.1.9", default-features = false, features = ["miniz_oxide"] }
 libc = "0.2.184"
 lzma-rust2 = { version = "0.16.2", default-features = false, features = ["std", "encoder", "xz"] }
+rustls = { version = "0.23.37", default-features = false, features = ["std", "tls12", "logging", "ring"] }
 tar = { version = "0.4.44", default-features = false }
-ureq = { path = "vendor/ureq", default-features = false, features = ["rustls"] }
+ureq = { version = "3.3.0", default-features = false, features = ["rustls-no-provider", "platform-verifier"] }
 
 [profile.dev]
 debug = "line-tables-only"

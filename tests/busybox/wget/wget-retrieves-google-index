@@ -1,4 +1,6 @@
 test x"$SKIP_INTERNET_TESTS" != x"" && exit
 
-busybox wget -q -O foo http://www.google.com/
+url=${WGET_TEST_URL:-https://example.com/}
+
+busybox wget -q -O foo "$url"
 test -s foo

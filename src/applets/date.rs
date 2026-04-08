@@ -1,0 +1,487 @@
+use std::ffi::CString;
+use std::fs;
+use std::io::Write;
+use std::mem::MaybeUninit;
+use std::os::raw::c_char;
+use std::time::UNIX_EPOCH;
+
+use crate::common::applet::{AppletResult, finish};
+use crate::common::error::AppletError;
+use crate::common::io::stdout;
+
+const APPLET: &str = "date";
+const DEFAULT_FORMAT: &str = "%a %b %e %H:%M:%S %Z %Y";
+const RFC2822_FORMAT: &str = "%a, %d %b %Y %H:%M:%S %z";
+
+#[derive(Debug, Default)]
+struct Options {
+    utc: bool,
+    rfc2822: bool,
+    display_time: Option<String>,
+    set_time: Option<String>,
+    reference_file: Option<String>,
+    format: Option<String>,
+}
+
+pub fn main(args: &[String]) -> i32 {
+    finish(run(args))
+}
+
+fn run(args: &[String]) -> AppletResult {
+    let options = parse_args(args)?;
+    let seconds = resolve_time(&options)?;
+
+    if options.set_time.is_some() {
+        set_system_time(seconds)?;
+    }
+
+    let format = options.format.as_deref().unwrap_or(if options.rfc2822 {
+        RFC2822_FORMAT
+    } else {
+        DEFAULT_FORMAT
+    });
+    let rendered = format_time(seconds, format, options.utc)?;
+
+    let mut out = stdout();
+    writeln!(out, "{rendered}")
+        .map_err(|err| vec![AppletError::from_io(APPLET, "writing", None, err)])?;
+    Ok(())
+}
+
+fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+    let mut options = Options::default();
+    let mut parsing_flags = true;
+    let mut index = 0;
+
+    while index < args.len() {
+        let arg = &args[index];
+        if parsing_flags && arg == "--" {
+            parsing_flags = false;
+            index += 1;
+            continue;
+        }
+
+        if let Some(format) = arg.strip_prefix('+') {
+            if options.format.is_some() {
+                return Err(vec![AppletError::new(
+                    APPLET,
+                    "multiple output formats specified",
+                )]);
+            }
+            options.format = Some(format.to_string());
+            index += 1;
+            continue;
+        }
+
+        if parsing_flags && arg == "-d" {
+            let Some(value) = args.get(index + 1) else {
+                return Err(vec![AppletError::new(
+                    APPLET,
+                    "option requires an argument -- 'd'",
+                )]);
+            };
+            assign_time_source(&mut options.display_time, value.clone())?;
+            index += 2;
+            continue;
+        }
+
+        if parsing_flags && arg == "-s" {
+            let Some(value) = args.get(index + 1) else {
+                return Err(vec![AppletError::new(
+                    APPLET,
+                    "option requires an argument -- 's'",
+                )]);
+            };
+            assign_time_source(&mut options.set_time, value.clone())?;
+            index += 2;
+            continue;
+        }
+
+        if parsing_flags && arg == "-r" {
+            let Some(value) = args.get(index + 1) else {
+                return Err(vec![AppletError::new(
+                    APPLET,
+                    "option requires an argument -- 'r'",
+                )]);
+            };
+            if options.reference_file.is_some() {
+                return Err(vec![AppletError::new(
+                    APPLET,
+                    "multiple reference files specified",
+                )]);
+            }
+            options.reference_file = Some(value.clone());
+            index += 2;
+            continue;
+        }
+
+        if parsing_flags && arg.starts_with('-') && arg.len() > 1 {
+            for flag in arg[1..].chars() {
+                match flag {
+                    'R' => options.rfc2822 = true,
+                    'u' => options.utc = true,
+                    _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
+                }
+            }
+            index += 1;
+            continue;
+        }
+
+        if options.set_time.is_none() {
+            options.set_time = Some(arg.clone());
+            index += 1;
+            continue;
+        }
+
+        return Err(vec![AppletError::new(
+            APPLET,
+            format!("unexpected operand '{arg}'"),
+        )]);
+    }
+
+    let source_count = usize::from(options.display_time.is_some())
+        + usize::from(options.set_time.is_some())
+        + usize::from(options.reference_file.is_some());
+    if source_count > 1 {
+        return Err(vec![AppletError::new(
+            APPLET,
+            "options '-d', '-r', and '-s' are mutually exclusive",
+        )]);
+    }
+
+    Ok(options)
+}
+
+fn assign_time_source(slot: &mut Option<String>, value: String) -> Result<(), Vec<AppletError>> {
+    if slot.is_some() {
+        return Err(vec![AppletError::new(
+            APPLET,
+            "multiple time arguments specified",
+        )]);
+    }
+    *slot = Some(value);
+    Ok(())
+}
+
+fn resolve_time(options: &Options) -> AppletResultTime {
+    if let Some(path) = &options.reference_file {
+        return file_mtime_seconds(path);
+    }
+    if let Some(spec) = &options.display_time {
+        return parse_time_spec(spec, options.utc);
+    }
+    if let Some(spec) = &options.set_time {
+        return parse_time_spec(spec, options.utc);
+    }
+    current_time()
+}
+
+type AppletResultTime = Result<libc::time_t, Vec<AppletError>>;
+
+fn current_time() -> AppletResultTime {
+    let mut now = 0 as libc::time_t;
+    // SAFETY: `time` writes the current epoch seconds into a valid pointer.
+    unsafe {
+        libc::time(&mut now);
+    }
+    Ok(now)
+}
+
+fn file_mtime_seconds(path: &str) -> AppletResultTime {
+    let modified = fs::metadata(path)
+        .map_err(|err| vec![AppletError::from_io(APPLET, "statting", Some(path), err)])?
+        .modified()
+        .map_err(|err| {
+            vec![AppletError::new(
+                APPLET,
+                format!("reading {path} mtime: {err}"),
+            )]
+        })?;
+    let duration = modified.duration_since(UNIX_EPOCH).map_err(|_| {
+        vec![AppletError::new(
+            APPLET,
+            format!("{path}: mtime before unix epoch"),
+        )]
+    })?;
+    libc::time_t::try_from(duration.as_secs()).map_err(|_| {
+        vec![AppletError::new(
+            APPLET,
+            format!("{path}: mtime out of range"),
+        )]
+    })
+}
+
+fn parse_time_spec(spec: &str, utc: bool) -> AppletResultTime {
+    if let Some(epoch) = spec.strip_prefix('@') {
+        return epoch
+            .parse::<i64>()
+            .map_err(|_| invalid_date(spec))
+            .and_then(|seconds| libc::time_t::try_from(seconds).map_err(|_| invalid_date(spec)));
+    }
+
+    if let Some(seconds) = parse_time_with_explicit_offset(spec)? {
+        return Ok(seconds);
+    }
+
+    for candidate in CANDIDATES {
+        if let Some(seconds) = parse_with_format(spec, candidate, utc)? {
+            return Ok(seconds);
+        }
+    }
+
+    Err(invalid_date(spec))
+}
+
+struct ParseCandidate {
+    format: &'static str,
+    zero_seconds: bool,
+}
+
+const CANDIDATES: &[ParseCandidate] = &[
+    ParseCandidate {
+        format: "%H:%M:%S",
+        zero_seconds: false,
+    },
+    ParseCandidate {
+        format: "%H:%M",
+        zero_seconds: true,
+    },
+    ParseCandidate {
+        format: "%m.%d-%H:%M:%S",
+        zero_seconds: false,
+    },
+    ParseCandidate {
+        format: "%m.%d-%H:%M",
+        zero_seconds: true,
+    },
+    ParseCandidate {
+        format: "%Y.%m.%d-%H:%M:%S",
+        zero_seconds: false,
+    },
+    ParseCandidate {
+        format: "%Y.%m.%d-%H:%M",
+        zero_seconds: true,
+    },
+    ParseCandidate {
+        format: "%Y-%m-%d %H:%M:%S",
+        zero_seconds: false,
+    },
+    ParseCandidate {
+        format: "%Y-%m-%d %H:%M",
+        zero_seconds: true,
+    },
+    ParseCandidate {
+        format: "%Y%m%d%H%M.%S",
+        zero_seconds: false,
+    },
+    ParseCandidate {
+        format: "%Y%m%d%H%M",
+        zero_seconds: true,
+    },
+];
+
+fn parse_time_with_explicit_offset(spec: &str) -> AppletResultOffset {
+    if let Some(prefix) = spec.strip_suffix('Z') {
+        let Some(tm) = parse_tm(prefix, "%Y-%m-%d %H:%M:%S", false)? else {
+            return Ok(None);
+        };
+        return Ok(Some(to_epoch_utc(tm)?));
+    }
+
+    let Some(split) = spec.rfind(' ') else {
+        return Ok(None);
+    };
+    let prefix = &spec[..split];
+    let suffix = &spec[split + 1..];
+    let offset = match parse_utc_offset(suffix) {
+        Some(offset) => offset,
+        None => return Ok(None),
+    };
+    let Some(tm) = parse_tm(prefix, "%Y-%m-%d %H:%M:%S", false)? else {
+        return Ok(None);
+    };
+    let seconds = to_epoch_utc(tm)?
+        .checked_sub(offset)
+        .ok_or_else(|| invalid_date(spec))?;
+    Ok(Some(seconds))
+}
+
+type AppletResultOffset = Result<Option<libc::time_t>, Vec<AppletError>>;
+
+fn parse_utc_offset(text: &str) -> Option<libc::time_t> {
+    if text.len() != 5 {
+        return None;
+    }
+    let sign = match text.as_bytes()[0] {
+        b'+' => 1_i64,
+        b'-' => -1_i64,
+        _ => return None,
+    };
+    let hours = text[1..3].parse::<i64>().ok()?;
+    let minutes = text[3..5].parse::<i64>().ok()?;
+    if hours > 23 || minutes > 59 {
+        return None;
+    }
+    let seconds = sign * (hours * 3600 + minutes * 60);
+    libc::time_t::try_from(seconds).ok()
+}
+
+fn parse_with_format(spec: &str, candidate: &ParseCandidate, utc: bool) -> AppletResultOffset {
+    let tm = match parse_tm(spec, candidate.format, candidate.zero_seconds)? {
+        Some(tm) => tm,
+        None => return Ok(None),
+    };
+    let seconds = if utc {
+        to_epoch_utc(tm)?
+    } else {
+        to_epoch_local(tm)?
+    };
+    Ok(Some(seconds))
+}
+
+fn parse_tm(
+    spec: &str,
+    format: &str,
+    zero_seconds: bool,
+) -> Result<Option<libc::tm>, Vec<AppletError>> {
+    let mut tm = current_tm_struct()?;
+    if zero_seconds {
+        tm.tm_sec = 0;
+    }
+    tm.tm_isdst = -1;
+
+    let spec_c = CString::new(spec).map_err(|_| invalid_date(spec))?;
+    let format_c = CString::new(format).map_err(|_| invalid_date(spec))?;
+    // SAFETY: `strptime` reads valid NUL-terminated strings and writes into
+    // a properly initialized `tm` value for the duration of the call.
+    let end = unsafe { libc::strptime(spec_c.as_ptr(), format_c.as_ptr(), &mut tm) };
+    if end.is_null() {
+        return Ok(None);
+    }
+    // SAFETY: `end` points into `spec_c` when `strptime` succeeds.
+    if unsafe { *end } != 0 {
+        return Ok(None);
+    }
+    Ok(Some(tm))
+}
+
+fn current_tm_struct() -> Result<libc::tm, Vec<AppletError>> {
+    let mut now = 0 as libc::time_t;
+    // SAFETY: `time` writes the current epoch seconds into a valid pointer.
+    unsafe {
+        libc::time(&mut now);
+    }
+    let mut tm = MaybeUninit::<libc::tm>::uninit();
+    // SAFETY: `localtime_r` writes a valid `tm` for a valid input pointer.
+    let ptr = unsafe { libc::localtime_r(&now, tm.as_mut_ptr()) };
+    if ptr.is_null() {
+        return Err(vec![AppletError::new(
+            APPLET,
+            "failed to read current time",
+        )]);
+    }
+    // SAFETY: `localtime_r` initialized `tm` on success.
+    Ok(unsafe { tm.assume_init() })
+}
+
+fn to_epoch_local(mut tm: libc::tm) -> AppletResultTime {
+    tm.tm_isdst = -1;
+    // SAFETY: `mktime` consumes a valid `tm` pointer and normalizes it.
+    let seconds = unsafe { libc::mktime(&mut tm) };
+    if seconds == -1 {
+        Err(invalid_date("time"))
+    } else {
+        Ok(seconds)
+    }
+}
+
+fn to_epoch_utc(mut tm: libc::tm) -> AppletResultTime {
+    tm.tm_isdst = 0;
+    // SAFETY: `timegm` consumes a valid UTC `tm` pointer and normalizes it.
+    let seconds = unsafe { libc::timegm(&mut tm) };
+    if seconds == -1 {
+        Err(invalid_date("time"))
+    } else {
+        Ok(seconds)
+    }
+}
+
+fn set_system_time(seconds: libc::time_t) -> AppletResult {
+    let tv = libc::timeval {
+        tv_sec: seconds,
+        tv_usec: 0,
+    };
+    // SAFETY: `settimeofday` reads a valid `timeval`; the timezone pointer is null.
+    let status = unsafe { libc::settimeofday(&tv, std::ptr::null()) };
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(vec![AppletError::new(
+            APPLET,
+            format!("setting time: {}", std::io::Error::last_os_error()),
+        )])
+    }
+}
+
+fn format_time(seconds: libc::time_t, format: &str, utc: bool) -> Result<String, Vec<AppletError>> {
+    let format_c = CString::new(format)
+        .map_err(|_| vec![AppletError::new(APPLET, "invalid format string")])?;
+    let mut tm = MaybeUninit::<libc::tm>::uninit();
+    let mut buffer = [0 as c_char; 256];
+
+    // SAFETY: all pointers are valid for the duration of the call, and the
+    // formatter writes at most `buffer.len()` bytes including the trailing NUL.
+    let written = unsafe {
+        let tm_ptr = if utc {
+            libc::gmtime_r(&seconds, tm.as_mut_ptr())
+        } else {
+            libc::localtime_r(&seconds, tm.as_mut_ptr())
+        };
+        if tm_ptr.is_null() {
+            return Err(vec![AppletError::new(APPLET, "failed to format time")]);
+        }
+        libc::strftime(
+            buffer.as_mut_ptr(),
+            buffer.len(),
+            format_c.as_ptr(),
+            tm.as_ptr(),
+        )
+    };
+    if written == 0 {
+        return Err(vec![AppletError::new(APPLET, "failed to format time")]);
+    }
+
+    let bytes = buffer[..written]
+        .iter()
+        .map(|byte| *byte as u8)
+        .collect::<Vec<_>>();
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+fn invalid_date(spec: &str) -> Vec<AppletError> {
+    vec![AppletError::new(APPLET, format!("invalid date '{spec}'"))]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_time_spec, parse_utc_offset};
+
+    #[test]
+    fn parses_epoch_spec() {
+        let seconds = parse_time_spec("@0", false).expect("parse epoch");
+        assert_eq!(seconds, 0);
+    }
+
+    #[test]
+    fn parses_utc_offset() {
+        assert_eq!(parse_utc_offset("+0600"), Some(21_600));
+        assert_eq!(parse_utc_offset("-0130"), Some(-5_400));
+        assert_eq!(parse_utc_offset("UTC"), None);
+    }
+
+    #[test]
+    fn parses_compact_datetime() {
+        let seconds = parse_time_spec("200001231133.30", true).expect("parse datetime");
+        assert!(seconds > 0);
+    }
+}

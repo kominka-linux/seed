@@ -1,8 +1,10 @@
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use ureq::Agent;
+use ureq::tls::{RootCerts, TlsConfig};
 
 use crate::common::applet::{AppletResult, finish};
 use crate::common::error::AppletError;
@@ -100,7 +102,17 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
 }
 
 fn make_agent() -> Agent {
-    Agent::new_with_defaults()
+    Agent::config_builder()
+        .tls_config(
+            TlsConfig::builder()
+                .root_certs(RootCerts::PlatformVerifier)
+                .unversioned_rustls_crypto_provider(Arc::new(
+                    rustls::crypto::ring::default_provider(),
+                ))
+                .build(),
+        )
+        .build()
+        .new_agent()
 }
 
 fn fetch_url(agent: &Agent, url: &str, options: &Options) -> Result<(), AppletError> {

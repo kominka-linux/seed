@@ -36,8 +36,16 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::cp::main,
     },
     AppletEntry {
+        name: "date",
+        main: applets::date::main,
+    },
+    AppletEntry {
         name: "diff",
         main: applets::diff::main,
+    },
+    AppletEntry {
+        name: "env",
+        main: applets::env::main,
     },
     AppletEntry {
         name: "egrep",
@@ -100,12 +108,20 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::sort::main,
     },
     AppletEntry {
+        name: "sleep",
+        main: applets::sleep::main,
+    },
+    AppletEntry {
         name: "tar",
         main: applets::tar::main,
     },
     AppletEntry {
         name: "tee",
         main: applets::tee::main,
+    },
+    AppletEntry {
+        name: "uname",
+        main: applets::uname::main,
     },
     AppletEntry {
         name: "unlzma",

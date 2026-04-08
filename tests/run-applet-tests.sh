@@ -95,6 +95,48 @@ run_old_style() {
 	rm -rf "$tmpdir"
 }
 
+internet_tests_enabled() {
+	if [ "${SKIP_INTERNET_TESTS:-}" != "" ]; then
+		return 1
+	fi
+	if [ "${RUN_INTERNET_TESTS:-}" = "1" ]; then
+		return 0
+	fi
+	if ! command -v python3 >/dev/null 2>&1; then
+		return 1
+	fi
+	python3 - <<'PY'
+import socket
+import sys
+
+try:
+    socket.getaddrinfo("example.com", 443, type=socket.SOCK_STREAM)
+    with socket.create_connection(("example.com", 443), timeout=3):
+        pass
+except OSError:
+    sys.exit(1)
+PY
+}
+
+run_old_style_internet() {
+	test_script=$1
+	tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/seed-test.XXXXXX")
+	printf 'old-style: %s\n' "$test_script"
+	skip=
+	if ! internet_tests_enabled; then
+		skip=1
+	fi
+	(
+		cd "$tmpdir"
+		PATH="$links_dir:$PATH" \
+			ECHO="$echo_ne" \
+			SKIP_INTERNET_TESTS="$skip" \
+			WGET_TEST_URL="${WGET_TEST_URL:-https://example.com/}" \
+			sh "$repo_dir/$test_script"
+	)
+	rm -rf "$tmpdir"
+}
+
 run_old_style_ls() {
 	test_script=$1
 	tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/seed-test.XXXXXX")
@@ -114,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod cp diff egrep find grep gunzip gzip ls lzcat lzma mkdir mv od printf rm rmdir sort tar tee unlzma unxz wc wget xz xzcat zcat; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod cp date diff egrep env find grep gunzip gzip ls lzcat lzma mkdir mv od printf rm rmdir sleep sort tar tee uname unlzma unxz wc wget xz xzcat zcat; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -134,6 +176,14 @@ run_new_style sort.tests ':FEATURE_SORT_BIG:'
 
 run_old_style tests/busybox/cat/cat-prints-a-file
 run_old_style tests/busybox/cat/cat-prints-a-file-and-standard-input
+
+run_old_style tests/busybox/date/date-@-works
+run_old_style tests/busybox/date/date-R-works
+run_old_style tests/busybox/date/date-format-works
+run_old_style tests/busybox/date/date-timezone
+run_old_style tests/busybox/date/date-u-works
+run_old_style tests/busybox/date/date-works
+run_old_style tests/busybox/date/date-works-1
 
 run_old_style tests/busybox/cp/cp-RHL-does_not_preserve-links
 run_old_style tests/busybox/cp/cp-a-files-to-dir
@@ -209,3 +259,7 @@ run_old_style tests/busybox/wc/wc-counts-characters
 run_old_style tests/busybox/wc/wc-counts-lines
 run_old_style tests/busybox/wc/wc-counts-words
 run_old_style tests/busybox/wc/wc-prints-longest-line-length
+run_old_style_internet tests/busybox/wget/wget-retrieves-google-index
+run_old_style_internet tests/busybox/wget/wget--O-overrides--P
+run_old_style_internet tests/busybox/wget/wget-supports--P
+run_old_style_internet tests/busybox/wget/wget-handles-empty-path

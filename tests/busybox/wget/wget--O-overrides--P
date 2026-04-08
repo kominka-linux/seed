@@ -1,5 +1,7 @@
 test x"$SKIP_INTERNET_TESTS" != x"" && exit
 
+url=${WGET_TEST_URL:-https://example.com/}
+
 mkdir foo
-busybox wget -q -O index.html -P foo http://www.google.com/
+busybox wget -q -O index.html -P foo "$url"
 test -s index.html

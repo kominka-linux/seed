@@ -7,6 +7,7 @@ use std::os::fd::AsRawFd;
 #[cfg(target_os = "linux")]
 use std::path::Path;
 
+use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
 #[cfg(target_os = "linux")]
 use crate::common::io::stdout;
@@ -82,49 +83,32 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     let mut list = false;
     let mut capacity_device: Option<String> = None;
     let mut detach_device: Option<String> = None;
-    let mut index = 0;
     let mut positional = Vec::new();
+    let mut cursor = ArgCursor::new(args);
 
-    while index < args.len() {
-        let arg = &args[index];
-        if arg == "--" {
-            positional.extend(args[index + 1..].iter().cloned());
-            break;
-        }
-
+    while let Some(arg) = cursor.next_token() {
         if arg == "-o" {
-            let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::option_requires_arg(APPLET, "o")]);
-            };
+            let value = cursor.next_value(APPLET, "o")?;
             offset = value.parse::<u64>().map_err(|_| {
                 vec![AppletError::new(
                     APPLET,
                     format!("invalid offset '{value}'"),
                 )]
             })?;
-            index += 2;
             continue;
         }
 
         if arg == "-c" {
-            let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::option_requires_arg(APPLET, "c")]);
-            };
-            capacity_device = Some(value.clone());
-            index += 2;
+            capacity_device = Some(cursor.next_value(APPLET, "c")?.to_owned());
             continue;
         }
 
         if arg == "-d" {
-            let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::option_requires_arg(APPLET, "d")]);
-            };
-            detach_device = Some(value.clone());
-            index += 2;
+            detach_device = Some(cursor.next_value(APPLET, "d")?.to_owned());
             continue;
         }
 
-        if arg.starts_with('-') && arg.len() > 1 {
+        if cursor.parsing_flags() && arg.starts_with('-') && arg.len() > 1 {
             for flag in arg[1..].chars() {
                 match flag {
                     'a' => list = true,
@@ -134,12 +118,10 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
                     _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
                 }
             }
-            index += 1;
             continue;
         }
 
-        positional.push(arg.clone());
-        index += 1;
+        positional.push(arg.to_owned());
     }
 
     let command_count = usize::from(list)

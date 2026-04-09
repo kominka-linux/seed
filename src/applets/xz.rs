@@ -285,4 +285,46 @@ mod tests {
 
         let _ = fs::remove_dir_all(dir);
     }
+
+    #[test]
+    fn truncated_xz_input_fails_to_decompress() {
+        let dir = compression::temp_dir("xz");
+        let input = dir.join("hello.txt");
+        fs::write(&input, b"hello xz\n").expect("write input");
+
+        let status = super::main(&[input.display().to_string()]);
+        assert_eq!(status, 0);
+
+        let compressed = dir.join("hello.txt.xz");
+        let mut data = fs::read(&compressed).expect("read compressed");
+        data.truncate(data.len().saturating_sub(4));
+        fs::write(&compressed, data).expect("truncate compressed");
+
+        let status = super::main_unxz(&[compressed.display().to_string()]);
+        assert_ne!(status, 0);
+        assert!(!dir.join("hello.txt").exists());
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn truncated_lzma_input_fails_to_decompress() {
+        let dir = compression::temp_dir("lzma");
+        let input = dir.join("hello.txt");
+        fs::write(&input, b"hello lzma\n").expect("write input");
+
+        let status = super::main_lzma(&[input.display().to_string()]);
+        assert_eq!(status, 0);
+
+        let compressed = dir.join("hello.txt.lzma");
+        let mut data = fs::read(&compressed).expect("read compressed");
+        data.truncate(data.len().saturating_sub(4));
+        fs::write(&compressed, data).expect("truncate compressed");
+
+        let status = super::main_unlzma(&[compressed.display().to_string()]);
+        assert_ne!(status, 0);
+        assert!(!dir.join("hello.txt").exists());
+
+        let _ = fs::remove_dir_all(dir);
+    }
 }

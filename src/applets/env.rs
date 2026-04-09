@@ -4,6 +4,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::process::ExitStatusExt;
 use std::process::Command;
 
+use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
@@ -42,39 +43,27 @@ fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
 
 fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     let mut options = Options::default();
-    let mut parsing_flags = true;
-    let mut index = 0;
+    let mut cursor = ArgCursor::new(args);
 
-    while index < args.len() {
-        let arg = &args[index];
-        if parsing_flags && arg == "--" {
-            parsing_flags = false;
-            index += 1;
-            continue;
-        }
-
-        if parsing_flags && (arg == "-" || arg == "-i") {
+    while let Some(arg) = cursor.next_token() {
+        if cursor.parsing_flags() && (arg == "-" || arg == "-i") {
             options.clear = true;
-            index += 1;
             continue;
         }
 
-        if parsing_flags && arg == "-0" {
+        if cursor.parsing_flags() && arg == "-0" {
             options.nul_terminated = true;
-            index += 1;
             continue;
         }
 
-        if parsing_flags && arg == "-u" {
-            let Some(name) = args.get(index + 1) else {
-                return Err(vec![AppletError::option_requires_arg(APPLET, "u")]);
-            };
-            options.unset.push(name.clone());
-            index += 2;
+        if cursor.parsing_flags() && arg == "-u" {
+            options
+                .unset
+                .push(cursor.next_value(APPLET, "u")?.to_owned());
             continue;
         }
 
-        if parsing_flags && arg.starts_with('-') && arg.len() > 1 {
+        if cursor.parsing_flags() && arg.starts_with('-') && arg.len() > 1 {
             return Err(vec![AppletError::invalid_option(
                 APPLET,
                 arg.chars().nth(1).unwrap_or('-'),
@@ -87,11 +76,11 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
             options
                 .assignments
                 .push((name.to_string(), value.to_string()));
-            index += 1;
             continue;
         }
 
-        options.command.extend(args[index..].iter().cloned());
+        options.command.push(arg.to_owned());
+        options.command.extend(cursor.remaining().iter().cloned());
         break;
     }
 

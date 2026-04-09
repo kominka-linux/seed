@@ -2,6 +2,7 @@
 use std::ffi::CString;
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "mknod";
@@ -46,36 +47,24 @@ fn run(args: &[String]) -> AppletResult {
 
 fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     let mut mode = DEFAULT_MODE;
-    let mut parsing_flags = true;
-    let mut index = 0;
     let mut positional = Vec::new();
+    let mut cursor = ArgCursor::new(args);
 
-    while index < args.len() {
-        let arg = &args[index];
-        if parsing_flags && arg == "--" {
-            parsing_flags = false;
-            index += 1;
-            continue;
-        }
-
-        if parsing_flags && arg == "-m" {
-            let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::option_requires_arg(APPLET, "m")]);
-            };
+    while let Some(arg) = cursor.next_token() {
+        if cursor.parsing_flags() && arg == "-m" {
+            let value = cursor.next_value(APPLET, "m")?;
             mode = parse_mode(value)?;
-            index += 2;
             continue;
         }
 
-        if parsing_flags && arg.starts_with('-') && arg.len() > 1 {
+        if cursor.parsing_flags() && arg.starts_with('-') && arg.len() > 1 {
             return Err(vec![AppletError::invalid_option(
                 APPLET,
                 arg.chars().nth(1).unwrap_or('-'),
             )]);
         }
 
-        positional.push(arg.clone());
-        index += 1;
+        positional.push(arg.to_owned());
     }
 
     if positional.len() < 2 {

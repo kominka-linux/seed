@@ -248,10 +248,13 @@ run_old_style tests/busybox/tar/tar_with_link_with_size
 run_old_style tests/busybox/tar/tar_with_prefix_fields
 
 run_old_style_ls tests/busybox/ls/ls-1-works
+run_old_style_ls tests/busybox/ls/ls-double-dash-works
 run_old_style_ls tests/busybox/ls/ls-h-works
 run_old_style_ls tests/busybox/ls/ls-l-works
+run_old_style_ls tests/busybox/ls/ls-l-symlink-to-dir-works
 run_old_style_ls tests/busybox/ls/ls-multiple-targets-works
 run_old_style_ls tests/busybox/ls/ls-s-works
+run_old_style_ls tests/busybox/ls/ls-symlink-to-dir-works
 
 run_old_style tests/busybox/mkdir/mkdir-makes-a-directory
 run_old_style tests/busybox/mkdir/mkdir-makes-parent-directories

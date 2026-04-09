@@ -90,6 +90,7 @@ fn process_reader_to_writer(
 mod tests {
     use super::{APPLET, CODEC, DECOMPRESSED_SUFFIXES, Invocation, parse_args};
     use crate::applets::compression;
+    use std::fs;
     use std::os::unix::ffi::OsStrExt;
     use std::path::Path;
 
@@ -151,5 +152,26 @@ mod tests {
                 .as_bytes(),
             b"archive.gz"
         );
+    }
+
+    #[test]
+    fn truncated_gzip_input_fails_to_decompress() {
+        let dir = compression::temp_dir("gzip");
+        let input = dir.join("hello.txt");
+        fs::write(&input, b"hello gzip\n").expect("write input");
+
+        let status = super::main(&[input.display().to_string()]);
+        assert_eq!(status, 0);
+
+        let compressed = dir.join("hello.txt.gz");
+        let mut data = fs::read(&compressed).expect("read compressed");
+        data.truncate(data.len().saturating_sub(4));
+        fs::write(&compressed, data).expect("truncate compressed");
+
+        let status = super::main_gunzip(&[compressed.display().to_string()]);
+        assert_ne!(status, 0);
+        assert!(!dir.join("hello.txt").exists());
+
+        let _ = fs::remove_dir_all(dir);
     }
 }

@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
 use crate::common::fs::move_path;
 
@@ -54,41 +55,27 @@ fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
 }
 
 fn parse_args(args: &[String]) -> Result<(Vec<String>, String), Vec<AppletError>> {
-    let mut parsing_flags = true;
     let mut target_directory: Option<String> = None;
     let mut paths = Vec::new();
+    let mut cursor = ArgCursor::new(args);
 
-    let mut index = 0;
-    while index < args.len() {
-        let arg = &args[index];
-        if parsing_flags && arg == "--" {
-            parsing_flags = false;
-            index += 1;
+    while let Some(arg) = cursor.next_token() {
+        if cursor.parsing_flags() && arg == "-t" {
+            target_directory = Some(cursor.next_value(APPLET, "t")?.to_owned());
             continue;
         }
 
-        if parsing_flags && arg == "-t" {
-            let Some(directory) = args.get(index + 1) else {
-                return Err(vec![AppletError::option_requires_arg(APPLET, "t")]);
-            };
-            target_directory = Some(directory.clone());
-            index += 2;
-            continue;
-        }
-
-        if parsing_flags && arg.starts_with('-') && arg.len() > 1 {
+        if cursor.parsing_flags() && arg.starts_with('-') && arg.len() > 1 {
             for flag in arg[1..].chars() {
                 match flag {
                     'f' => {}
                     _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
                 }
             }
-            index += 1;
             continue;
         }
 
-        paths.push(arg.clone());
-        index += 1;
+        paths.push(arg.to_owned());
     }
 
     if let Some(directory) = target_directory {

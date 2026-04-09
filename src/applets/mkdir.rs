@@ -2,6 +2,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
+use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "mkdir";
@@ -57,39 +58,26 @@ fn parse_args(args: &[String]) -> Result<(bool, Option<u32>, Vec<String>), Vec<A
     let mut parents = false;
     let mut mode = None;
     let mut paths = Vec::new();
-    let mut parsing_flags = true;
-    let mut index = 0;
+    let mut cursor = ArgCursor::new(args);
 
-    while index < args.len() {
-        let arg = &args[index];
-        if parsing_flags && arg == "--" {
-            parsing_flags = false;
-            index += 1;
-            continue;
-        }
-
-        if parsing_flags && arg == "-m" {
-            let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::option_requires_arg(APPLET, "m")]);
-            };
+    while let Some(arg) = cursor.next_token() {
+        if cursor.parsing_flags() && arg == "-m" {
+            let value = cursor.next_value(APPLET, "m")?;
             mode = Some(parse_mode(value)?);
-            index += 2;
             continue;
         }
 
-        if parsing_flags && arg.starts_with('-') && arg.len() > 1 {
+        if cursor.parsing_flags() && arg.starts_with('-') && arg.len() > 1 {
             for flag in arg[1..].chars() {
                 match flag {
                     'p' => parents = true,
                     _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
                 }
             }
-            index += 1;
             continue;
         }
 
-        paths.push(arg.clone());
-        index += 1;
+        paths.push(arg.to_owned());
     }
 
     if paths.is_empty() {

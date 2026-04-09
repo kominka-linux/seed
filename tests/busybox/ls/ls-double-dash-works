@@ -1,0 +1,4 @@
+printf 'x\n' >"$d/-weird"
+LC_ALL=C /bin/ls -1 -- "$d/-weird" >logfile.gnu
+LC_ALL=C busybox ls -1 -- "$d/-weird" >logfile.bb
+cmp logfile.gnu logfile.bb

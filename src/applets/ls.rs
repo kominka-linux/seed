@@ -26,6 +26,18 @@ struct Entry {
 }
 
 #[derive(Debug)]
+struct LongEntry {
+    mode: String,
+    links: String,
+    owner: String,
+    group: String,
+    size: String,
+    modified: String,
+    name: String,
+    symlink_target: Option<String>,
+}
+
+#[derive(Debug)]
 struct Target {
     display: String,
     path: PathBuf,
@@ -61,7 +73,7 @@ fn render_targets(targets: &[String], options: Options) -> (String, Vec<AppletEr
     let mut errors = Vec::new();
 
     for path in targets {
-        match classify_target(path) {
+        match classify_target(path, options) {
             Ok(target) => {
                 if target.lists_directory {
                     directories.push(target);
@@ -130,7 +142,7 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
 
 #[cfg(test)]
 fn render_target(path: &str, options: Options) -> Result<String, AppletError> {
-    let target = classify_target(path)?;
+    let target = classify_target(path, options)?;
     if target.lists_directory {
         render_directory(&target.path, options)
     } else {
@@ -138,11 +150,11 @@ fn render_target(path: &str, options: Options) -> Result<String, AppletError> {
     }
 }
 
-fn classify_target(path: &str) -> Result<Target, AppletError> {
+fn classify_target(path: &str, options: Options) -> Result<Target, AppletError> {
     let path_ref = Path::new(path);
     let metadata = fs::symlink_metadata(path_ref)
         .map_err(|err| AppletError::from_io(APPLET, "reading", Some(path), err))?;
-    let lists_directory = should_list_directory(path_ref, &metadata);
+    let lists_directory = should_list_directory(path_ref, &metadata, options);
 
     Ok(Target {
         display: path.to_owned(),
@@ -152,9 +164,10 @@ fn classify_target(path: &str) -> Result<Target, AppletError> {
     })
 }
 
-fn should_list_directory(path: &Path, metadata: &fs::Metadata) -> bool {
+fn should_list_directory(path: &Path, metadata: &fs::Metadata, options: Options) -> bool {
     metadata.is_dir()
-        || (metadata.file_type().is_symlink()
+        || (!options.long_format
+            && metadata.file_type().is_symlink()
             && fs::metadata(path).is_ok_and(|target| target.is_dir()))
 }
 
@@ -209,52 +222,113 @@ fn render_entries(
         output.push_str(&format!("total {}\n", total_blocks(entries)));
     }
 
-    for entry in entries {
-        if options.long_format {
-            output.push_str(&format_long_entry(entry, options)?);
-        } else if options.show_blocks {
-            output.push_str(&format!(
-                "{} {}\n",
-                format_blocks(entry.metadata.blocks(), options.human_readable),
-                entry.name
-            ));
-        } else {
-            let _ = options.single_column;
-            output.push_str(&entry.name);
-            output.push('\n');
+    if options.long_format {
+        let long_entries = entries
+            .iter()
+            .map(|entry| build_long_entry(entry, options))
+            .collect::<Result<Vec<_>, _>>()?;
+        let widths = LongWidths::from_entries(&long_entries, options);
+        for entry in &long_entries {
+            output.push_str(&format_long_entry(entry, widths));
+        }
+    } else {
+        for entry in entries {
+            if options.show_blocks {
+                output.push_str(&format!(
+                    "{} {}\n",
+                    format_blocks(entry.metadata.blocks(), options.human_readable),
+                    entry.name
+                ));
+            } else {
+                let _ = options.single_column;
+                output.push_str(&entry.name);
+                output.push('\n');
+            }
         }
     }
 
     Ok(output)
 }
 
-fn total_blocks(entries: &[Entry]) -> u64 {
-    entries.iter().map(|entry| entry.metadata.blocks()).sum()
+#[derive(Clone, Copy)]
+struct LongWidths {
+    links: usize,
+    owner: usize,
+    group: usize,
+    size: usize,
 }
 
-fn format_long_entry(entry: &Entry, options: Options) -> Result<String, AppletError> {
-    let mode = format_mode(entry)?;
-    let links = entry.metadata.nlink();
-    let owner = unix::lookup_user(entry.metadata.uid());
-    let group = unix::lookup_group(entry.metadata.gid());
+impl LongWidths {
+    fn from_entries(entries: &[LongEntry], options: Options) -> Self {
+        let mut widths = Self {
+            links: 1,
+            owner: 0,
+            group: 0,
+            size: if options.human_readable { 6 } else { 3 },
+        };
+
+        for entry in entries {
+            widths.links = widths.links.max(entry.links.len());
+            widths.owner = widths.owner.max(entry.owner.len());
+            widths.group = widths.group.max(entry.group.len());
+            widths.size = widths.size.max(entry.size.len());
+        }
+
+        widths
+    }
+}
+
+fn build_long_entry(entry: &Entry, options: Options) -> Result<LongEntry, AppletError> {
     let size = if options.human_readable {
         format_human_size(entry.metadata.size())
     } else {
         entry.metadata.size().to_string()
     };
-    let modified = unix::format_recent_mtime(APPLET, entry.metadata.mtime())?;
+    let symlink_target = if entry.metadata.file_type().is_symlink() {
+        fs::read_link(&entry.path)
+            .ok()
+            .map(|target| target.to_string_lossy().into_owned())
+    } else {
+        None
+    };
+
+    Ok(LongEntry {
+        mode: format_mode(entry)?,
+        links: entry.metadata.nlink().to_string(),
+        owner: unix::lookup_user(entry.metadata.uid()),
+        group: unix::lookup_group(entry.metadata.gid()),
+        size,
+        modified: unix::format_recent_mtime(APPLET, entry.metadata.mtime())?,
+        name: entry.name.clone(),
+        symlink_target,
+    })
+}
+
+fn format_long_entry(entry: &LongEntry, widths: LongWidths) -> String {
     let mut line = format!(
-        "{mode} {} {} {} {} {} {}",
-        links, owner, group, size, modified, entry.name
+        "{} {:>links$} {:owner_width$}  {:group_width$} {:>size_width$} {} {}",
+        entry.mode,
+        entry.links,
+        entry.owner,
+        entry.group,
+        entry.size,
+        entry.modified,
+        entry.name,
+        links = widths.links,
+        owner_width = widths.owner,
+        group_width = widths.group,
+        size_width = widths.size,
     );
-    if entry.metadata.file_type().is_symlink()
-        && let Ok(target) = fs::read_link(&entry.path)
-    {
+    if let Some(target) = &entry.symlink_target {
         line.push_str(" -> ");
-        line.push_str(&target.to_string_lossy());
+        line.push_str(target);
     }
     line.push('\n');
-    Ok(line)
+    line
+}
+
+fn total_blocks(entries: &[Entry]) -> u64 {
+    entries.iter().map(|entry| entry.metadata.blocks()).sum()
 }
 
 fn format_mode(entry: &Entry) -> Result<String, AppletError> {
@@ -320,7 +394,7 @@ fn format_human_size(size: u64) -> String {
         unit += 1;
     }
     if unit == 0 {
-        size.to_string()
+        format!("{size}B")
     } else if value >= 10.0 {
         format!("{value:.0}{}", UNITS[unit])
     } else {
@@ -330,7 +404,7 @@ fn format_human_size(size: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Options, render_target, render_targets};
+    use super::{Options, parse_args, render_target, render_targets};
     use crate::common::unix;
     use std::fs;
     use std::path::PathBuf;
@@ -442,5 +516,52 @@ mod tests {
         let expected = format!("{}\n\n{}:\ninside\n", file.display(), dir.display());
         assert!(output.1.is_empty(), "unexpected errors: {:?}", output.1);
         assert_eq!(output.0, expected);
+    }
+
+    #[test]
+    fn double_dash_stops_option_parsing() {
+        let (options, paths) = parse_args(&["--".to_owned(), "-file".to_owned()]).expect("parse");
+
+        assert!(!options.long_format);
+        assert_eq!(paths, vec!["-file"]);
+    }
+
+    #[test]
+    fn symlink_to_directory_lists_directory_contents() {
+        let tempdir = TempDir::new();
+        let dir = tempdir.path().join("dir");
+        let link = tempdir.path().join("link");
+        fs::create_dir(&dir).expect("create dir");
+        fs::write(dir.join("A"), b"x").expect("write A");
+        fs::write(dir.join("B"), b"y").expect("write B");
+        std::os::unix::fs::symlink(&dir, &link).expect("create symlink");
+
+        let output = render_target(link.to_str().expect("utf8 path"), Options::default())
+            .expect("render symlink target");
+
+        assert_eq!(output, "A\nB\n");
+    }
+
+    #[test]
+    fn long_listing_for_symlink_to_directory_shows_symlink() {
+        let tempdir = TempDir::new();
+        let dir = tempdir.path().join("dir");
+        let link = tempdir.path().join("link");
+        fs::create_dir(&dir).expect("create dir");
+        fs::write(dir.join("A"), b"x").expect("write A");
+        std::os::unix::fs::symlink(&dir, &link).expect("create symlink");
+
+        let output = render_target(
+            link.to_str().expect("utf8 path"),
+            Options {
+                long_format: true,
+                ..Options::default()
+            },
+        )
+        .expect("render long symlink");
+
+        assert!(output.contains(" -> "));
+        assert!(!output.starts_with("total "));
+        assert!(!output.contains("\nA\n"));
     }
 }

@@ -8,11 +8,17 @@ The goal is to keep each item discrete and shippable. Prefer finishing one item 
 
 - [ ] Wire more BusyBox fixture coverage into the default runner applet by applet.
 - [ ] Expand `tar` fixture coverage beyond the currently enabled scripts.
-- [ ] Expand `ls` fixture coverage beyond the currently enabled scripts.
-- [ ] Add more `date` fixture coverage, especially input parsing and formatting variants.
+- [x] Expand `ls` fixture coverage beyond the currently enabled scripts.
+- [x] Promote a safe subset of `tests/busybox/ls.tests` into the default runner.
+- [x] Add explicit regression coverage for `ls` symlink-to-directory behavior and multi-target formatting.
+- [x] Decide which `ls` cases should compare against host `ls` and which should use fixed expected output.
+- [ ] Keep tightening exact `ls` long-format compatibility where host comparisons expose gaps.
+- [ ] Add more `date` fixture coverage if new cases appear; the current old-style fixture set is already wired into the runner.
 - [ ] Add runner-level fixture coverage for `mknod` on Linux.
 - [ ] Add runner-level fixture coverage for `losetup` on Linux.
 - [ ] Add fixture coverage for compression edge cases across `gzip`, `bzip2`, `xz`, and `lzma`.
+- [x] Add malformed/truncated decode coverage for `gzip`, `bzip2`, `xz`, and `lzma`.
+- [ ] Add network-backed `wget` coverage for redirects, HTTPS success, and output-path handling with clean skip semantics when offline.
 - [ ] Add failure-path tests for partial writes, unreadable files, permission errors, and broken symlinks.
 - [ ] Add malformed-input tests for archive and compression applets.
 - [ ] Add large-file tests for file-manipulation and archive applets.
@@ -29,15 +35,15 @@ The goal is to keep each item discrete and shippable. Prefer finishing one item 
 
 ## 3. Argument Parsing Consistency
 
-- [ ] Audit all applets for inconsistent option parsing and error wording.
-- [ ] Extract a small shared parsing helper for common patterns only:
+- [x] Audit all applets for inconsistent option parsing and error wording.
+- [x] Extract a small shared parsing helper for common patterns only:
   - required option arguments
   - mutually exclusive modes
   - repeated-option diagnostics
   - `--` handling
-- [ ] Move one simple applet onto the helper first and verify it improves readability.
-- [ ] Move the remaining small applets incrementally rather than attempting a single large rewrite.
-- [ ] Keep applet-specific parsing local when abstraction would obscure behavior.
+- [x] Move one simple applet onto the helper first and verify it improves readability.
+- [x] Move the remaining small applets incrementally rather than attempting a single large rewrite.
+- [x] Keep applet-specific parsing local when abstraction would obscure behavior.
 
 ## 4. Error Semantics And Output Fidelity
 
@@ -104,6 +110,7 @@ The goal is to keep each item discrete and shippable. Prefer finishing one item 
 ## 11. Suggested Order
 
 - [ ] Expand test coverage for the highest-risk applets first: `tar`, `ls`, `date`, `wget`, `mknod`, `losetup`.
+- [ ] For the next non-Linux pass, prioritize `ls` coverage expansion before further structural refactors.
 - [ ] Fix the newly exposed behavior gaps before starting deeper structural refactors.
 - [ ] Introduce small shared parsing/helpers only after concrete duplication becomes painful.
 - [ ] Revisit binary size and perf once compatibility coverage is substantially broader.

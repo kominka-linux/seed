@@ -1,0 +1,16 @@
+mkdir -p "$d/dir"
+printf 'x\n' >"$d/dir/A"
+printf 'y\n' >"$d/dir/B"
+ln -s "$d/dir" "$d/link"
+
+LC_ALL=C /bin/ls "$d/link" >logfile.gnu
+LC_ALL=C busybox ls "$d/link" >logfile.bb
+cmp logfile.gnu logfile.bb
+
+LC_ALL=C /bin/ls -1 "$d/link/" >logfile.gnu
+LC_ALL=C busybox ls -1 "$d/link/" >logfile.bb
+cmp logfile.gnu logfile.bb
+
+LC_ALL=C /bin/ls -1 "$d/link" >logfile.gnu
+LC_ALL=C busybox ls -1 "$d/link" >logfile.bb
+cmp logfile.gnu logfile.bb

@@ -7,6 +7,7 @@ use ureq::Agent;
 use ureq::tls::{RootCerts, TlsConfig};
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
@@ -44,48 +45,30 @@ fn run(args: &[String]) -> AppletResult {
 fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError>> {
     let mut options = Options::default();
     let mut urls = Vec::new();
-    let mut parsing_flags = true;
-    let mut index = 0;
+    let mut cursor = ArgCursor::new(args);
 
-    while index < args.len() {
-        let arg = &args[index];
-        if parsing_flags && arg == "--" {
-            parsing_flags = false;
-            index += 1;
+    while let Some(arg) = cursor.next_token() {
+        if cursor.parsing_flags() && arg == "-O" {
+            options.output_document = Some(cursor.next_value(APPLET, "O")?.to_owned());
             continue;
         }
 
-        if parsing_flags && arg == "-O" {
-            let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::option_requires_arg(APPLET, "O")]);
-            };
-            options.output_document = Some(value.clone());
-            index += 2;
+        if cursor.parsing_flags() && arg == "-P" {
+            options.output_dir = Some(cursor.next_value(APPLET, "P")?.to_owned());
             continue;
         }
 
-        if parsing_flags && arg == "-P" {
-            let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::option_requires_arg(APPLET, "P")]);
-            };
-            options.output_dir = Some(value.clone());
-            index += 2;
-            continue;
-        }
-
-        if parsing_flags && arg.starts_with('-') && arg.len() > 1 {
+        if cursor.parsing_flags() && arg.starts_with('-') && arg.len() > 1 {
             for flag in arg[1..].chars() {
                 match flag {
                     'q' => options.quiet = true,
                     _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
                 }
             }
-            index += 1;
             continue;
         }
 
-        urls.push(arg.clone());
-        index += 1;
+        urls.push(arg.to_owned());
     }
 
     if urls.is_empty() {

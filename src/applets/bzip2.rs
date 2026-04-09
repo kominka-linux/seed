@@ -172,4 +172,25 @@ mod tests {
 
         let _ = fs::remove_dir_all(dir);
     }
+
+    #[test]
+    fn truncated_bzip2_input_fails_to_decompress() {
+        let dir = compression::temp_dir("bzip2");
+        let input = dir.join("hello.txt");
+        fs::write(&input, b"hello bzip2\n").expect("write input");
+
+        let status = super::main(&[input.display().to_string()]);
+        assert_eq!(status, 0);
+
+        let compressed = dir.join("hello.txt.bz2");
+        let mut data = fs::read(&compressed).expect("read compressed");
+        data.truncate(data.len().saturating_sub(4));
+        fs::write(&compressed, data).expect("truncate compressed");
+
+        let status = super::main_bunzip2(&[compressed.display().to_string()]);
+        assert_ne!(status, 0);
+        assert!(!dir.join("hello.txt").exists());
+
+        let _ = fs::remove_dir_all(dir);
+    }
 }

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::error::Error;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 #[cfg(unix)]
@@ -517,8 +518,7 @@ fn extract_from_reader<R: Read>(
         }
 
         if let Some(writer) = stdout_writer.as_deref_mut() {
-            io::copy(&mut entry, writer)
-                .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(&path_text), err))?;
+            io::copy(&mut entry, writer).map_err(|err| extract_io_error(&path_text, err))?;
         } else {
             extract_entry(
                 &mut entry,
@@ -582,6 +582,10 @@ fn extract_entry<R: Read>(
         return extract_hardlink(entry, destination, path, path_text, options);
     }
 
+    if entry_type.is_file() {
+        return extract_regular_file(entry, destination, path, path_text, options);
+    }
+
     if options.keep_old {
         let output_path = archive_path_in(destination, path, path_text)?;
         if path_exists(&output_path)? {
@@ -596,7 +600,60 @@ fn extract_entry<R: Read>(
     entry
         .unpack_in(destination)
         .map(|_| ())
-        .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))
+        .map_err(|err| extract_io_error(path_text, err))
+}
+
+fn extract_regular_file<R: Read>(
+    entry: &mut tar::Entry<'_, R>,
+    destination: &Path,
+    path: &Path,
+    path_text: &str,
+    options: &Options,
+) -> Result<(), AppletError> {
+    let Some(output_path) = regular_output_path_in(destination, path) else {
+        return drain_entry(entry, path_text);
+    };
+
+    if options.keep_old && path_exists(&output_path)? {
+        return drain_entry(entry, path_text);
+    }
+
+    if options.overwrite {
+        return extract_regular_file_overwrite(entry, destination, path, path_text);
+    }
+
+    ensure_parent_dir(&output_path, path_text)?;
+    validate_parent_inside_destination(destination, &output_path, path_text)?;
+
+    match fs::symlink_metadata(&output_path) {
+        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+            return Err(AppletError::new(
+                APPLET,
+                format!("extracting {path_text}: cannot overwrite directory"),
+            ));
+        }
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            remove_existing_path(&output_path, path_text)?;
+        }
+        Ok(_) => {}
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Err(err) => return Err(extract_io_error(path_text, err)),
+    }
+
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&output_path)
+        .map_err(|err| extract_io_error(path_text, err))?;
+    io::copy(entry, &mut file).map_err(|err| extract_io_error(path_text, err))?;
+
+    let mode = entry
+        .header()
+        .mode()
+        .map_err(|err| read_error(Some(path_text), err))?;
+    fs::set_permissions(&output_path, fs::Permissions::from_mode(mode))
+        .map_err(|err| extract_io_error(path_text, err))
 }
 
 fn extract_symlink<R: Read>(
@@ -621,8 +678,7 @@ fn extract_symlink<R: Read>(
             format!("extracting {path_text}: missing symlink target"),
         ));
     };
-    symlink(&target, &output_path)
-        .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))
+    symlink(&target, &output_path).map_err(|err| extract_io_error(path_text, err))
 }
 
 fn extract_hardlink<R: Read>(
@@ -657,16 +713,14 @@ fn extract_hardlink<R: Read>(
         ));
     }
     remove_existing_path(&output_path, path_text)?;
-    let target_metadata = fs::symlink_metadata(&target_path)
-        .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))?;
+    let target_metadata =
+        fs::symlink_metadata(&target_path).map_err(|err| extract_io_error(path_text, err))?;
     if target_metadata.file_type().is_symlink() {
-        let link_target = fs::read_link(&target_path)
-            .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))?;
-        symlink(&link_target, &output_path)
-            .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))
+        let link_target =
+            fs::read_link(&target_path).map_err(|err| extract_io_error(path_text, err))?;
+        symlink(&link_target, &output_path).map_err(|err| extract_io_error(path_text, err))
     } else {
-        fs::hard_link(&target_path, &output_path)
-            .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))
+        fs::hard_link(&target_path, &output_path).map_err(|err| extract_io_error(path_text, err))
     }
 }
 
@@ -692,12 +746,7 @@ fn extract_regular_file_overwrite<R: Read>(
         Ok(_) => {}
         Err(err) if err.kind() == io::ErrorKind::NotFound => {}
         Err(err) => {
-            return Err(AppletError::from_io(
-                APPLET,
-                "extracting",
-                Some(path_text),
-                err,
-            ));
+            return Err(extract_io_error(path_text, err));
         }
     }
 
@@ -706,16 +755,15 @@ fn extract_regular_file_overwrite<R: Read>(
         .create(true)
         .truncate(true)
         .open(&output_path)
-        .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))?;
-    io::copy(entry, &mut file)
-        .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))?;
+        .map_err(|err| extract_io_error(path_text, err))?;
+    io::copy(entry, &mut file).map_err(|err| extract_io_error(path_text, err))?;
 
     let mode = entry
         .header()
         .mode()
         .map_err(|err| read_error(Some(path_text), err))?;
     fs::set_permissions(&output_path, fs::Permissions::from_mode(mode))
-        .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))
+        .map_err(|err| extract_io_error(path_text, err))
 }
 
 fn archive_path_in(
@@ -739,12 +787,50 @@ fn archive_path_in(
     Ok(output)
 }
 
+fn regular_output_path_in(destination: &Path, archive_path: &Path) -> Option<PathBuf> {
+    let mut output = destination.to_path_buf();
+    for component in archive_path.components() {
+        match component {
+            Component::CurDir | Component::RootDir | Component::Prefix(_) => {}
+            Component::ParentDir => return None,
+            Component::Normal(part) => output.push(part),
+        }
+    }
+    (output != destination).then_some(output)
+}
+
 fn ensure_parent_dir(path: &Path, display: &str) -> Result<(), AppletError> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(display), err))?;
+        fs::create_dir_all(parent).map_err(|err| extract_io_error(display, err))?;
     }
     Ok(())
+}
+
+fn validate_parent_inside_destination(
+    destination: &Path,
+    output_path: &Path,
+    display: &str,
+) -> Result<(), AppletError> {
+    let Some(parent) = output_path.parent() else {
+        return Ok(());
+    };
+    let canon_parent = parent
+        .canonicalize()
+        .map_err(|err| extract_io_error(display, err))?;
+    let canon_destination = destination
+        .canonicalize()
+        .map_err(|err| extract_io_error(display, err))?;
+    if canon_parent.starts_with(&canon_destination) {
+        Ok(())
+    } else {
+        Err(AppletError::new(
+            APPLET,
+            format!(
+                "extracting {display}: trying to unpack outside of destination path: {}",
+                canon_destination.display()
+            ),
+        ))
+    }
 }
 
 fn path_exists(path: &Path) -> Result<bool, AppletError> {
@@ -763,25 +849,48 @@ fn path_exists(path: &Path) -> Result<bool, AppletError> {
 fn drain_entry<R: Read>(entry: &mut tar::Entry<'_, R>, path_text: &str) -> Result<(), AppletError> {
     io::copy(entry, &mut io::sink())
         .map(|_| ())
-        .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))
+        .map_err(|err| extract_io_error(path_text, err))
 }
 
 fn remove_existing_path(path: &Path, display: &str) -> Result<(), AppletError> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
-            fs::remove_dir_all(path)
-                .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(display), err))
+            fs::remove_dir_all(path).map_err(|err| extract_io_error(display, err))
         }
-        Ok(_) => fs::remove_file(path)
-            .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(display), err)),
+        Ok(_) => fs::remove_file(path).map_err(|err| extract_io_error(display, err)),
         Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(err) => Err(AppletError::from_io(
-            APPLET,
-            "extracting",
-            Some(display),
-            err,
-        )),
+        Err(err) => Err(extract_io_error(display, err)),
     }
+}
+
+fn extract_io_error(path: &str, err: io::Error) -> AppletError {
+    if is_short_read_io_error(&err) {
+        short_read_error()
+    } else {
+        AppletError::from_io(APPLET, "extracting", Some(path), err)
+    }
+}
+
+fn is_short_read_io_error(err: &io::Error) -> bool {
+    let mut current: Option<&(dyn Error + 'static)> = Some(err);
+    while let Some(source) = current {
+        let message = source.to_string();
+        if message.contains("failed to read entire block") || message.contains("unexpected EOF") {
+            return true;
+        }
+        if let Some(io_error) = source.downcast_ref::<io::Error>() {
+            if io_error.kind() == io::ErrorKind::UnexpectedEof {
+                return true;
+            }
+            if let Some(inner) = io_error.get_ref() {
+                current = Some(inner);
+                continue;
+            }
+        }
+        current = source.source();
+    }
+
+    false
 }
 
 fn apply_deferred_directory_modes(directories: &[DeferredDirectory]) -> Result<(), AppletError> {
@@ -867,7 +976,7 @@ fn short_read_error() -> AppletError {
 }
 
 fn read_error(archive: Option<&str>, err: io::Error) -> AppletError {
-    if err.kind() == io::ErrorKind::UnexpectedEof {
+    if is_short_read_io_error(&err) {
         short_read_error()
     } else {
         AppletError::from_io(APPLET, "reading", archive, err)
@@ -1418,9 +1527,13 @@ fn source_path(operand: &Operand) -> PathBuf {
 mod tests {
     use super::{
         CompressionMode, ListEntry, Mode, PaxHeaders, detect_compression, ensure_archive_has_data,
-        parse_args, read_list_entry, sanitize_archive_name,
+        list_from_reader, parse_args, read_list_entry, sanitize_archive_name,
     };
-    use std::io::{self, Cursor};
+    use bzip2::bufread::MultiBzDecoder;
+    use flate2::bufread::MultiGzDecoder;
+    use lzma_rust2::XzReader;
+    use std::fs;
+    use std::io::{self, BufReader, Cursor};
     use tar::{Builder, Header};
 
     fn parse(input: &[&str]) -> super::Options {
@@ -1454,6 +1567,35 @@ mod tests {
         }
 
         entries
+    }
+
+    fn list_result<R: io::Read>(reader: R) -> Result<(), super::AppletError> {
+        let options = parse(&["tf", "-"]);
+        list_from_reader(reader, &options)
+    }
+
+    fn extract_result<R: io::Read>(reader: R) -> Result<(), super::AppletError> {
+        let options = parse(&["xf", "-"]);
+        let destination = crate::common::unix::temp_dir("tar-extract-test");
+        let result = super::extract_from_reader(reader, &destination, &options, None);
+        let _ = fs::remove_dir_all(destination);
+        result
+    }
+
+    fn raw_header(entry_type: tar::EntryType, size: u64) -> Header {
+        let mut header = Header::new_ustar();
+        header.set_entry_type(entry_type);
+        header.set_size(size);
+        header.set_mode(0o644);
+        header.set_cksum();
+        header
+    }
+
+    fn named_header(path: &str, entry_type: tar::EntryType, size: u64) -> Header {
+        let mut header = raw_header(entry_type, size);
+        header.set_path(path).expect("set path");
+        header.set_cksum();
+        header
     }
 
     #[test]
@@ -1604,5 +1746,132 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].path, "dir/link");
         assert_eq!(entries[0].link_name.as_deref(), Some(long_target.as_str()));
+    }
+
+    #[test]
+    fn truncated_gnu_longname_payload_is_short_read() {
+        let mut bytes = Vec::new();
+        let header = raw_header(tar::EntryType::GNULongName, 10);
+        bytes.extend_from_slice(header.as_bytes());
+        bytes.extend_from_slice(b"short");
+
+        let err = list_result(Cursor::new(bytes)).expect_err("expected short read");
+        assert_eq!(err.to_string(), "tar: short read");
+    }
+
+    #[test]
+    fn truncated_pax_payload_is_short_read() {
+        let mut bytes = Vec::new();
+        let header = raw_header(tar::EntryType::XHeader, 10);
+        bytes.extend_from_slice(header.as_bytes());
+        bytes.extend_from_slice(b"12 path=x");
+
+        let err = list_result(Cursor::new(bytes)).expect_err("expected short read");
+        assert_eq!(err.to_string(), "tar: short read");
+    }
+
+    #[test]
+    fn malformed_pax_payload_is_reported() {
+        let mut bytes = Vec::new();
+        let data = b"12 bad\n";
+        let header = raw_header(tar::EntryType::XHeader, data.len() as u64);
+        bytes.extend_from_slice(header.as_bytes());
+        bytes.extend_from_slice(data);
+        bytes.resize(bytes.len().div_ceil(512) * 512, 0);
+
+        let err = list_result(Cursor::new(bytes)).expect_err("expected malformed pax error");
+        assert_eq!(err.to_string(), "tar: reading -: malformed pax extension");
+    }
+
+    #[test]
+    fn corrupt_gzip_tar_is_rejected() {
+        let reader = MultiGzDecoder::new(BufReader::new(Cursor::new(b"not gzip".to_vec())));
+        let err = list_result(reader).expect_err("expected gzip failure");
+        assert_eq!(err.to_string(), "tar: short read");
+    }
+
+    #[test]
+    fn corrupt_bzip2_tar_is_rejected() {
+        let reader = MultiBzDecoder::new(BufReader::new(Cursor::new(b"not bzip2".to_vec())));
+        let err = list_result(reader).expect_err("expected bzip2 failure");
+        assert_eq!(err.to_string(), "tar: reading -: bzip2: bz2 header missing");
+    }
+
+    #[test]
+    fn corrupt_xz_tar_is_rejected() {
+        let reader = XzReader::new(BufReader::new(Cursor::new(b"not xz".to_vec())), true);
+        let err = list_result(reader).expect_err("expected xz failure");
+        assert_eq!(err.to_string(), "tar: reading -: invalid XZ magic bytes");
+    }
+
+    #[test]
+    fn truncated_file_body_is_short_read_on_extract() {
+        let mut bytes = Vec::new();
+        let mut header = Header::new_ustar();
+        header.set_path("file").expect("set path");
+        header.set_size(10);
+        header.set_mode(0o644);
+        header.set_cksum();
+        bytes.extend_from_slice(header.as_bytes());
+        bytes.extend_from_slice(b"hello");
+
+        let err = extract_result(Cursor::new(bytes)).expect_err("expected short read");
+        assert_eq!(err.to_string(), "tar: short read");
+    }
+
+    #[test]
+    fn corrupt_gzip_tar_is_rejected_on_extract() {
+        let reader = MultiGzDecoder::new(BufReader::new(Cursor::new(b"not gzip".to_vec())));
+        let err = extract_result(reader).expect_err("expected gzip failure");
+        assert_eq!(err.to_string(), "tar: short read");
+    }
+
+    #[test]
+    fn corrupt_bzip2_tar_is_rejected_on_extract() {
+        let reader = MultiBzDecoder::new(BufReader::new(Cursor::new(b"not bzip2".to_vec())));
+        let err = extract_result(reader).expect_err("expected bzip2 failure");
+        assert_eq!(err.to_string(), "tar: reading -: bzip2: bz2 header missing");
+    }
+
+    #[test]
+    fn corrupt_xz_tar_is_rejected_on_extract() {
+        let reader = XzReader::new(BufReader::new(Cursor::new(b"not xz".to_vec())), true);
+        let err = extract_result(reader).expect_err("expected xz failure");
+        assert_eq!(err.to_string(), "tar: reading -: invalid XZ magic bytes");
+    }
+
+    #[test]
+    fn invalid_hardlink_target_is_rejected_on_extract() {
+        let mut bytes = Vec::new();
+        let mut header = named_header("link", tar::EntryType::Link, 0);
+        header
+            .set_link_name("/tmp/outside")
+            .expect("set link target");
+        header.set_cksum();
+        bytes.extend_from_slice(header.as_bytes());
+        bytes.extend_from_slice(&[0_u8; 1024]);
+
+        let err = extract_result(Cursor::new(bytes)).expect_err("expected invalid path");
+        assert_eq!(err.to_string(), "tar: extracting link: invalid path");
+    }
+
+    #[test]
+    fn header_checksum_mismatch_is_rejected_on_extract() {
+        let mut bytes = vec![0_u8; 512];
+        bytes[..4].copy_from_slice(b"file");
+        bytes[100..108].copy_from_slice(b"0000644\0");
+        bytes[124..136].copy_from_slice(b"00000000000\0");
+        bytes[136..148].copy_from_slice(b"00000000000\0");
+        bytes[156] = b'0';
+        bytes[257..263].copy_from_slice(b"ustar\0");
+        bytes[263..265].copy_from_slice(b"00");
+        bytes[148..156].copy_from_slice(b"000000\0 ");
+        bytes.extend_from_slice(&[0_u8; 1024]);
+
+        let err = extract_result(Cursor::new(bytes)).expect_err("expected checksum mismatch");
+        assert_eq!(
+            err.to_string(),
+            "tar: reading -: archive header checksum mismatch"
+        );
     }
 }

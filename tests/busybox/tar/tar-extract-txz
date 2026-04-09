@@ -1,0 +1,17 @@
+# FEATURE: CONFIG_FEATURE_TAR_AUTODETECT
+# FEATURE: CONFIG_FEATURE_SEAMLESS_XZ
+
+set -eu
+
+cat >hello_world.txz.b64 <<'EOF'
+begin-base64 644 hello_world.txz
+/Td6WFoAAATm1rRGAgAhARYAAAB0L+Wj4AX/AEldADQZSe6ODIZQ3rSQ8kAJ
+SnMPTX+XWGKW3Yu/Rwqg4Ik5wqgQKgVH97J8yA8IvZ4ahaCQogUNHRkXibr2
+Q615wcb2G7fJU49AhWAAAAAAUA8gu9DyXfAAAWWADAAAAB5FXGCxxGf7AgAA
+AAAEWVo=
+====
+EOF
+
+uudecode -o input hello_world.txz.b64
+output=$(busybox tar tf input)
+test "$output" = "hello_world"

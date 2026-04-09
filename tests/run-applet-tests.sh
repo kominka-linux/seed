@@ -223,6 +223,8 @@ run_old_style tests/busybox/tar/tar-complains-about-missing-file
 run_old_style tests/busybox/tar/tar-demands-at-least-one-ctx
 run_old_style tests/busybox/tar/tar-demands-at-most-one-ctx
 run_old_style tests/busybox/tar/tar-does-not-extract-into-symlinks
+run_old_style tests/busybox/tar/tar-extract-tgz
+run_old_style tests/busybox/tar/tar-extract-txz
 run_old_style tests/busybox/tar/tar-extracts-all-subdirs
 run_old_style tests/busybox/tar/tar-extracts-file
 run_old_style tests/busybox/tar/tar-extracts-from-standard-input

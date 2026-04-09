@@ -1,0 +1,12 @@
+# FEATURE: CONFIG_FEATURE_TAR_CREATE
+# FEATURE: CONFIG_FEATURE_SEAMLESS_GZ
+
+set -eu
+
+dd count=1 bs=1M if=/dev/zero of=F0 2>/dev/null
+busybox tar -czf F0.tgz F0
+rm F0
+
+output=$(busybox tar -xzvf F0.tgz)
+test "$output" = "F0"
+test -f F0

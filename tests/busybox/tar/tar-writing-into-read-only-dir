@@ -1,23 +1,8 @@
 # FEATURE: CONFIG_FEATURE_TAR_CREATE
 
 set -eu
-
-normalize_ls_listing() {
-	python3 -c '
-import re
-import sys
-
-for raw in sys.stdin:
-    line = raw.rstrip("\n")
-    match = re.match(r"^([^ @]+)@?.* ([^ ]+) -> ([^ ]+)$", line)
-    if match:
-        print(f"{match.group(1)} {match.group(2)} -> {match.group(3)}")
-        continue
-    match = re.match(r"^([^ @]+)@?.* ([^ ]+)$", line)
-    if match:
-        print(f"{match.group(1)} {match.group(2)}")
-'
-}
+script_dir=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+. "$script_dir/testlib.sh"
 
 setup_case() {
 	mkdir input_dir

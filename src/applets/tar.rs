@@ -807,8 +807,17 @@ fn list_from_reader<R: Read>(reader: R, options: &Options) -> Result<(), AppletE
 
     let mut long_path = None;
     let mut long_link = None;
+    let mut pax_global = PaxHeaders::default();
+    let mut pax_local = None;
 
-    while let Some(entry) = read_list_entry(&mut reader, &mut long_path, &mut long_link, options)? {
+    while let Some(entry) = read_list_entry(
+        &mut reader,
+        &mut long_path,
+        &mut long_link,
+        &mut pax_global,
+        &mut pax_local,
+        options,
+    )? {
         let path = PathBuf::from(&entry.path);
         if is_apple_double(&path) {
             continue;
@@ -876,10 +885,22 @@ struct ListEntry {
     groupname: String,
 }
 
+#[derive(Clone, Debug, Default)]
+struct PaxHeaders {
+    path: Option<String>,
+    link_name: Option<String>,
+    size: Option<u64>,
+    mtime: Option<u64>,
+    username: Option<String>,
+    groupname: Option<String>,
+}
+
 fn read_list_entry<R: BufRead>(
     reader: &mut R,
     long_path: &mut Option<Vec<u8>>,
     long_link: &mut Option<Vec<u8>>,
+    pax_global: &mut PaxHeaders,
+    pax_local: &mut Option<PaxHeaders>,
     options: &Options,
 ) -> Result<Option<ListEntry>, AppletError> {
     loop {
@@ -899,6 +920,7 @@ fn read_list_entry<R: BufRead>(
             *long_path = Some(read_entry_bytes(
                 reader,
                 header_size,
+                true,
                 options.archive.as_deref(),
             )?);
             continue;
@@ -907,53 +929,75 @@ fn read_list_entry<R: BufRead>(
             *long_link = Some(read_entry_bytes(
                 reader,
                 header_size,
+                true,
                 options.archive.as_deref(),
             )?);
             continue;
         }
+        if entry_type.is_pax_global_extensions() || entry_type.is_pax_local_extensions() {
+            let data = read_entry_bytes(reader, header_size, false, options.archive.as_deref())?;
+            let headers = parse_pax_headers(&data, options.archive.as_deref())?;
+            if entry_type.is_pax_global_extensions() {
+                pax_global.apply(headers);
+            } else {
+                *pax_local = Some(headers);
+            }
+            continue;
+        }
 
-        let mut path = path_from_header(header, long_path.take()).map_err(|err| {
-            AppletError::from_io(APPLET, "reading", options.archive.as_deref(), err)
-        })?;
+        let mut pax_headers = pax_global.clone();
+        if let Some(local) = pax_local.take() {
+            pax_headers.apply(local);
+        }
+
+        let mut path = path_from_header(header, long_path.take(), pax_headers.path.take())
+            .map_err(|err| {
+                AppletError::from_io(APPLET, "reading", options.archive.as_deref(), err)
+            })?;
         if entry_type.is_dir() && !path.ends_with('/') {
             path.push('/');
         }
 
-        let link_name = link_name_from_header(header, long_link.take()).map_err(|err| {
-            AppletError::from_io(APPLET, "reading", options.archive.as_deref(), err)
-        })?;
+        let link_name =
+            link_name_from_header(header, long_link.take(), pax_headers.link_name.take()).map_err(
+                |err| AppletError::from_io(APPLET, "reading", options.archive.as_deref(), err),
+            )?;
         let mode = header.mode().map_err(|err| {
             AppletError::from_io(APPLET, "reading", options.archive.as_deref(), err)
         })?;
-        let mtime = header.mtime().map_err(|err| {
+        let mtime = pax_headers.mtime.unwrap_or(header.mtime().map_err(|err| {
             AppletError::from_io(APPLET, "reading", options.archive.as_deref(), err)
-        })?;
-        let username = header
-            .username()
-            .ok()
-            .flatten()
-            .map(str::to_owned)
-            .unwrap_or_else(|| {
-                header
-                    .uid()
-                    .map(|uid| uid.to_string())
-                    .unwrap_or_else(|_| String::from("0"))
-            });
-        let groupname = header
-            .groupname()
-            .ok()
-            .flatten()
-            .map(str::to_owned)
-            .unwrap_or_else(|| {
-                header
-                    .gid()
-                    .map(|gid| gid.to_string())
-                    .unwrap_or_else(|_| String::from("0"))
-            });
+        })?);
+        let username = pax_headers.username.unwrap_or_else(|| {
+            header
+                .username()
+                .ok()
+                .flatten()
+                .map(str::to_owned)
+                .unwrap_or_else(|| {
+                    header
+                        .uid()
+                        .map(|uid| uid.to_string())
+                        .unwrap_or_else(|_| String::from("0"))
+                })
+        });
+        let groupname = pax_headers.groupname.unwrap_or_else(|| {
+            header
+                .groupname()
+                .ok()
+                .flatten()
+                .map(str::to_owned)
+                .unwrap_or_else(|| {
+                    header
+                        .gid()
+                        .map(|gid| gid.to_string())
+                        .unwrap_or_else(|_| String::from("0"))
+                })
+        });
         let size = if entry_type.is_symlink() || entry_type.is_hard_link() {
             0
         } else {
-            header_size
+            pax_headers.size.unwrap_or(header_size)
         };
 
         let skip_size = if entry_type.is_symlink() || entry_type.is_hard_link() {
@@ -973,6 +1017,29 @@ fn read_list_entry<R: BufRead>(
             username,
             groupname,
         }));
+    }
+}
+
+impl PaxHeaders {
+    fn apply(&mut self, other: PaxHeaders) {
+        if other.path.is_some() {
+            self.path = other.path;
+        }
+        if other.link_name.is_some() {
+            self.link_name = other.link_name;
+        }
+        if other.size.is_some() {
+            self.size = other.size;
+        }
+        if other.mtime.is_some() {
+            self.mtime = other.mtime;
+        }
+        if other.username.is_some() {
+            self.username = other.username;
+        }
+        if other.groupname.is_some() {
+            self.groupname = other.groupname;
+        }
     }
 }
 
@@ -1003,6 +1070,7 @@ fn read_header_block<R: BufRead>(
 fn read_entry_bytes<R: BufRead>(
     reader: &mut R,
     size: u64,
+    trim_nul: bool,
     archive: Option<&str>,
 ) -> Result<Vec<u8>, AppletError> {
     let mut data = vec![0; size as usize];
@@ -1010,7 +1078,7 @@ fn read_entry_bytes<R: BufRead>(
         .read_exact(&mut data)
         .map_err(|err| read_error(archive, err))?;
     skip_entry_padding(reader, size, archive)?;
-    if let Some(end) = data.iter().position(|byte| *byte == 0) {
+    if trim_nul && let Some(end) = data.iter().position(|byte| *byte == 0) {
         data.truncate(end);
     }
     Ok(data)
@@ -1074,23 +1142,163 @@ fn validate_header_checksum(header: &Header, archive: Option<&str>) -> Result<()
     }
 }
 
-fn path_from_header(header: &Header, override_bytes: Option<Vec<u8>>) -> io::Result<String> {
-    match override_bytes {
-        Some(bytes) => Ok(String::from_utf8_lossy(&bytes).into_owned()),
-        None => Ok(header.path()?.to_string_lossy().into_owned()),
+fn path_from_header(
+    header: &Header,
+    override_bytes: Option<Vec<u8>>,
+    pax_override: Option<String>,
+) -> io::Result<String> {
+    match pax_override {
+        Some(path) => Ok(path),
+        None => match override_bytes {
+            Some(bytes) => Ok(String::from_utf8_lossy(&bytes).into_owned()),
+            None => Ok(header.path()?.to_string_lossy().into_owned()),
+        },
     }
 }
 
 fn link_name_from_header(
     header: &Header,
     override_bytes: Option<Vec<u8>>,
+    pax_override: Option<String>,
 ) -> io::Result<Option<String>> {
-    match override_bytes {
-        Some(bytes) => Ok(Some(String::from_utf8_lossy(&bytes).into_owned())),
-        None => Ok(header
-            .link_name()?
-            .map(|path| path.to_string_lossy().into_owned())),
+    match pax_override {
+        Some(path) => Ok(Some(path)),
+        None => match override_bytes {
+            Some(bytes) => Ok(Some(String::from_utf8_lossy(&bytes).into_owned())),
+            None => Ok(header
+                .link_name()?
+                .map(|path| path.to_string_lossy().into_owned())),
+        },
     }
+}
+
+fn parse_pax_headers(data: &[u8], archive: Option<&str>) -> Result<PaxHeaders, AppletError> {
+    let mut headers = PaxHeaders::default();
+    for record in data
+        .split(|byte| *byte == b'\n')
+        .filter(|record| !record.is_empty())
+    {
+        let Some(space) = record.iter().position(|byte| *byte == b' ') else {
+            return Err(AppletError::from_io(
+                APPLET,
+                "reading",
+                archive,
+                io::Error::new(io::ErrorKind::InvalidData, "malformed pax extension"),
+            ));
+        };
+        let Ok(length_text) = std::str::from_utf8(&record[..space]) else {
+            return Err(AppletError::from_io(
+                APPLET,
+                "reading",
+                archive,
+                io::Error::new(io::ErrorKind::InvalidData, "malformed pax extension"),
+            ));
+        };
+        let Ok(reported_len) = length_text.parse::<usize>() else {
+            return Err(AppletError::from_io(
+                APPLET,
+                "reading",
+                archive,
+                io::Error::new(io::ErrorKind::InvalidData, "malformed pax extension"),
+            ));
+        };
+        if reported_len != record.len() + 1 {
+            return Err(AppletError::from_io(
+                APPLET,
+                "reading",
+                archive,
+                io::Error::new(io::ErrorKind::InvalidData, "malformed pax extension"),
+            ));
+        }
+        let payload = &record[space + 1..];
+        let Some(equals) = payload.iter().position(|byte| *byte == b'=') else {
+            return Err(AppletError::from_io(
+                APPLET,
+                "reading",
+                archive,
+                io::Error::new(io::ErrorKind::InvalidData, "malformed pax extension"),
+            ));
+        };
+        let key = std::str::from_utf8(&payload[..equals]).map_err(|_| {
+            AppletError::from_io(
+                APPLET,
+                "reading",
+                archive,
+                io::Error::new(io::ErrorKind::InvalidData, "malformed pax extension"),
+            )
+        })?;
+        match key {
+            "path" => {
+                let value = std::str::from_utf8(&payload[equals + 1..]).map_err(|_| {
+                    AppletError::from_io(
+                        APPLET,
+                        "reading",
+                        archive,
+                        io::Error::new(io::ErrorKind::InvalidData, "malformed pax extension"),
+                    )
+                })?;
+                headers.path = Some(value.to_owned());
+            }
+            "linkpath" => {
+                let value = std::str::from_utf8(&payload[equals + 1..]).map_err(|_| {
+                    AppletError::from_io(
+                        APPLET,
+                        "reading",
+                        archive,
+                        io::Error::new(io::ErrorKind::InvalidData, "malformed pax extension"),
+                    )
+                })?;
+                headers.link_name = Some(value.to_owned());
+            }
+            "size" => {
+                let value = std::str::from_utf8(&payload[equals + 1..]).map_err(|_| {
+                    AppletError::from_io(
+                        APPLET,
+                        "reading",
+                        archive,
+                        io::Error::new(io::ErrorKind::InvalidData, "malformed pax extension"),
+                    )
+                })?;
+                headers.size = value.parse::<u64>().ok();
+            }
+            "mtime" => {
+                let value = std::str::from_utf8(&payload[equals + 1..]).map_err(|_| {
+                    AppletError::from_io(
+                        APPLET,
+                        "reading",
+                        archive,
+                        io::Error::new(io::ErrorKind::InvalidData, "malformed pax extension"),
+                    )
+                })?;
+                let whole = value.split_once('.').map(|(head, _)| head).unwrap_or(value);
+                headers.mtime = whole.parse::<u64>().ok();
+            }
+            "uname" => {
+                let value = std::str::from_utf8(&payload[equals + 1..]).map_err(|_| {
+                    AppletError::from_io(
+                        APPLET,
+                        "reading",
+                        archive,
+                        io::Error::new(io::ErrorKind::InvalidData, "malformed pax extension"),
+                    )
+                })?;
+                headers.username = Some(value.to_owned());
+            }
+            "gname" => {
+                let value = std::str::from_utf8(&payload[equals + 1..]).map_err(|_| {
+                    AppletError::from_io(
+                        APPLET,
+                        "reading",
+                        archive,
+                        io::Error::new(io::ErrorKind::InvalidData, "malformed pax extension"),
+                    )
+                })?;
+                headers.groupname = Some(value.to_owned());
+            }
+            _ => {}
+        }
+    }
+    Ok(headers)
 }
 
 fn format_list_entry(entry: &ListEntry) -> Result<String, AppletError> {
@@ -1209,10 +1417,11 @@ fn source_path(operand: &Operand) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        CompressionMode, Mode, detect_compression, ensure_archive_has_data, parse_args,
-        sanitize_archive_name,
+        CompressionMode, ListEntry, Mode, PaxHeaders, detect_compression, ensure_archive_has_data,
+        parse_args, read_list_entry, sanitize_archive_name,
     };
     use std::io::{self, Cursor};
+    use tar::{Builder, Header};
 
     fn parse(input: &[&str]) -> super::Options {
         let args = input
@@ -1220,6 +1429,31 @@ mod tests {
             .map(|value| value.to_string())
             .collect::<Vec<_>>();
         parse_args(&args).expect("parse args")
+    }
+
+    fn list_entries(bytes: Vec<u8>) -> Vec<ListEntry> {
+        let options = parse(&["tf", "-"]);
+        let mut reader = ensure_archive_has_data(Cursor::new(bytes), Some("-")).expect("archive");
+        let mut entries = Vec::new();
+        let mut long_path = None;
+        let mut long_link = None;
+        let mut pax_global = PaxHeaders::default();
+        let mut pax_local = None;
+
+        while let Some(entry) = read_list_entry(
+            &mut reader,
+            &mut long_path,
+            &mut long_link,
+            &mut pax_global,
+            &mut pax_local,
+            &options,
+        )
+        .expect("read entry")
+        {
+            entries.push(entry);
+        }
+
+        entries
     }
 
     #[test]
@@ -1319,5 +1553,56 @@ mod tests {
         let archive_name = sanitize_archive_name("./.").expect("sanitize archive name");
         assert!(archive_name.path.as_os_str().is_empty());
         assert_eq!(archive_name.stripped_prefix, None);
+    }
+
+    #[test]
+    fn list_reader_applies_pax_path_extension() {
+        let mut bytes = Vec::new();
+        let mut builder = Builder::new(&mut bytes);
+        let long_name = format!("dir/{}", "a".repeat(120));
+        builder
+            .append_pax_extensions([("path", long_name.as_bytes())])
+            .expect("append pax");
+
+        let mut header = Header::new_ustar();
+        header.set_path("dir/short").expect("set path");
+        header.set_size(1);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder.append(&header, &b"x"[..]).expect("append file");
+        builder.finish().expect("finish archive");
+        drop(builder);
+
+        let entries = list_entries(bytes);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, long_name);
+    }
+
+    #[test]
+    fn list_reader_applies_pax_linkpath_extension() {
+        let mut bytes = Vec::new();
+        let mut builder = Builder::new(&mut bytes);
+        let long_target = "b".repeat(120);
+        builder
+            .append_pax_extensions([("linkpath", long_target.as_bytes())])
+            .expect("append pax");
+
+        let mut header = Header::new_ustar();
+        header.set_entry_type(tar::EntryType::Symlink);
+        header.set_path("dir/link").expect("set path");
+        header.set_link_name("short").expect("set link name");
+        header.set_size(0);
+        header.set_mode(0o777);
+        header.set_cksum();
+        builder
+            .append(&header, io::empty())
+            .expect("append symlink");
+        builder.finish().expect("finish archive");
+        drop(builder);
+
+        let entries = list_entries(bytes);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "dir/link");
+        assert_eq!(entries[0].link_name.as_deref(), Some(long_target.as_str()));
     }
 }

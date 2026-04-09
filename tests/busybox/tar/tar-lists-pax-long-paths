@@ -1,0 +1,12 @@
+name=$(python3 - <<'PY'
+print("a" * 120)
+PY
+)
+
+mkdir dir
+printf 'x\n' >"dir/$name"
+COPYFILE_DISABLE=1 tar -cf archive.tar dir
+
+tar -tf archive.tar >logfile.gnu
+busybox tar -tf archive.tar >logfile.bb
+cmp logfile.gnu logfile.bb

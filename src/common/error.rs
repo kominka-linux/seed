@@ -30,6 +30,14 @@ impl AppletError {
     pub fn invalid_option(applet: &'static str, flag: char) -> Self {
         Self::new(applet, format!("invalid option -- '{flag}'"))
     }
+
+    pub fn option_requires_arg(applet: &'static str, option: &str) -> Self {
+        Self::new(applet, format!("option requires an argument -- '{option}'"))
+    }
+
+    pub fn unrecognized_option(applet: &'static str, option: &str) -> Self {
+        Self::new(applet, format!("unrecognized option '{option}'"))
+    }
 }
 
 impl fmt::Display for AppletError {

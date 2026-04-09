@@ -115,12 +115,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
                     options.overwrite = true;
                     continue;
                 }
-                _ => {
-                    return Err(vec![AppletError::new(
-                        APPLET,
-                        format!("unrecognized option '{arg}'"),
-                    )]);
-                }
+                _ => return Err(vec![AppletError::unrecognized_option(APPLET, arg)]),
             }
         }
 

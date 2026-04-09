@@ -57,10 +57,7 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
 
         if parsing_flags && arg == "-O" {
             let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::new(
-                    APPLET,
-                    "option requires an argument -- 'O'",
-                )]);
+                return Err(vec![AppletError::option_requires_arg(APPLET, "O")]);
             };
             options.output_document = Some(value.clone());
             index += 2;
@@ -69,10 +66,7 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
 
         if parsing_flags && arg == "-P" {
             let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::new(
-                    APPLET,
-                    "option requires an argument -- 'P'",
-                )]);
+                return Err(vec![AppletError::option_requires_arg(APPLET, "P")]);
             };
             options.output_dir = Some(value.clone());
             index += 2;

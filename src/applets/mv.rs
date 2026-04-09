@@ -69,10 +69,7 @@ fn parse_args(args: &[String]) -> Result<(Vec<String>, String), Vec<AppletError>
 
         if parsing_flags && arg == "-t" {
             let Some(directory) = args.get(index + 1) else {
-                return Err(vec![AppletError::new(
-                    APPLET,
-                    "option requires an argument -- 't'",
-                )]);
+                return Err(vec![AppletError::option_requires_arg(APPLET, "t")]);
             };
             target_directory = Some(directory.clone());
             index += 2;
@@ -83,12 +80,7 @@ fn parse_args(args: &[String]) -> Result<(Vec<String>, String), Vec<AppletError>
             for flag in arg[1..].chars() {
                 match flag {
                     'f' => {}
-                    _ => {
-                        return Err(vec![AppletError::new(
-                            APPLET,
-                            format!("invalid option -- '{flag}'"),
-                        )]);
-                    }
+                    _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
                 }
             }
             index += 1;

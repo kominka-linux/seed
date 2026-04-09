@@ -94,10 +94,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
 
         if arg == "-o" {
             let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::new(
-                    APPLET,
-                    "option requires an argument -- 'o'",
-                )]);
+                return Err(vec![AppletError::option_requires_arg(APPLET, "o")]);
             };
             offset = value.parse::<u64>().map_err(|_| {
                 vec![AppletError::new(
@@ -111,10 +108,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
 
         if arg == "-c" {
             let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::new(
-                    APPLET,
-                    "option requires an argument -- 'c'",
-                )]);
+                return Err(vec![AppletError::option_requires_arg(APPLET, "c")]);
             };
             capacity_device = Some(value.clone());
             index += 2;
@@ -123,10 +117,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
 
         if arg == "-d" {
             let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::new(
-                    APPLET,
-                    "option requires an argument -- 'd'",
-                )]);
+                return Err(vec![AppletError::option_requires_arg(APPLET, "d")]);
             };
             detach_device = Some(value.clone());
             index += 2;

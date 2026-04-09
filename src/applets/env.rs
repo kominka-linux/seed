@@ -67,10 +67,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
 
         if parsing_flags && arg == "-u" {
             let Some(name) = args.get(index + 1) else {
-                return Err(vec![AppletError::new(
-                    APPLET,
-                    "option requires an argument -- 'u'",
-                )]);
+                return Err(vec![AppletError::option_requires_arg(APPLET, "u")]);
             };
             options.unset.push(name.clone());
             index += 2;

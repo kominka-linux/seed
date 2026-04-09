@@ -70,10 +70,7 @@ fn parse_args(args: &[String]) -> Result<(bool, Option<u32>, Vec<String>), Vec<A
 
         if parsing_flags && arg == "-m" {
             let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::new(
-                    APPLET,
-                    "option requires an argument -- 'm'",
-                )]);
+                return Err(vec![AppletError::option_requires_arg(APPLET, "m")]);
             };
             mode = Some(parse_mode(value)?);
             index += 2;
@@ -84,12 +81,7 @@ fn parse_args(args: &[String]) -> Result<(bool, Option<u32>, Vec<String>), Vec<A
             for flag in arg[1..].chars() {
                 match flag {
                     'p' => parents = true,
-                    _ => {
-                        return Err(vec![AppletError::new(
-                            APPLET,
-                            format!("invalid option -- '{flag}'"),
-                        )]);
-                    }
+                    _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
                 }
             }
             index += 1;

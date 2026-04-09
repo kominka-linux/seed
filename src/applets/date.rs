@@ -90,10 +90,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
 
         if parsing_flags && arg == "-d" {
             let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::new(
-                    APPLET,
-                    "option requires an argument -- 'd'",
-                )]);
+                return Err(vec![AppletError::option_requires_arg(APPLET, "d")]);
             };
             assign_time_source(&mut options.display_time, value.clone())?;
             index += 2;
@@ -102,10 +99,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
 
         if parsing_flags && arg == "-s" {
             let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::new(
-                    APPLET,
-                    "option requires an argument -- 's'",
-                )]);
+                return Err(vec![AppletError::option_requires_arg(APPLET, "s")]);
             };
             assign_time_source(&mut options.set_time, value.clone())?;
             index += 2;
@@ -114,10 +108,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
 
         if parsing_flags && arg == "-r" {
             let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::new(
-                    APPLET,
-                    "option requires an argument -- 'r'",
-                )]);
+                return Err(vec![AppletError::option_requires_arg(APPLET, "r")]);
             };
             if options.reference_file.is_some() {
                 return Err(vec![AppletError::new(
@@ -132,10 +123,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
 
         if parsing_flags && arg == "-D" {
             let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::new(
-                    APPLET,
-                    "option requires an argument -- 'D'",
-                )]);
+                return Err(vec![AppletError::option_requires_arg(APPLET, "D")]);
             };
             if options.input_format.is_some() {
                 return Err(vec![AppletError::new(

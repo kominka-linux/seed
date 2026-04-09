@@ -60,10 +60,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
 
         if parsing_flags && arg == "-m" {
             let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::new(
-                    APPLET,
-                    "option requires an argument -- 'm'",
-                )]);
+                return Err(vec![AppletError::option_requires_arg(APPLET, "m")]);
             };
             mode = parse_mode(value)?;
             index += 2;

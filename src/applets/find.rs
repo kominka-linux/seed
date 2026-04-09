@@ -117,10 +117,7 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>, Query), Vec<Appl
             }
             "-maxdepth" => {
                 let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::new(
-                        APPLET,
-                        "option requires an argument -- 'maxdepth'",
-                    )]);
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "maxdepth")]);
                 };
                 let Some(depth) = value.parse::<usize>().ok() else {
                     return Err(vec![AppletError::new(
@@ -170,10 +167,7 @@ fn parse_query(tokens: &[String], options: &mut Options) -> Result<Query, Vec<Ap
             }
             "-maxdepth" => {
                 let Some(value) = tokens.get(index + 1) else {
-                    return Err(vec![AppletError::new(
-                        APPLET,
-                        "option requires an argument -- 'maxdepth'",
-                    )]);
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "maxdepth")]);
                 };
                 let Some(depth) = value.parse::<usize>().ok() else {
                     return Err(vec![AppletError::new(
@@ -186,20 +180,14 @@ fn parse_query(tokens: &[String], options: &mut Options) -> Result<Query, Vec<Ap
             }
             "-name" => {
                 let Some(pattern) = tokens.get(index + 1) else {
-                    return Err(vec![AppletError::new(
-                        APPLET,
-                        "option requires an argument -- 'name'",
-                    )]);
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "name")]);
                 };
                 predicates.push(Predicate::Name(pattern.clone()));
                 index += 2;
             }
             "-type" => {
                 let Some(kind) = tokens.get(index + 1) else {
-                    return Err(vec![AppletError::new(
-                        APPLET,
-                        "option requires an argument -- 'type'",
-                    )]);
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "type")]);
                 };
                 predicates.push(Predicate::Type(parse_type(kind)?));
                 index += 2;

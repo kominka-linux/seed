@@ -1,5 +1,6 @@
 use std::io::{self, Read, Write};
 
+use crate::common::error::AppletError;
 use crate::common::io::open_input;
 
 const APPLET: &str = "od";
@@ -133,7 +134,7 @@ fn parse_args(args: &[String]) -> Result<(Format, Vec<String>), String> {
                     'I' | 'L' | 'l' => Format::Signed64,
                     'O' => Format::Octal32,
                     's' => Format::Signed16,
-                    _ => return Err(format!("invalid option -- '{flag}'")),
+                    _ => return Err(AppletError::invalid_option_message(flag)),
                 };
             }
             continue;

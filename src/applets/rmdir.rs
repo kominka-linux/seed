@@ -55,12 +55,7 @@ fn parse_args(args: &[String]) -> Result<(bool, Vec<String>), Vec<AppletError>> 
             for flag in arg[1..].chars() {
                 match flag {
                     'p' => parents = true,
-                    _ => {
-                        return Err(vec![AppletError::new(
-                            APPLET,
-                            format!("invalid option -- '{flag}'"),
-                        )]);
-                    }
+                    _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
                 }
             }
             continue;

@@ -106,10 +106,7 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
         }
         if parsing_flags && arg == "-k" {
             let Some(spec) = args.get(index + 1) else {
-                return Err(vec![AppletError::new(
-                    APPLET,
-                    "option requires an argument -- 'k'",
-                )]);
+                return Err(vec![AppletError::option_requires_arg(APPLET, "k")]);
             };
             options.keys.push(parse_key_spec(spec)?);
             index += 2;
@@ -117,10 +114,7 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
         }
         if parsing_flags && arg == "-o" {
             let Some(path) = args.get(index + 1) else {
-                return Err(vec![AppletError::new(
-                    APPLET,
-                    "option requires an argument -- 'o'",
-                )]);
+                return Err(vec![AppletError::option_requires_arg(APPLET, "o")]);
             };
             options.output = Some(path.clone());
             index += 2;
@@ -128,10 +122,7 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
         }
         if parsing_flags && arg == "-t" {
             let Some(delimiter) = args.get(index + 1) else {
-                return Err(vec![AppletError::new(
-                    APPLET,
-                    "option requires an argument -- 't'",
-                )]);
+                return Err(vec![AppletError::option_requires_arg(APPLET, "t")]);
             };
             options.delimiter = Some(parse_delimiter(delimiter)?);
             index += 2;
@@ -154,10 +145,7 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
                         } else {
                             index += 1;
                             let Some(spec) = args.get(index) else {
-                                return Err(vec![AppletError::new(
-                                    APPLET,
-                                    "option requires an argument -- 'k'",
-                                )]);
+                                return Err(vec![AppletError::option_requires_arg(APPLET, "k")]);
                             };
                             spec.clone()
                         };
@@ -170,10 +158,7 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
                         } else {
                             index += 1;
                             let Some(path) = args.get(index) else {
-                                return Err(vec![AppletError::new(
-                                    APPLET,
-                                    "option requires an argument -- 'o'",
-                                )]);
+                                return Err(vec![AppletError::option_requires_arg(APPLET, "o")]);
                             };
                             path.clone()
                         };
@@ -186,10 +171,7 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
                         } else {
                             index += 1;
                             let Some(delimiter) = args.get(index) else {
-                                return Err(vec![AppletError::new(
-                                    APPLET,
-                                    "option requires an argument -- 't'",
-                                )]);
+                                return Err(vec![AppletError::option_requires_arg(APPLET, "t")]);
                             };
                             delimiter.clone()
                         };

@@ -2,6 +2,7 @@ use std::fs;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::Path;
 
+use crate::common::error::AppletError;
 use crate::common::io::open_input;
 
 const APPLET: &str = "grep";
@@ -209,7 +210,7 @@ fn parse_args(args: &[String], default_extended: bool) -> Result<ParsedArgs, Str
         }
         if parsing_flags && arg == "-e" {
             let Some(pattern) = args.get(index + 1) else {
-                return Err("option requires an argument -- 'e'".to_owned());
+                return Err(AppletError::option_requires_arg_message("e"));
             };
             inline_patterns.push(pattern.clone());
             index += 2;
@@ -217,7 +218,7 @@ fn parse_args(args: &[String], default_extended: bool) -> Result<ParsedArgs, Str
         }
         if parsing_flags && arg == "-f" {
             let Some(path) = args.get(index + 1) else {
-                return Err("option requires an argument -- 'f'".to_owned());
+                return Err(AppletError::option_requires_arg_message("f"));
             };
             pattern_files.push(path.clone());
             index += 2;
@@ -245,7 +246,7 @@ fn parse_args(args: &[String], default_extended: bool) -> Result<ParsedArgs, Str
                             break;
                         }
                         let Some(pattern) = args.get(index + 1) else {
-                            return Err("option requires an argument -- 'e'".to_owned());
+                            return Err(AppletError::option_requires_arg_message("e"));
                         };
                         inline_patterns.push(pattern.clone());
                         index += 1;
@@ -257,13 +258,13 @@ fn parse_args(args: &[String], default_extended: bool) -> Result<ParsedArgs, Str
                             break;
                         }
                         let Some(path) = args.get(index + 1) else {
-                            return Err("option requires an argument -- 'f'".to_owned());
+                            return Err(AppletError::option_requires_arg_message("f"));
                         };
                         pattern_files.push(path.clone());
                         index += 1;
                         break;
                     }
-                    _ => return Err(format!("invalid option -- '{flag}'")),
+                    _ => return Err(AppletError::invalid_option_message(flag)),
                 }
             }
             index += 1;

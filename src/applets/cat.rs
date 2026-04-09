@@ -110,12 +110,7 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
                         options.show_tabs = true;
                     }
                     'v' => options.show_nonprinting = true,
-                    _ => {
-                        return Err(vec![AppletError::new(
-                            APPLET,
-                            format!("invalid option -- '{ch}'"),
-                        )]);
-                    }
+                    _ => return Err(vec![AppletError::invalid_option(APPLET, ch)]),
                 }
             }
             continue;

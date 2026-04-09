@@ -56,12 +56,7 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
                 match flag {
                     'f' => options.force = true,
                     'r' | 'R' => options.recursive = true,
-                    _ => {
-                        return Err(vec![AppletError::new(
-                            APPLET,
-                            format!("invalid option -- '{flag}'"),
-                        )]);
-                    }
+                    _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
                 }
             }
             continue;

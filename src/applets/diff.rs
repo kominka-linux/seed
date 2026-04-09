@@ -3,6 +3,7 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::path::Path;
 
+use crate::common::error::AppletError;
 use crate::common::io::open_input;
 
 const APPLET: &str = "diff";
@@ -86,7 +87,7 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), String> {
                     'B' => options.ignore_blank_lines = true,
                     'r' => options.recursive = true,
                     'N' => options.treat_missing_as_empty = true,
-                    _ => return Err(format!("invalid option -- '{flag}'")),
+                    _ => return Err(AppletError::invalid_option_message(flag)),
                 }
             }
             continue;

@@ -22,7 +22,7 @@ fn run(args: &[String]) -> AppletResult {
     Ok(())
 }
 
-fn parse_duration(arg: &str) -> Result<f64, Vec<AppletError>> {
+pub(crate) fn parse_duration(arg: &str) -> Result<f64, Vec<AppletError>> {
     let (number, multiplier) = match arg.chars().last() {
         Some('s') => (&arg[..arg.len() - 1], 1.0),
         Some('m') => (&arg[..arg.len() - 1], 60.0),

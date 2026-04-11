@@ -86,9 +86,9 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] stty
 - [x] sync / fsync
 - [ ] test / [ / [[
-- [ ] timeout
+- [x] timeout
 - [x] touch
-- [ ] tr
+- [x] tr
 
 ## Console Utilities
 
@@ -226,7 +226,6 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 
 ## Shells
 
-- [ ] ash
 - [ ] cttyhack
 
 ## System Logging Utilities
@@ -234,3 +233,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] klogd
 - [ ] logread
 - [ ] syslogd
+
+## Won't Do
+
+- ash

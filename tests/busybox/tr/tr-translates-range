@@ -1,0 +1,1 @@
+test x"`printf 'abcxyz\n' | busybox tr a-z A-Z`" = x"ABCXYZ"

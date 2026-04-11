@@ -42,6 +42,8 @@ pub mod tail;
 pub mod tar;
 pub mod tee;
 pub mod touch;
+pub mod timeout;
+pub mod tr;
 pub mod true_false;
 pub mod truncate;
 pub mod tty;

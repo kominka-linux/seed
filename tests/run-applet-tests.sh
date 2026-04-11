@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod cp date diff egrep env find grep gunzip gzip ln ls lzcat lzma mkdir mv od paste printf readlink realpath rm rmdir sleep sort tar tee touch uname unlzma unxz wc wget xz xzcat zcat; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod cp date diff egrep env find grep gunzip gzip ln ls lzcat lzma mkdir mv od paste printf readlink realpath rm rmdir sleep sort tar tee touch timeout tr uname unlzma unxz wc wget xz xzcat zcat; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -290,6 +290,11 @@ run_old_style tests/busybox/tail/tail-prints-last-bytes
 run_old_style tests/busybox/touch/touch-creates-file
 run_old_style tests/busybox/touch/touch-c-no-create
 run_old_style tests/busybox/touch/touch-r-copies-reference-time
+run_old_style tests/busybox/timeout/timeout-allows-short-command
+run_old_style tests/busybox/timeout/timeout-kills-long-command
+run_old_style tests/busybox/tr/tr-translates-range
+run_old_style tests/busybox/tr/tr-deletes-set
+run_old_style tests/busybox/tr/tr-squeezes-set
 
 run_old_style tests/busybox/uniq/uniq-collapses-adjacent-lines
 run_old_style tests/busybox/uniq/uniq-counts-groups

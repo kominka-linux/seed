@@ -64,6 +64,8 @@ const APPLETS: &[AppletEntry] = &[
     AppletEntry { name: "tar",       main: applets::tar::main },
     AppletEntry { name: "tee",       main: applets::tee::main },
     AppletEntry { name: "touch",     main: applets::touch::main },
+    AppletEntry { name: "timeout",   main: applets::timeout::main },
+    AppletEntry { name: "tr",        main: applets::tr::main },
     AppletEntry { name: "true",      main: applets::true_false::main_true },
     AppletEntry { name: "truncate",  main: applets::truncate::main },
     AppletEntry { name: "tty",       main: applets::tty::main },

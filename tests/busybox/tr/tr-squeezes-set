@@ -1,0 +1,1 @@
+test x"`printf 'aaabbbccc\n' | busybox tr -s a-c`" = xabc

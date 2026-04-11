@@ -75,7 +75,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] du
 - [ ] expr
 - [ ] groups
-- [ ] id
+- [x] id
 - [ ] install
 - [x] link
 - [x] ln

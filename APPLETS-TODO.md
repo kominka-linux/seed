@@ -78,7 +78,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] md5sum / sha1sum / sha256sum / sha512sum
 - [ ] mkfifo
 - [ ] nice
-- [ ] paste
+- [x] paste
 - [x] readlink
 - [x] realpath
 - [ ] split
@@ -87,7 +87,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [x] sync / fsync
 - [ ] test / [ / [[
 - [ ] timeout
-- [ ] touch
+- [x] touch
 - [ ] tr
 
 ## Console Utilities

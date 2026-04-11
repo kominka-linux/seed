@@ -1,0 +1,2 @@
+printf 'a1\na2\n' > a
+test x"`busybox paste -s a`" = x"$(printf 'a1\ta2')"

@@ -1,0 +1,8 @@
+printf 'a1\na2\n' > a
+printf 'b1\nb2\n' > b
+cat > expected <<'EOF'
+a1	b1
+a2	b2
+EOF
+busybox paste a b > actual
+cmp expected actual

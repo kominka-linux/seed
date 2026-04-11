@@ -1,0 +1,2 @@
+busybox touch -c missing
+test ! -e missing

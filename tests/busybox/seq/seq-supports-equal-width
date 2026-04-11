@@ -1,0 +1,7 @@
+cat > expected <<'EOF'
+08
+09
+10
+EOF
+busybox seq -w 8 10 > actual
+cmp expected actual

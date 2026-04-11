@@ -1,0 +1,2 @@
+printf 'hello world' > input
+test x"`busybox head -c 5 input`" = xhello

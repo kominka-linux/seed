@@ -1,0 +1,1 @@
+test x"`busybox seq -s : 3`" = x1:2:3

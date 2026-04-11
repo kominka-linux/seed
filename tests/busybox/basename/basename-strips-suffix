@@ -1,0 +1,1 @@
+test x"`busybox basename /usr/lib/libc.so .so`" = xlibc

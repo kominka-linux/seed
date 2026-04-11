@@ -1,0 +1,2 @@
+printf 'abcdef\n' > input
+test x"`busybox cut -b 2-4 input`" = xbcd

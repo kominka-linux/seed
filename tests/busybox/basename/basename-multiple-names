@@ -1,0 +1,6 @@
+cat > expected <<'EOF'
+sh
+lib
+EOF
+busybox basename -a /bin/sh /usr/lib > actual
+cmp expected actual

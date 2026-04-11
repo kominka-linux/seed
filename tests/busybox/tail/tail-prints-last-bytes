@@ -1,0 +1,2 @@
+printf 'hello' > input
+test x"`busybox tail -c 3 input`" = xllo

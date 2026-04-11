@@ -1,0 +1,7 @@
+cat > expected <<'EOF'
+/usr
+/tmp
+.
+EOF
+busybox dirname /usr/lib /tmp/file foo > actual
+cmp expected actual

@@ -1,0 +1,2 @@
+printf 'a:b:c\n' > input
+test x"`busybox cut -d : -f 2-3 input`" = xb:c

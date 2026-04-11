@@ -1,0 +1,14 @@
+cat > input <<'EOF'
+a
+a
+b
+b
+c
+EOF
+cat > expected <<'EOF'
+a
+b
+c
+EOF
+busybox uniq input > actual
+cmp expected actual

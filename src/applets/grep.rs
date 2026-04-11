@@ -84,15 +84,19 @@ struct InputTarget {
 }
 
 pub fn main(args: &[String]) -> i32 {
-    run_main(args, false)
+    run_main(args, false, false)
 }
 
 pub fn main_extended(args: &[String]) -> i32 {
-    run_main(args, true)
+    run_main(args, true, false)
 }
 
-fn run_main(args: &[String], default_extended: bool) -> i32 {
-    match run_with_mode(args, default_extended) {
+pub fn main_fixed(args: &[String]) -> i32 {
+    run_main(args, false, true)
+}
+
+fn run_main(args: &[String], default_extended: bool, default_fixed: bool) -> i32 {
+    match run_with_mode(args, default_extended, default_fixed) {
         Ok(code) => code,
         Err(message) => {
             eprintln!("{APPLET}: {message}");
@@ -101,8 +105,8 @@ fn run_main(args: &[String], default_extended: bool) -> i32 {
     }
 }
 
-fn run_with_mode(args: &[String], default_extended: bool) -> Result<i32, String> {
-    let parsed = parse_args(args, default_extended)?;
+fn run_with_mode(args: &[String], default_extended: bool, default_fixed: bool) -> Result<i32, String> {
+    let parsed = parse_args(args, default_extended, default_fixed)?;
     let inputs = if parsed.inputs.is_empty() {
         vec![InputTarget {
             label: STDIN_LABEL.to_owned(),
@@ -190,9 +194,10 @@ struct ParsedArgs {
     inputs: Vec<String>,
 }
 
-fn parse_args(args: &[String], default_extended: bool) -> Result<ParsedArgs, String> {
+fn parse_args(args: &[String], default_extended: bool, default_fixed: bool) -> Result<ParsedArgs, String> {
     let mut options = Options {
         extended: default_extended,
+        fixed: default_fixed,
         ..Options::default()
     };
     let mut inline_patterns = Vec::new();

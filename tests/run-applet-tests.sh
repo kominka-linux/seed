@@ -178,7 +178,15 @@ run_new_style tar.tests ':FEATURE_SEAMLESS_GZ:GUNZIP:'
 run_old_style tests/busybox/cat/cat-prints-a-file
 run_old_style tests/busybox/cat/cat-prints-a-file-and-standard-input
 
+run_old_style tests/busybox/basename/basename-strips-suffix
+run_old_style tests/busybox/basename/basename-multiple-names
+run_old_style tests/busybox/basename/dirname-basic
+
 run_old_style tests/busybox/chmod/chmod-R-descends-before-changing-directory
+
+run_old_style tests/busybox/cut/cut-selects-bytes
+run_old_style tests/busybox/cut/cut-selects-fields
+run_old_style tests/busybox/cut/cut-suppresses-undelimited-lines
 
 run_old_style tests/busybox/date/date-@-works
 run_old_style tests/busybox/date/date-D-works
@@ -216,6 +224,10 @@ run_old_style tests/busybox/gzip/gzip-accepts-single-minus
 run_old_style tests/busybox/gzip/gzip-accepts-multiple-files
 run_old_style tests/busybox/gzip/gzip-compression-levels
 run_old_style tests/busybox/gzip/gzip-removes-original-file
+
+run_old_style tests/busybox/head/head-prints-first-lines
+run_old_style tests/busybox/head/head-prints-first-bytes
+run_old_style tests/busybox/head/head-omits-last-line-with-negative-count
 
 run_old_style tests/busybox/tar/tar-archives-multiple-files
 run_old_style tests/busybox/tar/tar--overwrite-preserves-hardlinks
@@ -256,6 +268,18 @@ run_old_style_ls tests/busybox/ls/ls-l-symlink-to-dir-works
 run_old_style_ls tests/busybox/ls/ls-multiple-targets-works
 run_old_style_ls tests/busybox/ls/ls-s-works
 run_old_style_ls tests/busybox/ls/ls-symlink-to-dir-works
+
+run_old_style tests/busybox/seq/seq-counts-up
+run_old_style tests/busybox/seq/seq-supports-equal-width
+run_old_style tests/busybox/seq/seq-supports-custom-separator
+
+run_old_style tests/busybox/tail/tail-prints-last-lines
+run_old_style tests/busybox/tail/tail-prints-from-line
+run_old_style tests/busybox/tail/tail-prints-last-bytes
+
+run_old_style tests/busybox/uniq/uniq-collapses-adjacent-lines
+run_old_style tests/busybox/uniq/uniq-counts-groups
+run_old_style tests/busybox/uniq/uniq-ignores-case
 
 run_old_style tests/busybox/mkdir/mkdir-makes-a-directory
 run_old_style tests/busybox/mkdir/mkdir-makes-parent-directories

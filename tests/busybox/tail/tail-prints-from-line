@@ -1,0 +1,11 @@
+cat > input <<'EOF'
+a
+b
+c
+EOF
+cat > expected <<'EOF'
+b
+c
+EOF
+busybox tail -n +2 input > actual
+cmp expected actual

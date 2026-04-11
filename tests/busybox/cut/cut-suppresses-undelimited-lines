@@ -1,0 +1,11 @@
+cat > input <<'EOF'
+a:b
+plain
+c:d
+EOF
+cat > expected <<'EOF'
+b
+d
+EOF
+busybox cut -d : -f 2 -s input > actual
+cmp expected actual

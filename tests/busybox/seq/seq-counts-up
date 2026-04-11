@@ -1,0 +1,7 @@
+cat > expected <<'EOF'
+1
+2
+3
+EOF
+busybox seq 3 > actual
+cmp expected actual

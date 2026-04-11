@@ -56,4 +56,5 @@ pub mod wget;
 pub mod which;
 pub mod whoami;
 pub mod xz;
+pub mod xargs;
 pub mod yes;

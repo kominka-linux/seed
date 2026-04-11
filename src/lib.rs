@@ -80,6 +80,7 @@ const APPLETS: &[AppletEntry] = &[
     AppletEntry { name: "wget",      main: applets::wget::main },
     AppletEntry { name: "which",     main: applets::which::main },
     AppletEntry { name: "whoami",    main: applets::whoami::main },
+    AppletEntry { name: "xargs",     main: applets::xargs::main },
     AppletEntry { name: "xz",        main: applets::xz::main },
     AppletEntry { name: "xzcat",     main: applets::xz::main_xzcat },
     AppletEntry { name: "yes",       main: applets::yes::main },

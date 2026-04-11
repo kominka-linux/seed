@@ -122,7 +122,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [x] grep
 - [x] egrep
 - [x] fgrep
-- [ ] xargs
+- [x] xargs
 
 ## Init Utilities
 

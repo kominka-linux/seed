@@ -1,0 +1,3 @@
+printf 'hello\n' > source
+busybox ln -s source link
+test x"`readlink link`" = xsource

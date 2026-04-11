@@ -1,0 +1,4 @@
+printf 'new\n' > source
+printf 'old\n' > target
+busybox ln -f source target
+cmp source target

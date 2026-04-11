@@ -1,0 +1,4 @@
+mkdir dir
+printf 'hello\n' > dir/source
+ln -s dir/source link
+test x"`busybox readlink -f link`" = x"`realpath dir/source`"

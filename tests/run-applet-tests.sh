@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod cp date diff egrep env find grep gunzip gzip ls lzcat lzma mkdir mv od printf rm rmdir sleep sort tar tee uname unlzma unxz wc wget xz xzcat zcat; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod cp date diff egrep env find grep gunzip gzip ln ls lzcat lzma mkdir mv od printf readlink realpath rm rmdir sleep sort tar tee uname unlzma unxz wc wget xz xzcat zcat; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -225,6 +225,11 @@ run_old_style tests/busybox/gzip/gzip-accepts-multiple-files
 run_old_style tests/busybox/gzip/gzip-compression-levels
 run_old_style tests/busybox/gzip/gzip-removes-original-file
 
+run_old_style tests/busybox/ln/ln-creates-hard-link
+run_old_style tests/busybox/ln/ln-creates-link-in-directory
+run_old_style tests/busybox/ln/ln-symbolic-link
+run_old_style tests/busybox/ln/ln-force-replaces-existing-target
+
 run_old_style tests/busybox/head/head-prints-first-lines
 run_old_style tests/busybox/head/head-prints-first-bytes
 run_old_style tests/busybox/head/head-omits-last-line-with-negative-count
@@ -272,6 +277,11 @@ run_old_style_ls tests/busybox/ls/ls-symlink-to-dir-works
 run_old_style tests/busybox/seq/seq-counts-up
 run_old_style tests/busybox/seq/seq-supports-equal-width
 run_old_style tests/busybox/seq/seq-supports-custom-separator
+
+run_old_style tests/busybox/readlink/readlink-prints-link-target
+run_old_style tests/busybox/readlink/readlink-f-canonicalizes
+run_old_style tests/busybox/realpath/realpath-canonicalizes-existing-path
+run_old_style tests/busybox/realpath/realpath-fails-for-missing-path
 
 run_old_style tests/busybox/tail/tail-prints-last-lines
 run_old_style tests/busybox/tail/tail-prints-from-line

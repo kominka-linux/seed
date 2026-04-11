@@ -1,0 +1,4 @@
+mkdir dest
+printf 'hello\n' > source
+busybox ln source dest
+cmp source dest/source

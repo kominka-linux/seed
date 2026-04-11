@@ -1,0 +1,3 @@
+mkdir -p a/b
+printf 'hello\n' > a/file
+test x"`busybox realpath a/b/../file`" = x"`realpath a/b/../file`"

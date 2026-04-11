@@ -74,13 +74,13 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] id
 - [ ] install
 - [x] link
-- [ ] ln
+- [x] ln
 - [ ] md5sum / sha1sum / sha256sum / sha512sum
 - [ ] mkfifo
 - [ ] nice
 - [ ] paste
-- [ ] readlink
-- [ ] realpath
+- [x] readlink
+- [x] realpath
 - [ ] split
 - [ ] stat
 - [ ] stty

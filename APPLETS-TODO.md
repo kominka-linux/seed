@@ -63,9 +63,13 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [x] wc
 - [x] whoami
 - [x] yes
+- [ ] base32
+- [ ] base64
 - [ ] chgrp
 - [ ] chown
 - [ ] chroot
+- [ ] cksum
+- [ ] crc32
 - [ ] dd
 - [ ] df
 - [ ] du
@@ -81,14 +85,19 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [x] paste
 - [x] readlink
 - [x] realpath
+- [ ] rev
+- [ ] shuf
 - [ ] split
 - [ ] stat
+- [ ] strings
 - [ ] stty
 - [x] sync / fsync
 - [ ] test / [ / [[
 - [x] timeout
 - [x] touch
 - [x] tr
+- [ ] tree
+- [ ] usleep
 
 ## Console Utilities
 
@@ -96,15 +105,14 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] reset
 - [ ] resize
 
-## Debian Utilities
-
-- [x] which
-
 ## Editors
 
 - [x] diff
 - [ ] awk
 - [ ] cmp
+- [ ] ed
+- [ ] hexdump
+- [ ] hexedit
 - [ ] patch
 - [ ] sed
 - [ ] vi
@@ -133,8 +141,11 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] delgroup
 - [ ] deluser
 - [ ] getty
+- [ ] login
 - [ ] mkpasswd
+- [ ] passwd
 - [ ] remove-shell
+- [ ] su
 - [ ] sulogin
 
 ## Linux Ext2 FS Progs
@@ -155,6 +166,8 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [x] losetup
 - [ ] acpid
 - [ ] blkid
+- [ ] crond
+- [ ] crontab
 - [ ] dmesg
 - [ ] fallocate
 - [ ] fdisk
@@ -162,41 +175,67 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] fstrim
 - [ ] getopt
 - [ ] hwclock
+- [ ] logger
 - [ ] mdev
 - [ ] mkswap
 - [ ] mount
 - [ ] mountpoint
+- [ ] nsenter
 - [ ] nologin
 - [ ] pivot_root
 - [ ] setsid
 - [ ] swapoff
 - [ ] swapon
 - [ ] switch_root
-- [ ] uevent
+- [ ] sysctl
 - [ ] umount
 
 ## Miscellaneous Utilities
 
 - [ ] less
+- [ ] lsattr / chattr
+- [ ] lspci
+- [ ] lsscsi
+- [ ] lsusb
+- [ ] man
+- [ ] renice
 - [ ] rfkill
+- [ ] run-parts
+- [ ] script
+- [ ] scriptreplay
+- [ ] seedrng
+- [ ] setpriv
+- [ ] shred
 - [ ] time
+- [ ] ts
+- [ ] tsort
+- [ ] unshare
+- [ ] which
 
 ## Networking Utilities
 
 - [x] wget
 - [x] hostname
+- [ ] arp
+- [ ] brctl
 - [ ] ifconfig
 - [ ] ip
 - [ ] netstat
+- [ ] nslookup
 - [ ] ntpd
+- [ ] ping / ping6
 - [ ] route
-- [ ] ssl_client
+- [ ] tc
+- [ ] traceroute / traceroute6
 - [ ] udhcpc
+- [ ] udhcpd
 
 ## Process Utilities
 
+- [ ] chrt
 - [ ] free
 - [ ] fuser
+- [ ] ionice
 - [ ] kill
 - [ ] killall
 - [ ] killall5
@@ -206,23 +245,10 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] pkill
 - [ ] ps
 - [ ] pstree
+- [ ] taskset
 - [ ] top
 - [ ] uptime
 - [ ] watch
-
-## Runit Utilities
-
-- [ ] chpst
-- [ ] envdir
-- [ ] envuidgid
-- [ ] runsv
-- [ ] runsvdir
-- [ ] softlimit
-- [ ] sv
-- [ ] svc
-- [ ] svlogd
-- [ ] svok
-- [ ] setuidgid
 
 ## Shells
 
@@ -236,4 +262,9 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 
 ## Won't Do
 
-- ash
+- ash — ysh is the system shell
+- ssl_client — curl handles TLS
+- uevent — disabled from busybox; mdev covers device events
+- Runit utilities (runsv, runsvdir, sv, svc, svlogd, svok, chpst,
+  envdir, envuidgid, setuidgid, softlimit) — provided by the separate
+  runit package; implementing in seed would conflict

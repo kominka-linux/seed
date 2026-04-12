@@ -16,6 +16,7 @@ pub mod gzip;
 pub mod head;
 pub mod hostname;
 pub mod id;
+pub mod kill;
 pub mod link;
 pub mod losetup;
 pub mod ln;

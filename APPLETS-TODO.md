@@ -236,7 +236,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] free
 - [ ] fuser
 - [ ] ionice
-- [ ] kill
+- [x] kill
 - [ ] killall
 - [ ] killall5
 - [ ] lsof

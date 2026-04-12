@@ -36,6 +36,7 @@ const APPLETS: &[AppletEntry] = &[
     AppletEntry { name: "head",      main: applets::head::main },
     AppletEntry { name: "hostname",  main: applets::hostname::main },
     AppletEntry { name: "id",        main: applets::id::main },
+    AppletEntry { name: "kill",      main: applets::kill::main },
     AppletEntry { name: "link",      main: applets::link::main_link },
     AppletEntry { name: "ln",        main: applets::ln::main },
     AppletEntry { name: "losetup",   main: applets::losetup::main },

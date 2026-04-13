@@ -42,6 +42,7 @@ pub mod nohup;
 pub mod nproc;
 pub mod od;
 pub mod paste;
+pub mod pgrep;
 pub mod printenv;
 pub mod printf;
 pub mod ps;

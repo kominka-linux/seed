@@ -240,6 +240,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::paste::main,
     },
     AppletEntry {
+        name: "pgrep",
+        main: applets::pgrep::main,
+    },
+    AppletEntry {
         name: "printenv",
         main: applets::printenv::main,
     },

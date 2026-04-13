@@ -1,0 +1,3 @@
+busybox getopt ab:c -abfoo -- bar > actual
+/usr/bin/getopt ab:c -abfoo -- bar > expected
+cmp expected actual

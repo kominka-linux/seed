@@ -128,6 +128,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::sync::main_fsync,
     },
     AppletEntry {
+        name: "getopt",
+        main: applets::getopt::main,
+    },
+    AppletEntry {
         name: "grep",
         main: applets::grep::main,
     },

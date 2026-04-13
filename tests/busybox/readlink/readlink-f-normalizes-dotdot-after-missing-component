@@ -1,0 +1,3 @@
+mkdir dir
+printf 'hello\n' > dir/target
+test x"`busybox readlink -f dir/missing/../target`" = x"`realpath dir/target`"

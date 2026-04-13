@@ -359,16 +359,23 @@ fn parse_time_with_explicit_offset(spec: &str) -> AppletResultOffset {
 type AppletResultOffset = Result<Option<i64>, Vec<AppletError>>;
 
 fn parse_utc_offset(text: &str) -> Option<i64> {
-    if text.len() != 5 {
+    let digits = if text.len() == 5 {
+        text
+    } else if text.len() == 6 && text.as_bytes().get(3) == Some(&b':') {
+        let mut compact = String::with_capacity(5);
+        compact.push_str(&text[..3]);
+        compact.push_str(&text[4..]);
+        return parse_utc_offset(&compact);
+    } else {
         return None;
-    }
-    let sign = match text.as_bytes()[0] {
+    };
+    let sign = match digits.as_bytes()[0] {
         b'+' => 1_i64,
         b'-' => -1_i64,
         _ => return None,
     };
-    let hours = text[1..3].parse::<i64>().ok()?;
-    let minutes = text[3..5].parse::<i64>().ok()?;
+    let hours = digits[1..3].parse::<i64>().ok()?;
+    let minutes = digits[3..5].parse::<i64>().ok()?;
     if hours > 23 || minutes > 59 {
         return None;
     }
@@ -569,6 +576,7 @@ mod tests {
     #[test]
     fn parses_utc_offset() {
         assert_eq!(parse_utc_offset("+0600"), Some(21_600));
+        assert_eq!(parse_utc_offset("+06:00"), Some(21_600));
         assert_eq!(parse_utc_offset("-0130"), Some(-5_400));
         assert_eq!(parse_utc_offset("UTC"), None);
     }

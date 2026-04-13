@@ -265,7 +265,7 @@ fn parse_args(
 
     let mut raw_patterns = Vec::new();
     for pattern in &inline_patterns {
-        raw_patterns.extend(split_pattern_lines(pattern.as_bytes()));
+        push_inline_patterns(&mut raw_patterns, pattern.as_bytes());
     }
     for file in &pattern_files {
         let bytes =
@@ -302,9 +302,7 @@ fn split_pattern_lines(bytes: &[u8]) -> Vec<Vec<u8>> {
     let mut start = 0;
     for (index, byte) in bytes.iter().enumerate() {
         if *byte == b'\n' {
-            if index > start {
-                patterns.push(bytes[start..index].to_vec());
-            }
+            patterns.push(bytes[start..index].to_vec());
             start = index + 1;
         }
     }
@@ -312,6 +310,14 @@ fn split_pattern_lines(bytes: &[u8]) -> Vec<Vec<u8>> {
         patterns.push(bytes[start..].to_vec());
     }
     patterns
+}
+
+fn push_inline_patterns(raw_patterns: &mut Vec<Vec<u8>>, bytes: &[u8]) {
+    if bytes.is_empty() {
+        raw_patterns.push(Vec::new());
+    } else {
+        raw_patterns.extend(split_pattern_lines(bytes));
+    }
 }
 
 fn collect_recursive_inputs(paths: &[String]) -> Result<Vec<InputTarget>, String> {
@@ -870,7 +876,7 @@ fn parse_posix_class(pattern: &[u8], index: usize) -> Option<(ClassItem, usize)>
 
 #[cfg(test)]
 mod tests {
-    use super::parse_args;
+    use super::{parse_args, split_pattern_lines};
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
@@ -881,5 +887,21 @@ mod tests {
         let parsed = parse_args(&args(&["-efoo", "input"]), false, false).expect("parse grep");
         assert_eq!(parsed.inputs, vec!["input"]);
         assert_eq!(parsed.patterns.matchers.len(), 1);
+    }
+
+    #[test]
+    fn preserves_empty_pattern_argument() {
+        let parsed = parse_args(&args(&["", "input"]), false, false).expect("parse grep");
+        assert_eq!(parsed.inputs, vec!["input"]);
+        assert_eq!(parsed.patterns.matchers.len(), 1);
+    }
+
+    #[test]
+    fn preserves_blank_pattern_lines() {
+        assert_eq!(split_pattern_lines(b"\n"), vec![Vec::<u8>::new()]);
+        assert_eq!(
+            split_pattern_lines(b"foo\n\nbar\n"),
+            vec![b"foo".to_vec(), Vec::new(), b"bar".to_vec()]
+        );
     }
 }

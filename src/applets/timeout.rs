@@ -1,4 +1,5 @@
 use std::os::unix::process::ExitStatusExt;
+use std::os::unix::process::CommandExt;
 use std::process::Command;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -10,6 +11,7 @@ const APPLET: &str = "timeout";
 const EXIT_TIMEOUT: i32 = 124;
 const EXIT_CANNOT_INVOKE: i32 = 126;
 const EXIT_NOT_FOUND: i32 = 127;
+const TERM_GRACE_PERIOD: Duration = Duration::from_millis(100);
 
 pub fn main(args: &[String]) -> i32 {
     finish_code_or(run(args), 125)
@@ -18,10 +20,7 @@ pub fn main(args: &[String]) -> i32 {
 fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
     let (duration, command, command_args) = parse_args(args)?;
 
-    let mut child = Command::new(command)
-        .args(command_args)
-        .spawn()
-        .map_err(|e| {
+    let mut child = spawn_command(command, command_args).map_err(|e| {
             let code = match e.kind() {
                 std::io::ErrorKind::NotFound => EXIT_NOT_FOUND,
                 _ => EXIT_CANNOT_INVOKE,
@@ -44,14 +43,74 @@ fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
         }
 
         if Instant::now() >= deadline {
-            unsafe {
-                libc::kill(child.id() as i32, libc::SIGTERM);
-            }
-            let _ = child.wait();
+            terminate_child(&mut child, command)?;
             return Ok(EXIT_TIMEOUT);
         }
 
         thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn spawn_command(command: &str, command_args: &[String]) -> std::io::Result<std::process::Child> {
+    let mut process = Command::new(command);
+    process.args(command_args);
+    // SAFETY: `pre_exec` runs in the child just before `execve`; setting a new
+    // process group isolates the command so timeout signals reach its descendants.
+    unsafe {
+        process.pre_exec(|| {
+            if libc::setpgid(0, 0) == 0 {
+                Ok(())
+            } else {
+                Err(std::io::Error::last_os_error())
+            }
+        });
+    }
+    process.spawn()
+}
+
+fn terminate_child(child: &mut std::process::Child, command: &str) -> Result<(), Vec<AppletError>> {
+    let pid = i32::try_from(child.id()).map_err(|_| {
+        vec![AppletError::new(
+            APPLET,
+            format!("invalid process id for '{command}'"),
+        )]
+    })?;
+
+    signal_process_group(pid, libc::SIGTERM, command)?;
+    let grace_deadline = Instant::now() + TERM_GRACE_PERIOD;
+    loop {
+        if child.try_wait().map_err(|e| {
+            vec![AppletError::new(
+                APPLET,
+                format!("waiting for '{command}': {e}"),
+            )]
+        })?.is_some()
+        {
+            return Ok(());
+        }
+        if Instant::now() >= grace_deadline {
+            signal_process_group(pid, libc::SIGKILL, command)?;
+            let _ = child.wait();
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn signal_process_group(pid: i32, signal: libc::c_int, command: &str) -> Result<(), Vec<AppletError>> {
+    // SAFETY: negative PID targets the spawned process group; arguments are plain integers.
+    let status = unsafe { libc::kill(-pid, signal) };
+    if status == 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) {
+        Ok(())
+    } else {
+        Err(vec![AppletError::new(
+            APPLET,
+            format!("signaling '{command}': {error}"),
+        )])
     }
 }
 
@@ -83,6 +142,7 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::{EXIT_TIMEOUT, parse_args, run};
+    use std::time::{Duration, Instant};
 
     fn args(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
@@ -112,5 +172,13 @@ mod tests {
     fn times_out_long_running_command() {
         let code = run(&args(&["0.05", "sh", "-c", "sleep 1"])).unwrap();
         assert_eq!(code, EXIT_TIMEOUT);
+    }
+
+    #[test]
+    fn kills_term_ignoring_process_group_quickly() {
+        let start = Instant::now();
+        let code = run(&args(&["0.05", "sh", "-c", "trap '' TERM; sleep 1"])).unwrap();
+        assert_eq!(code, EXIT_TIMEOUT);
+        assert!(start.elapsed() < Duration::from_millis(500));
     }
 }

@@ -16,24 +16,9 @@ struct Options {
 }
 
 #[derive(Clone, Debug)]
-enum Predicate {
+enum Primary {
     Name(String),
     Type(FileTypeMatch),
-}
-
-#[derive(Clone, Copy, Debug)]
-enum FileTypeMatch {
-    Regular,
-    Directory,
-    Symlink,
-    Block,
-    Character,
-    Socket,
-    Fifo,
-}
-
-#[derive(Clone, Debug)]
-enum Action {
     Print,
     Exec {
         argv: Vec<String>,
@@ -48,9 +33,29 @@ enum Action {
 }
 
 #[derive(Clone, Debug)]
+enum Expr {
+    True,
+    Primary(Primary),
+    Not(Box<Expr>),
+    And(Box<Expr>, Box<Expr>),
+    Or(Box<Expr>, Box<Expr>),
+}
+
+#[derive(Clone, Copy, Debug)]
+enum FileTypeMatch {
+    Regular,
+    Directory,
+    Symlink,
+    Block,
+    Character,
+    Socket,
+    Fifo,
+}
+
+#[derive(Clone, Debug)]
 struct Query {
-    predicates: Vec<Predicate>,
-    actions: Vec<Action>,
+    expr: Expr,
+    has_action: bool,
 }
 
 pub fn main(args: &[String]) -> i32 {
@@ -88,7 +93,7 @@ fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
         }
     }
 
-    if let Err(error) = finalize_exec_plus(&mut query, &mut exec_plus_failed, &mut errors) {
+    if let Err(error) = finalize_exec_plus(&mut query.expr, &mut exec_plus_failed, &mut errors) {
         errors.push(error);
     }
 
@@ -147,10 +152,8 @@ fn is_expression_token(token: &str) -> bool {
 }
 
 fn parse_query(tokens: &[String], options: &mut Options) -> Result<Query, Vec<AppletError>> {
-    let mut predicates = Vec::new();
-    let mut actions = Vec::new();
     let mut index = 0;
-    let mut implicit_print = true;
+    let mut expression_tokens = Vec::new();
 
     while index < tokens.len() {
         match tokens[index].as_str() {
@@ -171,63 +174,32 @@ fn parse_query(tokens: &[String], options: &mut Options) -> Result<Query, Vec<Ap
                 options.maxdepth = Some(depth);
                 index += 2;
             }
-            "-name" => {
-                let Some(pattern) = tokens.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "name")]);
-                };
-                predicates.push(Predicate::Name(pattern.clone()));
-                index += 2;
-            }
-            "-type" => {
-                let Some(kind) = tokens.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "type")]);
-                };
-                predicates.push(Predicate::Type(parse_type(kind)?));
-                index += 2;
-            }
-            "-print" => {
-                actions.push(Action::Print);
-                implicit_print = false;
+            _ => {
+                expression_tokens.push(tokens[index].clone());
                 index += 1;
-            }
-            "-exec" => {
-                let (argv, next, plus) = parse_exec_arguments(tokens, index + 1)?;
-                actions.push(if plus {
-                    Action::ExecPlus {
-                        argv,
-                        paths: Vec::new(),
-                    }
-                } else {
-                    Action::Exec { argv }
-                });
-                implicit_print = false;
-                index = next;
-            }
-            "-ok" => {
-                let (argv, next, plus) = parse_exec_arguments(tokens, index + 1)?;
-                if plus {
-                    return Err(vec![AppletError::new(APPLET, "-ok does not support '+'")]);
-                }
-                actions.push(Action::Ok { argv });
-                implicit_print = false;
-                index = next;
-            }
-            token => {
-                return Err(vec![AppletError::new(
-                    APPLET,
-                    format!("unsupported expression '{token}'"),
-                )]);
             }
         }
     }
 
-    if actions.is_empty() || implicit_print {
-        actions.push(Action::Print);
+    if expression_tokens.is_empty() {
+        return Ok(Query {
+            expr: Expr::True,
+            has_action: false,
+        });
+    }
+
+    let mut parser = Parser::new(&expression_tokens);
+    let expr = parser.parse_or()?;
+    if let Some(token) = parser.peek() {
+        return Err(vec![AppletError::new(
+            APPLET,
+            format!("unsupported expression '{token}'"),
+        )]);
     }
 
     Ok(Query {
-        predicates,
-        actions,
+        expr,
+        has_action: parser.has_action,
     })
 }
 
@@ -260,30 +232,6 @@ fn parse_type(kind: &str) -> Result<FileTypeMatch, Vec<AppletError>> {
     Ok(kind)
 }
 
-fn parse_exec_arguments(
-    tokens: &[String],
-    mut index: usize,
-) -> Result<(Vec<String>, usize, bool), Vec<AppletError>> {
-    let start = index;
-    while index < tokens.len() {
-        if tokens[index] == ";" || tokens[index] == "+" {
-            if start == index {
-                return Err(vec![AppletError::new(APPLET, "missing command for -exec")]);
-            }
-            return Ok((
-                tokens[start..index].to_vec(),
-                index + 1,
-                tokens[index] == "+",
-            ));
-        }
-        index += 1;
-    }
-    Err(vec![AppletError::new(
-        APPLET,
-        "missing terminator for -exec",
-    )])
-}
-
 #[allow(clippy::too_many_arguments)]
 fn visit(
     path: &Path,
@@ -297,8 +245,17 @@ fn visit(
     stderr: &mut impl Write,
     exec_plus_failed: &mut bool,
 ) -> Result<(), AppletError> {
-    if matches_query(display, metadata, &query.predicates) {
-        run_actions(display, query, stdout, stderr, exec_plus_failed)?;
+    if evaluate_expr(
+        display,
+        metadata,
+        &mut query.expr,
+        stdout,
+        stderr,
+        exec_plus_failed,
+    )? && !query.has_action
+    {
+        writeln!(stdout, "{display}")
+            .map_err(|err| AppletError::from_io(APPLET, "writing stdout", None, err))?;
     }
 
     if !metadata.is_dir() {
@@ -339,13 +296,143 @@ fn visit(
     Ok(())
 }
 
-fn matches_query(display: &str, metadata: &fs::Metadata, predicates: &[Predicate]) -> bool {
-    predicates.iter().all(|predicate| match predicate {
-        Predicate::Name(pattern) => {
-            glob_match(pattern.as_bytes(), basename_for_match(display).as_bytes())
+struct Parser<'a> {
+    tokens: &'a [String],
+    index: usize,
+    has_action: bool,
+}
+
+impl<'a> Parser<'a> {
+    fn new(tokens: &'a [String]) -> Self {
+        Self {
+            tokens,
+            index: 0,
+            has_action: false,
         }
-        Predicate::Type(kind) => file_type_matches(metadata, *kind),
-    })
+    }
+
+    fn peek(&self) -> Option<&'a str> {
+        self.tokens.get(self.index).map(String::as_str)
+    }
+
+    fn next(&mut self) -> Option<&'a str> {
+        let token = self.peek()?;
+        self.index += 1;
+        Some(token)
+    }
+
+    fn parse_or(&mut self) -> Result<Expr, Vec<AppletError>> {
+        let mut expr = self.parse_and()?;
+        while self.peek() == Some("-o") {
+            self.index += 1;
+            expr = Expr::Or(Box::new(expr), Box::new(self.parse_and()?));
+        }
+        Ok(expr)
+    }
+
+    fn parse_and(&mut self) -> Result<Expr, Vec<AppletError>> {
+        let mut expr = self.parse_not()?;
+        loop {
+            match self.peek() {
+                Some("-a") => {
+                    self.index += 1;
+                    expr = Expr::And(Box::new(expr), Box::new(self.parse_not()?));
+                }
+                Some(token) if starts_primary_expression(token) => {
+                    expr = Expr::And(Box::new(expr), Box::new(self.parse_not()?));
+                }
+                _ => return Ok(expr),
+            }
+        }
+    }
+
+    fn parse_not(&mut self) -> Result<Expr, Vec<AppletError>> {
+        if self.peek() == Some("!") {
+            self.index += 1;
+            return Ok(Expr::Not(Box::new(self.parse_not()?)));
+        }
+        self.parse_primary()
+    }
+
+    fn parse_primary(&mut self) -> Result<Expr, Vec<AppletError>> {
+        match self.next() {
+            Some("(") => {
+                let expr = self.parse_or()?;
+                if self.next() != Some(")") {
+                    return Err(vec![AppletError::new(APPLET, "missing ')'")]);
+                }
+                Ok(expr)
+            }
+            Some("-name") => {
+                let Some(pattern) = self.next() else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "name")]);
+                };
+                Ok(Expr::Primary(Primary::Name(pattern.to_owned())))
+            }
+            Some("-type") => {
+                let Some(kind) = self.next() else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "type")]);
+                };
+                Ok(Expr::Primary(Primary::Type(parse_type(kind)?)))
+            }
+            Some("-print") => {
+                self.has_action = true;
+                Ok(Expr::Primary(Primary::Print))
+            }
+            Some("-exec") => {
+                self.has_action = true;
+                let (argv, plus) = self.parse_exec_arguments()?;
+                Ok(Expr::Primary(if plus {
+                    Primary::ExecPlus {
+                        argv,
+                        paths: Vec::new(),
+                    }
+                } else {
+                    Primary::Exec { argv }
+                }))
+            }
+            Some("-ok") => {
+                self.has_action = true;
+                let (argv, plus) = self.parse_exec_arguments()?;
+                if plus {
+                    return Err(vec![AppletError::new(APPLET, "-ok does not support '+'")]);
+                }
+                Ok(Expr::Primary(Primary::Ok { argv }))
+            }
+            Some(token) => Err(vec![AppletError::new(
+                APPLET,
+                format!("unsupported expression '{token}'"),
+            )]),
+            None => Err(vec![AppletError::new(APPLET, "argument expected")]),
+        }
+    }
+
+    fn parse_exec_arguments(&mut self) -> Result<(Vec<String>, bool), Vec<AppletError>> {
+        let start = self.index;
+        while let Some(token) = self.peek() {
+            if token == ";" || token == "+" {
+                if start == self.index {
+                    return Err(vec![AppletError::new(APPLET, "missing command for -exec")]);
+                }
+                let argv = self.tokens[start..self.index].to_vec();
+                let plus = token == "+";
+                self.index += 1;
+                return Ok((argv, plus));
+            }
+            self.index += 1;
+        }
+        Err(vec![AppletError::new(
+            APPLET,
+            "missing terminator for -exec",
+        )])
+    }
+}
+
+fn starts_primary_expression(token: &str) -> bool {
+    matches!(
+        token,
+        "!" | "(" | "-name" | "-type" | "-print" | "-exec" | "-ok"
+    )
 }
 
 fn basename_for_match(display: &str) -> String {
@@ -387,59 +474,115 @@ fn glob_match(pattern: &[u8], text: &[u8]) -> bool {
     }
 }
 
-fn run_actions(
+fn evaluate_expr(
     display: &str,
-    query: &mut Query,
+    metadata: &fs::Metadata,
+    expr: &mut Expr,
     stdout: &mut impl Write,
     stderr: &mut impl Write,
     exec_plus_failed: &mut bool,
-) -> Result<(), AppletError> {
-    for action in &mut query.actions {
-        match action {
-            Action::Print => {
-                writeln!(stdout, "{display}")
-                    .map_err(|err| AppletError::from_io(APPLET, "writing stdout", None, err))?;
+) -> Result<bool, AppletError> {
+    match expr {
+        Expr::True => Ok(true),
+        Expr::Not(inner) => Ok(!evaluate_expr(
+            display,
+            metadata,
+            inner,
+            stdout,
+            stderr,
+            exec_plus_failed,
+        )?),
+        Expr::And(left, right) => {
+            if !evaluate_expr(display, metadata, left, stdout, stderr, exec_plus_failed)? {
+                return Ok(false);
             }
-            Action::Exec { argv } => {
-                let status = run_command(argv, &[display.to_owned()])
-                    .map_err(|err| AppletError::from_io(APPLET, "executing", Some(display), err))?;
-                let _ = status;
+            evaluate_expr(display, metadata, right, stdout, stderr, exec_plus_failed)
+        }
+        Expr::Or(left, right) => {
+            if evaluate_expr(display, metadata, left, stdout, stderr, exec_plus_failed)? {
+                return Ok(true);
             }
-            Action::ExecPlus { paths, .. } => paths.push(display.to_owned()),
-            Action::Ok { argv } => {
-                write_prompt(stderr, argv, display)?;
-                if read_confirmation()
-                    .map_err(|err| AppletError::from_io(APPLET, "reading stdin", None, err))?
-                {
-                    let status = run_command(argv, &[display.to_owned()]).map_err(|err| {
-                        AppletError::from_io(APPLET, "executing", Some(display), err)
-                    })?;
-                    let _ = status;
-                }
+            evaluate_expr(display, metadata, right, stdout, stderr, exec_plus_failed)
+        }
+        Expr::Primary(primary) => evaluate_primary(
+            display,
+            metadata,
+            primary,
+            stdout,
+            stderr,
+            exec_plus_failed,
+        ),
+    }
+}
+
+fn evaluate_primary(
+    display: &str,
+    metadata: &fs::Metadata,
+    primary: &mut Primary,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+    exec_plus_failed: &mut bool,
+) -> Result<bool, AppletError> {
+    match primary {
+        Primary::Name(pattern) => Ok(glob_match(
+            pattern.as_bytes(),
+            basename_for_match(display).as_bytes(),
+        )),
+        Primary::Type(kind) => Ok(file_type_matches(metadata, *kind)),
+        Primary::Print => {
+            writeln!(stdout, "{display}")
+                .map_err(|err| AppletError::from_io(APPLET, "writing stdout", None, err))?;
+            Ok(true)
+        }
+        Primary::Exec { argv } => {
+            let status = run_command(argv, &[display.to_owned()])
+                .map_err(|err| AppletError::from_io(APPLET, "executing", Some(display), err))?;
+            Ok(status.success())
+        }
+        Primary::ExecPlus { paths, .. } => {
+            paths.push(display.to_owned());
+            let _ = exec_plus_failed;
+            Ok(true)
+        }
+        Primary::Ok { argv } => {
+            write_prompt(stderr, argv, display)?;
+            if !read_confirmation()
+                .map_err(|err| AppletError::from_io(APPLET, "reading stdin", None, err))?
+            {
+                return Ok(false);
             }
+            let status = run_command(argv, &[display.to_owned()])
+                .map_err(|err| AppletError::from_io(APPLET, "executing", Some(display), err))?;
+            Ok(status.success())
         }
     }
-    let _ = exec_plus_failed;
-    Ok(())
 }
 
 fn finalize_exec_plus(
-    query: &mut Query,
+    expr: &mut Expr,
     exec_plus_failed: &mut bool,
     errors: &mut Vec<AppletError>,
 ) -> Result<(), AppletError> {
-    for action in &mut query.actions {
-        if let Action::ExecPlus { argv, paths } = action {
-            if paths.is_empty() {
-                continue;
-            }
-            match run_command(argv, paths) {
-                Ok(status) => {
-                    if !status.success() {
-                        *exec_plus_failed = true;
-                    }
+    match expr {
+        Expr::True => {}
+        Expr::Not(inner) => finalize_exec_plus(inner, exec_plus_failed, errors)?,
+        Expr::And(left, right) | Expr::Or(left, right) => {
+            finalize_exec_plus(left, exec_plus_failed, errors)?;
+            finalize_exec_plus(right, exec_plus_failed, errors)?;
+        }
+        Expr::Primary(primary) => {
+            if let Primary::ExecPlus { argv, paths } = primary {
+                if paths.is_empty() {
+                    return Ok(());
                 }
-                Err(err) => errors.push(AppletError::from_io(APPLET, "executing", None, err)),
+                match run_command(argv, paths) {
+                    Ok(status) => {
+                        if !status.success() {
+                            *exec_plus_failed = true;
+                        }
+                    }
+                    Err(err) => errors.push(AppletError::from_io(APPLET, "executing", None, err)),
+                }
             }
         }
     }
@@ -511,7 +654,11 @@ fn join_display(base: &str, name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{basename_for_match, glob_match};
+    use super::{Parser, basename_for_match, glob_match};
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
 
     #[test]
     fn basename_matching_handles_rootish_inputs() {
@@ -526,5 +673,21 @@ mod tests {
         assert!(glob_match(b"*", b"abc"));
         assert!(glob_match(b"te?t*", b"testfile"));
         assert!(!glob_match(b"foo", b"bar"));
+    }
+
+    #[test]
+    fn parser_supports_parenthesized_or() {
+        let tokens = args(&["(", "-name", "a", "-o", "-name", "b", ")", "-type", "f"]);
+        let mut parser = Parser::new(&tokens);
+        parser.parse_or().expect("parse expression");
+        assert!(parser.peek().is_none());
+    }
+
+    #[test]
+    fn parser_tracks_actions() {
+        let tokens = args(&["-name", "a", "-exec", "true", "{}", ";"]);
+        let mut parser = Parser::new(&tokens);
+        parser.parse_or().expect("parse expression");
+        assert!(parser.has_action);
     }
 }

@@ -206,6 +206,7 @@ run_old_style tests/busybox/date/date-I-works
 run_old_style tests/busybox/date/date-R-works
 run_old_style tests/busybox/date/date-format-works
 run_old_style tests/busybox/date/date-timezone
+run_old_style tests/busybox/date/date-timezone-colon-offset
 run_old_style tests/busybox/date/date-u-works
 run_old_style tests/busybox/date/date-works
 run_old_style tests/busybox/date/date-works-1
@@ -231,6 +232,12 @@ run_old_style tests/busybox/expr/expr-arithmetic
 run_old_style tests/busybox/expr/expr-logical-ops
 run_old_style tests/busybox/expr/expr-comparisons
 run_old_style tests/busybox/expr/expr-big-integers
+
+run_old_style tests/busybox/find/find-parenthesized-or
+run_old_style tests/busybox/find/find-negated-name
+
+run_old_style tests/busybox/grep/grep-empty-pattern-argument-matches-all-lines
+run_old_style tests/busybox/grep/grep-blank-line-pattern-file-matches-all-lines
 
 run_old_style tests/busybox/hexdump/hexdump-C-reads-stdin
 run_old_style tests/busybox/hexdump/hexdump-C-renders-file
@@ -432,6 +439,7 @@ run_old_style tests/busybox/seq/seq-supports-custom-separator
 
 run_old_style tests/busybox/readlink/readlink-prints-link-target
 run_old_style tests/busybox/readlink/readlink-f-canonicalizes
+run_old_style tests/busybox/readlink/readlink-f-normalizes-dotdot-after-missing-component
 run_old_style tests/busybox/realpath/realpath-canonicalizes-existing-path
 run_old_style tests/busybox/realpath/realpath-fails-for-missing-path
 
@@ -444,6 +452,7 @@ run_old_style tests/busybox/touch/touch-c-no-create
 run_old_style tests/busybox/touch/touch-r-copies-reference-time
 run_old_style tests/busybox/timeout/timeout-allows-short-command
 run_old_style tests/busybox/timeout/timeout-kills-long-command
+run_old_style tests/busybox/timeout/timeout-kills-term-ignoring-process-group
 run_old_style tests/busybox/tr/tr-translates-range
 run_old_style tests/busybox/tr/tr-deletes-set
 run_old_style tests/busybox/tr/tr-squeezes-set

@@ -1,0 +1,5 @@
+mkdir dir
+touch dir/a dir/b
+busybox find dir ! -name a | sort > actual
+printf 'dir\ndir/b\n' > expected
+cmp expected actual

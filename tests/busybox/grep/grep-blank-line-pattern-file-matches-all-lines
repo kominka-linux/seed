@@ -1,0 +1,4 @@
+printf '\n' > patterns
+printf 'a\nb\n' > input
+busybox grep -f patterns input > actual
+cmp input actual

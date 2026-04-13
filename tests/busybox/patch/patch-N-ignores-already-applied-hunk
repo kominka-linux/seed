@@ -1,0 +1,23 @@
+cat > input <<'EOF'
+abc
+def
+123
+EOF
+
+cat > expected <<'EOF'
+abc
+def
+123
+EOF
+
+cat > update.patch <<'EOF'
+--- input
++++ input
+@@ -1,2 +1,3 @@
+ abc
++def
+ 123
+EOF
+
+busybox patch -N < update.patch > stdout 2> stderr
+cmp expected input

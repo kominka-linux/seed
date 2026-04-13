@@ -1,0 +1,23 @@
+cat > input <<'EOF'
+qwe
+zxc
+EOF
+
+cat > expected <<'EOF'
+qwe
+asd
+zxc
+EOF
+
+cat > update.patch <<'EOF'
+--- input.orig
++++ input
+@@ -1,2 +1,3 @@
+ qwe
++asd
+ zxc
+EOF
+
+busybox patch < update.patch > stdout 2> stderr
+cmp expected input
+grep "patching file input" stderr

@@ -103,7 +103,7 @@ Linux-native.
 - [ ] awk
 - [x] cmp
 - [x] hexdump
-- [ ] patch
+- [x] patch
 - [ ] sed
 
 ## Finding Utilities

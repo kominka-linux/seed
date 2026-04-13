@@ -50,6 +50,7 @@ pub mod nproc;
 pub mod nslookup;
 pub mod od;
 pub mod paste;
+pub mod patch;
 pub mod pgrep;
 pub mod pkill;
 pub mod printenv;

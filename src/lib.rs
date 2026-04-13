@@ -272,6 +272,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::paste::main,
     },
     AppletEntry {
+        name: "patch",
+        main: applets::patch::main,
+    },
+    AppletEntry {
         name: "pgrep",
         main: applets::pgrep::main,
     },

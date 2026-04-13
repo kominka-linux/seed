@@ -1,0 +1,23 @@
+cat > input <<'EOF'
+abc
+123
+EOF
+
+cat > expected <<'EOF'
+abc
+def
+123
+EOF
+
+cat > update.patch <<'EOF'
+--- foo.old
++++ foo
+@@ -1,2 +1,3 @@
+ abc
++def
+ 123
+EOF
+
+busybox patch input update.patch > stdout 2> stderr
+cmp expected input
+grep "patching file input" stderr

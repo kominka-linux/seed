@@ -1,0 +1,14 @@
+cat > expected <<'EOF'
+qwerty
+EOF
+
+cat > create.patch <<'EOF'
+--- /dev/null
++++ testfile
+@@ -0,0 +1 @@
++qwerty
+EOF
+
+busybox patch < create.patch > stdout 2> stderr
+cmp expected testfile
+grep "creating testfile" stderr

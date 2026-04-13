@@ -368,10 +368,6 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::uniq::main,
     },
     AppletEntry {
-        name: "uptime",
-        main: applets::uptime::main,
-    },
-    AppletEntry {
         name: "unlink",
         main: applets::link::main_unlink,
     },
@@ -382,6 +378,14 @@ const APPLETS: &[AppletEntry] = &[
     AppletEntry {
         name: "unxz",
         main: applets::xz::main_unxz,
+    },
+    AppletEntry {
+        name: "uptime",
+        main: applets::uptime::main,
+    },
+    AppletEntry {
+        name: "watch",
+        main: applets::watch::main,
     },
     AppletEntry {
         name: "wc",

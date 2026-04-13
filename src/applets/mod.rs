@@ -42,6 +42,7 @@ pub mod mktemp;
 pub mod mv;
 pub mod nohup;
 pub mod nproc;
+pub mod nslookup;
 pub mod od;
 pub mod paste;
 pub mod pgrep;

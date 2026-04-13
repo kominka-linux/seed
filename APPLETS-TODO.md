@@ -180,7 +180,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] ifconfig
 - [ ] ip
 - [ ] netstat
-- [ ] nslookup
+- [x] nslookup
 - [ ] ntpd
 - [ ] ping / ping6
 - [ ] rfkill

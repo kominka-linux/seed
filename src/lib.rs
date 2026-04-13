@@ -240,6 +240,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::nproc::main,
     },
     AppletEntry {
+        name: "nslookup",
+        main: applets::nslookup::main,
+    },
+    AppletEntry {
         name: "od",
         main: applets::od::main,
     },

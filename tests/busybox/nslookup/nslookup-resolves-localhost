@@ -1,0 +1,3 @@
+busybox nslookup localhost > actual
+grep -E '^Name:[[:space:]]*localhost$' actual >/dev/null || exit 1
+grep -E '127\.0\.0\.1|::1' actual >/dev/null || exit 1

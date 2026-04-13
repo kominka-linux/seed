@@ -12,6 +12,7 @@ pub mod env;
 pub mod find;
 pub mod fold;
 pub mod grep;
+pub mod hashsum;
 pub mod gzip;
 pub mod head;
 pub mod hostname;

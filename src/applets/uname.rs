@@ -144,7 +144,6 @@ fn operating_system_name() -> &'static str {
     }
     #[cfg(target_os = "macos")]
     {
-        // TODO: Remove this temporary Darwin fallback once uname targets Linux only.
         "Darwin"
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]

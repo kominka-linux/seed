@@ -345,8 +345,7 @@ fn attribute_marker(path: &Path) -> Result<char, AppletError> {
         .map_err(|_| AppletError::new(APPLET, format!("unsupported path '{}'", path.display())))?;
     #[cfg(target_os = "macos")]
     {
-        // TODO: Drop this Darwin xattr arity special-case once the codebase is
-        // Linux-only in practice.
+        // macOS `listxattr` takes an extra options argument.
         // SAFETY: `path_c` is a valid NUL-terminated path string. Passing a
         // null buffer with size 0 asks `listxattr` for the required size only.
         let size = unsafe { libc::listxattr(path_c.as_ptr(), std::ptr::null_mut(), 0, 0) };

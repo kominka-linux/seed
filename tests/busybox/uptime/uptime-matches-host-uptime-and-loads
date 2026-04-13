@@ -1,0 +1,37 @@
+actual=$(busybox uptime)
+expected=$(/usr/bin/uptime)
+ACTUAL="$actual" EXPECTED="$expected" python3 - <<'PY'
+import os
+import re
+
+def parse(line: str):
+    match = re.search(
+        r"up\s+(.+),\s+(\d+)\s+user[s]?,\s+load averages?:\s+([0-9]+(?:\.[0-9]+)?)\s+([0-9]+(?:\.[0-9]+)?)\s+([0-9]+(?:\.[0-9]+)?)$",
+        line.strip(),
+    )
+    assert match, line
+    return (
+        match.group(1),
+        int(match.group(2)),
+        [float(match.group(i)) for i in (3, 4, 5)],
+    )
+
+def uptime_minutes(text: str) -> int:
+    if text.endswith(" min") or text.endswith(" mins"):
+        return int(text.split()[0])
+    if ", " in text:
+        days_text, clock_text = text.split(", ", 1)
+        days = int(days_text.split()[0])
+        hours, minutes = map(int, clock_text.split(":", 1))
+        return days * 24 * 60 + hours * 60 + minutes
+    hours, minutes = map(int, text.split(":", 1))
+    return hours * 60 + minutes
+
+actual = parse(os.environ["ACTUAL"])
+expected = parse(os.environ["EXPECTED"])
+
+assert abs(uptime_minutes(actual[0]) - uptime_minutes(expected[0])) <= 1, (actual, expected)
+assert actual[1] == expected[1], (actual, expected)
+for left, right in zip(actual[2], expected[2]):
+    assert abs(left - right) < 0.5, (actual, expected)
+PY

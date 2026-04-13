@@ -1,0 +1,9 @@
+output=$(busybox uptime)
+UPTIME_OUTPUT="$output" python3 - <<'PY'
+import os
+import re
+
+output = os.environ["UPTIME_OUTPUT"].strip()
+pattern = r"^\d{1,2}:\d{2}\s+up\s+.+,\s+\d+\s+user[s]?,\s+load averages?:\s+[0-9]+(?:\.[0-9]+)?\s+[0-9]+(?:\.[0-9]+)?\s+[0-9]+(?:\.[0-9]+)?$"
+assert re.match(pattern, output), output
+PY

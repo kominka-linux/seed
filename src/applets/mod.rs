@@ -72,6 +72,7 @@ pub mod truncate;
 pub mod tty;
 pub mod uname;
 pub mod uniq;
+pub mod uptime;
 pub mod wc;
 pub mod wget;
 pub mod which;

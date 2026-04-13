@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown cmp cp date dd df diff du egrep env expr find grep gunzip gzip hexdump install ln ls lzcat lzma mkdir mkfifo mv od paste printf readlink realpath rm rmdir run-parts sleep sort split stat tar tee test time touch timeout tr tree uname unlzma unxz wc wget xz xzcat zcat '[' '[['; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown cmp cp date dd df diff du egrep env expr find grep gunzip gzip hexdump install ln ls lzcat lzma mkdir mkfifo mv od paste printf readlink realpath rm rmdir run-parts sleep sort split stat tar tee test time touch timeout tr tree uname unlzma unxz uptime wc wget xz xzcat zcat '[' '[['; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -244,6 +244,9 @@ run_old_style tests/busybox/test/test-bracket-forms
 
 run_old_style tests/busybox/time/time-runs-command-and-prints-timings
 run_old_style tests/busybox/time/time-propagates-exit-status
+
+run_old_style tests/busybox/uptime/uptime-prints-darwin-style-output
+run_old_style tests/busybox/uptime/uptime-matches-host-uptime-and-loads
 
 run_old_style tests/busybox/run-parts/run-parts-runs-executable-scripts-in-order
 run_old_style tests/busybox/run-parts/run-parts-skips-non-executable-files

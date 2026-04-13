@@ -12,6 +12,7 @@ pub mod diff;
 pub mod du;
 pub mod echo;
 pub mod env;
+pub mod expr;
 pub mod find;
 pub mod fold;
 pub mod grep;

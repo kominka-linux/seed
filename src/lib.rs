@@ -84,6 +84,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::env::main,
     },
     AppletEntry {
+        name: "expr",
+        main: applets::expr::main,
+    },
+    AppletEntry {
         name: "fgrep",
         main: applets::grep::main_fixed,
     },

@@ -1,0 +1,10 @@
+{
+	busybox expr 0 \< 1
+	busybox expr 1 \> 0
+	busybox expr 1 \<= 1
+	busybox expr 1 \>= 1
+	busybox expr 2 = 2
+	busybox expr 2 != 3
+} > actual
+printf '1\n1\n1\n1\n1\n1\n' > expected
+cmp expected actual

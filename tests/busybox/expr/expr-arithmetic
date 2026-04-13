@@ -1,0 +1,9 @@
+{
+	busybox expr 1 + 2
+	busybox expr 2 - 1
+	busybox expr 2 \* 3
+	busybox expr 12 / 2
+	busybox expr 12 % 5
+} > actual
+printf '3\n1\n6\n6\n2\n' > expected
+cmp expected actual

@@ -47,6 +47,7 @@ macro_rules! define_applet_modules {
         pub mod mountpoint;
         pub mod mv;
         pub mod nohup;
+        pub mod nologin;
         pub mod nproc;
         pub mod nslookup;
         pub mod od;
@@ -347,6 +348,10 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "nohup",
                 main: applets::nohup::main,
+            },
+            $entry {
+                name: "nologin",
+                main: applets::nologin::main,
             },
             $entry {
                 name: "nproc",

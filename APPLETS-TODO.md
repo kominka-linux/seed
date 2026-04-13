@@ -161,7 +161,7 @@ obvious output utilities.
 - [ ] deluser
 - [ ] getty
 - [ ] login
-- [ ] nologin
+- [x] nologin
 - [ ] passwd
 - [ ] su
 - [ ] sulogin

@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown chroot cmp cp date dd df diff du egrep env expr find flock free getopt grep gunzip gzip hexdump install killall less ln ls lzcat lzma man mkdir mkfifo mountpoint mv nslookup od paste patch pgrep pkill printf ps readlink realpath rm rmdir run-parts setsid sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz unzip uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown chroot cmp cp date dd df diff du egrep env expr find flock free getopt grep gunzip gzip hexdump install killall less ln ls lzcat lzma man mkdir mkfifo mountpoint mv nologin nslookup od paste patch pgrep pkill printf ps readlink realpath rm rmdir run-parts setsid sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz unzip uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -489,6 +489,9 @@ run_old_style tests/busybox/mv/mv-preserves-hard-links
 run_old_style tests/busybox/mv/mv-preserves-links
 run_old_style tests/busybox/mv/mv-refuses-mv-dir-to-subdir
 run_old_style tests/busybox/mv/mv-removes-source-file
+
+run_old_style tests/busybox/nologin/nologin-exits-nonzero-and-prints-default-message
+run_old_style tests/busybox/nologin/nologin-rejects-extra-operand
 
 run_old_style tests/busybox/rm/rm-removes-file
 run_old_style tests/busybox/rmdir/rmdir-removes-parent-directories

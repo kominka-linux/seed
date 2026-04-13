@@ -1,0 +1,6 @@
+if busybox nologin >stdout 2>stderr; then
+	exit 1
+fi
+test "$?" -eq 1
+test ! -s stdout
+grep 'This account is currently not available\.' stderr

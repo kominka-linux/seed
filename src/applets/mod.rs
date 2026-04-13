@@ -44,6 +44,7 @@ pub mod od;
 pub mod paste;
 pub mod printenv;
 pub mod printf;
+pub mod ps;
 pub mod pwd;
 pub mod readlink;
 pub mod realpath;

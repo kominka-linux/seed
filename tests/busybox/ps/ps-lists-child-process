@@ -1,0 +1,6 @@
+busybox sleep 5 &
+child=$!
+busybox ps > actual
+kill "$child"
+wait "$child" 2>/dev/null || true
+grep -E "^ *$child " actual >/dev/null || exit 1

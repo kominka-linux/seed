@@ -196,7 +196,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] lsof
 - [ ] pgrep
 - [ ] pkill
-- [ ] ps
+- [x] ps
 - [x] uptime
 - [x] watch
 

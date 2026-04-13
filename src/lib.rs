@@ -248,6 +248,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::printf::main,
     },
     AppletEntry {
+        name: "ps",
+        main: applets::ps::main,
+    },
+    AppletEntry {
         name: "pwd",
         main: applets::pwd::main,
     },

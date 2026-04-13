@@ -1,0 +1,13 @@
+pid=$$
+busybox ps > actual
+ACTUAL_PATH=actual PID="$pid" python3 - <<'PY'
+import os
+import re
+from pathlib import Path
+
+lines = Path(os.environ["ACTUAL_PATH"]).read_text().splitlines()
+assert lines, lines
+assert re.match(r"^\s*PID\s+TTY\s+TIME\s+CMD\s*$", lines[0]), lines[0]
+pid = os.environ["PID"]
+assert any(re.match(rf"^\s*{re.escape(pid)}\s+", line) for line in lines[1:]), lines
+PY

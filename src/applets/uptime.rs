@@ -12,6 +12,8 @@ const APPLET: &str = "uptime";
 const PROC_LOADAVG: &str = "/proc/loadavg";
 #[cfg(target_os = "linux")]
 const PROC_UPTIME: &str = "/proc/uptime";
+#[cfg(target_os = "linux")]
+const UTMP_PATHS: &[&str] = &["/run/utmp", "/var/run/utmp"];
 
 pub fn main(args: &[String]) -> i32 {
     match run(args) {
@@ -115,8 +117,7 @@ fn format_clock(seconds: i64) -> Result<String, AppletError> {
 
 #[cfg(target_os = "macos")]
 fn collect_snapshot() -> Result<Snapshot, Vec<AppletError>> {
-    // TODO: Replace this temporary Darwin uptime implementation with Linux
-    // sources such as /proc/uptime, /proc/loadavg, and utmp handling.
+    // Temporary Darwin fallback for local macOS iteration.
     let now = current_time()?;
     let boot = boot_time()?;
     let users = user_count()?;
@@ -260,9 +261,46 @@ fn read_load_averages() -> Result<[f64; 3], Vec<AppletError>> {
 
 #[cfg(target_os = "linux")]
 fn user_count() -> Result<usize, Vec<AppletError>> {
-    // TODO: Alpine/musl exposes utmp entry points as stubs. Replace this with
-    // a Linux user-session source that works in the project target environment.
+    for path in UTMP_PATHS {
+        match fs::read(path) {
+            Ok(bytes) => return Ok(count_utmp_users(&bytes)),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(err) => {
+                return Err(vec![AppletError::from_io(
+                    APPLET,
+                    "reading",
+                    Some(path),
+                    err,
+                )]);
+            }
+        }
+    }
     Ok(0)
+}
+
+#[cfg(target_os = "linux")]
+fn count_utmp_users(bytes: &[u8]) -> usize {
+    let size = std::mem::size_of::<libc::utmpx>();
+    if size == 0 {
+        return 0;
+    }
+
+    bytes
+        .chunks_exact(size)
+        .filter(|chunk| utmp_entry_is_user_process(chunk))
+        .count()
+}
+
+#[cfg(target_os = "linux")]
+fn utmp_entry_is_user_process(chunk: &[u8]) -> bool {
+    if chunk.len() != std::mem::size_of::<libc::utmpx>() {
+        return false;
+    }
+
+    // SAFETY: `chunk` is exactly one `utmpx` record wide and may be
+    // unaligned, so `read_unaligned` is the correct way to inspect it.
+    let entry = unsafe { std::ptr::read_unaligned(chunk.as_ptr().cast::<libc::utmpx>()) };
+    entry.ut_type == libc::USER_PROCESS
 }
 
 #[cfg(target_os = "macos")]
@@ -291,6 +329,9 @@ fn user_count() -> Result<usize, Vec<AppletError>> {
 #[cfg(test)]
 mod tests {
     use super::{Snapshot, format_snapshot, format_uptime, parse_args};
+
+    #[cfg(target_os = "linux")]
+    use super::count_utmp_users;
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
@@ -327,5 +368,31 @@ mod tests {
         };
         let rendered = format_snapshot(&snapshot);
         assert!(rendered.contains("up 2 days, 21:01, 1 user, load averages: 1.25 2.50 3.75"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn counts_user_process_entries_in_utmp() {
+        let mut user = unsafe { std::mem::zeroed::<libc::utmpx>() };
+        user.ut_type = libc::USER_PROCESS;
+        user.ut_user[0] = b'a' as libc::c_char;
+
+        let mut dead = unsafe { std::mem::zeroed::<libc::utmpx>() };
+        dead.ut_type = libc::DEAD_PROCESS;
+
+        let mut bytes = Vec::new();
+        // SAFETY: both values are fully initialized plain-old-data records.
+        bytes.extend_from_slice(unsafe { any_as_bytes(&user) });
+        // SAFETY: both values are fully initialized plain-old-data records.
+        bytes.extend_from_slice(unsafe { any_as_bytes(&dead) });
+
+        assert_eq!(count_utmp_users(&bytes), 1);
+    }
+
+    #[cfg(target_os = "linux")]
+    unsafe fn any_as_bytes<T>(value: &T) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts((value as *const T).cast::<u8>(), std::mem::size_of::<T>())
+        }
     }
 }

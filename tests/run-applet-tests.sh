@@ -245,7 +245,7 @@ run_old_style tests/busybox/test/test-bracket-forms
 run_old_style tests/busybox/time/time-runs-command-and-prints-timings
 run_old_style tests/busybox/time/time-propagates-exit-status
 
-run_old_style tests/busybox/uptime/uptime-prints-darwin-style-output
+run_old_style tests/busybox/uptime/uptime-prints-linux-style-output
 run_old_style tests/busybox/uptime/uptime-matches-host-uptime-and-loads
 
 run_old_style tests/busybox/less/less-prints-file

@@ -1,12 +1,12 @@
 actual=$(busybox uptime)
-expected=$(/usr/bin/uptime)
+expected=$(uptime)
 ACTUAL="$actual" EXPECTED="$expected" python3 - <<'PY'
 import os
 import re
 
 def parse(line: str):
     match = re.search(
-        r"up\s+(.+),\s+(\d+)\s+user[s]?,\s+load averages?:\s+([0-9]+(?:\.[0-9]+)?)\s+([0-9]+(?:\.[0-9]+)?)\s+([0-9]+(?:\.[0-9]+)?)$",
+        r"up\s+(.+),\s+(\d+)\s+user[s]?,\s+load average[s]?:\s+([0-9]+(?:\.[0-9]+)?)[,\s]+([0-9]+(?:\.[0-9]+)?)[,\s]+([0-9]+(?:\.[0-9]+)?)$",
         line.strip(),
     )
     assert match, line
@@ -22,9 +22,9 @@ def uptime_minutes(text: str) -> int:
     if ", " in text:
         days_text, clock_text = text.split(", ", 1)
         days = int(days_text.split()[0])
-        hours, minutes = map(int, clock_text.split(":", 1))
+        hours, minutes = map(int, clock_text.split(":", 1)[:2])
         return days * 24 * 60 + hours * 60 + minutes
-    hours, minutes = map(int, text.split(":", 1))
+    hours, minutes = map(int, text.split(":", 1)[:2])
     return hours * 60 + minutes
 
 actual = parse(os.environ["ACTUAL"])

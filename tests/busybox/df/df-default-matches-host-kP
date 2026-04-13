@@ -1,0 +1,11 @@
+busybox df . > actual-default
+busybox df -kP . > actual-kp
+header_default=$(head -1 actual-default)
+header_kp=$(head -1 actual-kp)
+test "$header_default" = "$header_kp"
+fs_default=$(awk 'NR==2 {print $1}' actual-default)
+fs_kp=$(awk 'NR==2 {print $1}' actual-kp)
+mount_default=$(awk 'NR==2 {print $6}' actual-default)
+mount_kp=$(awk 'NR==2 {print $6}' actual-kp)
+test "$fs_default" = "$fs_kp"
+test "$mount_default" = "$mount_kp"

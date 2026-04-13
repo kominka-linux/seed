@@ -60,6 +60,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::date::main,
     },
     AppletEntry {
+        name: "df",
+        main: applets::df::main,
+    },
+    AppletEntry {
         name: "diff",
         main: applets::diff::main,
     },

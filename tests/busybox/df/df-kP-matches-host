@@ -1,0 +1,29 @@
+/bin/df -kP . | tail -1 > host-line
+busybox df -kP . > actual
+
+head -1 actual | grep '^Filesystem 1024-blocks Used Available Capacity Mounted on$'
+
+host_fs=$(awk 'NR==1 {print $1}' host-line)
+host_blocks=$(awk 'NR==1 {print $2}' host-line)
+host_mount=$(awk 'NR==1 {print $6}' host-line)
+
+actual_fs=$(awk 'NR==2 {print $1}' actual)
+actual_blocks=$(awk 'NR==2 {print $2}' actual)
+actual_used=$(awk 'NR==2 {print $3}' actual)
+actual_avail=$(awk 'NR==2 {print $4}' actual)
+actual_capacity=$(awk 'NR==2 {print $5}' actual)
+actual_mount=$(awk 'NR==2 {print $6}' actual)
+
+test "$actual_fs" = "$host_fs"
+test "$actual_blocks" = "$host_blocks"
+test "$actual_mount" = "$host_mount"
+case "$actual_used" in
+  ''|*[!0-9]*) exit 1 ;;
+esac
+case "$actual_avail" in
+  ''|*[!0-9]*) exit 1 ;;
+esac
+case "$actual_capacity" in
+  *% ) : ;;
+  * ) exit 1 ;;
+esac

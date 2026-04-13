@@ -1,0 +1,15 @@
+busybox free > actual
+ACTUAL_PATH=actual python3 - <<'PY'
+import re
+from pathlib import Path
+
+lines = Path("actual").read_text().splitlines()
+assert len(lines) >= 3, lines
+assert re.match(r"^\s+total\s+used\s+free\s*$", lines[0]), lines[0]
+mem = re.split(r"\s+", lines[1].strip())
+swap = re.split(r"\s+", lines[2].strip())
+assert mem[0] == "Mem:", mem
+assert swap[0] == "Swap:", swap
+for value in mem[1:] + swap[1:]:
+    assert value.isdigit(), value
+PY

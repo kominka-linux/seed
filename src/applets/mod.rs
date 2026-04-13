@@ -20,6 +20,7 @@ pub mod expr;
 pub mod find;
 pub mod flock;
 pub mod fold;
+pub mod free;
 pub mod getopt;
 pub mod grep;
 pub mod gzip;

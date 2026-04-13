@@ -1,0 +1,13 @@
+busybox free -m > actual
+ACTUAL_PATH=actual python3 - <<'PY'
+import re
+import subprocess
+from pathlib import Path
+
+lines = Path("actual").read_text().splitlines()
+mem = re.split(r"\s+", lines[1].strip())
+total_mib = int(mem[1])
+host_bytes = int(subprocess.check_output(["sysctl", "-n", "hw.memsize"], text=True).strip())
+host_mib = host_bytes // (1024 * 1024)
+assert abs(total_mib - host_mib) <= 1, (total_mib, host_mib)
+PY

@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown cmp cp date dd df diff du egrep env expr find flock getopt grep gunzip gzip hexdump install killall less ln ls lzcat lzma mkdir mkfifo mv nslookup od paste pgrep pkill printf ps readlink realpath rm rmdir run-parts setsid sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz uptime watch wc wget xz xzcat zcat '[' '[['; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown cmp cp date dd df diff du egrep env expr find flock free getopt grep gunzip gzip hexdump install killall less ln ls lzcat lzma mkdir mkfifo mv nslookup od paste pgrep pkill printf ps readlink realpath rm rmdir run-parts setsid sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz uptime watch wc wget xz xzcat zcat '[' '[['; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -288,6 +288,10 @@ run_old_style tests/busybox/getopt/getopt-parses-short-options
 run_old_style tests/busybox/getopt/getopt-parses-attached-argument
 run_old_style tests/busybox/getopt/getopt-fails-invalid-option
 run_old_style tests/busybox/getopt/getopt-fails-missing-option-argument
+
+run_old_style tests/busybox/free/free-prints-memory-table
+run_old_style tests/busybox/free/free-m-total-matches-hw-memsize
+run_old_style tests/busybox/free/free-rejects-invalid-option
 
 run_old_style tests/busybox/watch/watch-runs-command-repeatedly
 run_old_style tests/busybox/watch/watch-rejects-invalid-interval

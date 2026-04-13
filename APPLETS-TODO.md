@@ -190,7 +190,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 ## Process Utilities
 
 - [x] kill
-- [ ] free
+- [x] free
 - [x] killall
 - [ ] killall5
 - [ ] lsof

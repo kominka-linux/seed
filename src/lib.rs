@@ -52,6 +52,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::chown::main,
     },
     AppletEntry {
+        name: "chroot",
+        main: applets::chroot::main,
+    },
+    AppletEntry {
         name: "cmp",
         main: applets::cmp::main,
     },

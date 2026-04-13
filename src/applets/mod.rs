@@ -5,6 +5,7 @@ pub mod cat;
 pub mod chgrp;
 pub mod chmod;
 pub mod chown;
+pub mod chroot;
 pub mod cmp;
 pub(crate) mod compression;
 pub mod cp;

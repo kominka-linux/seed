@@ -1,0 +1,5 @@
+busybox chroot / /bin/sh -c 'pwd; test "$PWD" = /' > actual
+cat > expected <<'EOF'
+/
+EOF
+cmp expected actual

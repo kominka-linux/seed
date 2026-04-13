@@ -85,7 +85,7 @@ with Linux-native behavior.
 - [x] tr
 - [x] chgrp
 - [x] chown
-- [ ] chroot
+- [x] chroot
 - [x] dd
 - [x] df
 - [x] du

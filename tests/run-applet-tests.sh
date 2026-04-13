@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown cmp cp date dd df diff du egrep env expr find flock free getopt grep gunzip gzip hexdump install killall less ln ls lzcat lzma man mkdir mkfifo mountpoint mv nslookup od paste pgrep pkill printf ps readlink realpath rm rmdir run-parts setsid sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown chroot cmp cp date dd df diff du egrep env expr find flock free getopt grep gunzip gzip hexdump install killall less ln ls lzcat lzma man mkdir mkfifo mountpoint mv nslookup od paste pgrep pkill printf ps readlink realpath rm rmdir run-parts setsid sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -186,6 +186,10 @@ run_old_style tests/busybox/chmod/chmod-R-descends-before-changing-directory
 run_old_style tests/busybox/chgrp/chgrp-sets-group
 run_old_style tests/busybox/chown/chown-sets-owner
 run_old_style tests/busybox/chown/chown-sets-owner-and-group
+run_old_style tests/busybox/chroot/chroot-propagates-command-exit-status
+run_old_style tests/busybox/chroot/chroot-rejects-missing-root
+run_old_style tests/busybox/chroot/chroot-runs-command-in-new-root
+run_old_style tests/busybox/chroot/chroot-fails-missing-root-path
 
 run_old_style tests/busybox/cmp/cmp-identical-files
 run_old_style tests/busybox/cmp/cmp-different-files-exit-one

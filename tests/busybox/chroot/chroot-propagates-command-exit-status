@@ -1,0 +1,3 @@
+busybox chroot / /bin/sh -c 'exit 7'
+status=$?
+test "$status" -eq 7

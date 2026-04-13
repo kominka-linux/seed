@@ -1,0 +1,3 @@
+printf 'stdin\n' | busybox less > actual
+printf 'stdin\n' > expected
+cmp expected actual

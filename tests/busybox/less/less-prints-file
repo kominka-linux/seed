@@ -1,0 +1,4 @@
+printf 'hello\n' > input
+busybox less input > actual
+printf 'hello\n' > expected
+cmp expected actual

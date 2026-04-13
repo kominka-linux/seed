@@ -28,6 +28,7 @@ pub mod hostname;
 pub mod id;
 pub mod install;
 pub mod kill;
+pub mod less;
 pub mod link;
 pub mod ln;
 pub mod losetup;

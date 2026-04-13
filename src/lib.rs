@@ -176,6 +176,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::kill::main,
     },
     AppletEntry {
+        name: "less",
+        main: applets::less::main,
+    },
+    AppletEntry {
         name: "link",
         main: applets::link::main_link,
     },

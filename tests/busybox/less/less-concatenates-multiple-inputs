@@ -1,0 +1,5 @@
+printf 'one\n' > one
+printf 'two\n' > two
+busybox less one two > actual
+printf 'one\ntwo\n' > expected
+cmp expected actual

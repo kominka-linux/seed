@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown chroot cmp cp date dd df diff du egrep env expr find flock free getopt grep gunzip gzip hexdump install killall less ln ls lsmod lzcat lzma man mkdir mkfifo mountpoint mv nologin nslookup od paste patch pgrep pkill printf ps readlink realpath rm rmdir run-parts setsid sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz unzip uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown chroot cmp cp date dd df diff du egrep env expr find flock free getopt grep gunzip gzip halt hexdump install killall less ln ls lsmod lzcat lzma man mkdir mkfifo mountpoint mv nologin nslookup od paste patch pgrep pkill poweroff printf ps readlink realpath reboot rm rmdir run-parts setsid sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz unzip uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -284,6 +284,8 @@ run_old_style tests/busybox/pgrep/pgrep-does-not-match-script-name-in-wrapper-ar
 run_old_style tests/busybox/pgrep/pgrep-exits-one-when-no-match
 run_old_style tests/busybox/pgrep/pgrep-rejects-missing-pattern
 
+run_old_style tests/busybox/poweroff/poweroff-w-exits-zero
+
 run_old_style tests/busybox/pkill/pkill-terminates-matching-child
 run_old_style tests/busybox/pkill/pkill-does-not-kill-wrapper-shell-by-script-argv
 run_old_style tests/busybox/pkill/pkill-exits-one-when-no-match
@@ -333,6 +335,8 @@ run_old_style tests/busybox/getopt/getopt-parses-short-options
 run_old_style tests/busybox/getopt/getopt-parses-attached-argument
 run_old_style tests/busybox/getopt/getopt-fails-invalid-option
 run_old_style tests/busybox/getopt/getopt-fails-missing-option-argument
+
+run_old_style tests/busybox/halt/halt-w-exits-zero
 
 run_old_style tests/busybox/free/free-prints-memory-table
 run_old_style tests/busybox/free/free-k-values-match-proc-meminfo
@@ -452,6 +456,8 @@ run_old_style tests/busybox/readlink/readlink-f-canonicalizes
 run_old_style tests/busybox/readlink/readlink-f-normalizes-dotdot-after-missing-component
 run_old_style tests/busybox/realpath/realpath-canonicalizes-existing-path
 run_old_style tests/busybox/realpath/realpath-fails-for-missing-path
+run_old_style tests/busybox/reboot/reboot-w-exits-zero
+run_old_style tests/busybox/reboot/reboot-d-requires-argument
 
 run_old_style tests/busybox/tail/tail-prints-last-lines
 run_old_style tests/busybox/tail/tail-prints-from-line

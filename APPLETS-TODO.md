@@ -148,10 +148,10 @@ obvious output utilities.
 
 ## Init Utilities
 
-- [ ] halt
+- [x] halt
 - [ ] init
-- [ ] poweroff
-- [ ] reboot
+- [x] poweroff
+- [x] reboot
 
 ## Login / Password Management
 

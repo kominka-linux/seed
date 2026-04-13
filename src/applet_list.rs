@@ -69,6 +69,7 @@ macro_rules! define_applet_modules {
         pub mod seq;
         pub mod setsid;
         pub mod shuf;
+        pub mod shutdown;
         pub mod sleep;
         pub mod sort;
         pub mod split;
@@ -247,6 +248,10 @@ macro_rules! define_applet_entries {
                 main: applets::gzip::main,
             },
             $entry {
+                name: "halt",
+                main: applets::shutdown::main_halt,
+            },
+            $entry {
                 name: "head",
                 main: applets::head::main,
             },
@@ -391,6 +396,10 @@ macro_rules! define_applet_entries {
                 main: applets::printenv::main,
             },
             $entry {
+                name: "poweroff",
+                main: applets::shutdown::main_poweroff,
+            },
+            $entry {
                 name: "printf",
                 main: applets::printf::main,
             },
@@ -409,6 +418,10 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "realpath",
                 main: applets::realpath::main,
+            },
+            $entry {
+                name: "reboot",
+                main: applets::shutdown::main_reboot,
             },
             $entry {
                 name: "rev",

@@ -1,0 +1,3 @@
+busybox poweroff -w >/dev/null 2>stderr
+test "$?" -eq 0
+test ! -s stderr

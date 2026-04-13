@@ -142,11 +142,7 @@ fn operating_system_name() -> &'static str {
     {
         "GNU/Linux"
     }
-    #[cfg(target_os = "macos")]
-    {
-        "Darwin"
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(not(target_os = "linux"))]
     {
         std::env::consts::OS
     }

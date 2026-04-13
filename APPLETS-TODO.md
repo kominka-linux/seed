@@ -2,10 +2,9 @@
 
 Implemented applets (registered in `src/lib.rs`) are checked off.
 
-Target platform note: this project targets Linux. macOS work is only temporary
-scaffolding so applets can be exercised locally until Linux hardware is
-available; Darwin-specific implementations should be treated as TODOs to replace
-with Linux-native behavior.
+Target platform note: this project targets Linux. Non-Linux hosts are only
+editor/build hosts; applet behavior and implementation should be treated as
+Linux-native.
 
 ## Archival Utilities
 

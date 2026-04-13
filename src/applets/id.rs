@@ -222,7 +222,6 @@ fn lookup_user_by_name(username: &str) -> Option<UserInfo> {
 }
 
 fn get_groups_for_user(c_name: &CString, primary_gid: u32) -> Vec<u32> {
-    // getgrouplist signature differs between Linux (gid_t) and macOS (c_int).
     #[cfg(target_os = "linux")]
     {
         let mut ngroups: libc::c_int = 64;
@@ -249,35 +248,9 @@ fn get_groups_for_user(c_name: &CString, primary_gid: u32) -> Vec<u32> {
         groups.truncate(ngroups.max(0) as usize);
         groups.into_iter().map(|g| g as u32).collect()
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(not(target_os = "linux"))]
     {
-        // macOS exposes a `getgrouplist` signature that takes `c_int`.
-        let mut ngroups: libc::c_int = 64;
-        let mut groups: Vec<libc::c_int> = vec![0; 64];
-        let result = unsafe {
-            libc::getgrouplist(
-                c_name.as_ptr(),
-                primary_gid as libc::c_int,
-                groups.as_mut_ptr(),
-                &mut ngroups,
-            )
-        };
-        if result == -1 {
-            groups.resize(ngroups.max(0) as usize, 0);
-            unsafe {
-                libc::getgrouplist(
-                    c_name.as_ptr(),
-                    primary_gid as libc::c_int,
-                    groups.as_mut_ptr(),
-                    &mut ngroups,
-                );
-            }
-        }
-        groups.truncate(ngroups.max(0) as usize);
-        groups.into_iter().map(|g| g as u32).collect()
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-    {
+        let _ = c_name;
         vec![primary_gid]
     }
 }

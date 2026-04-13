@@ -64,7 +64,7 @@ Implementation notes and handoff context for future agents.
 - It builds the binary, creates temporary applet symlinks, and runs both:
   - new-style `.tests`
   - old-style shell tests
-- The script also provides a small `echo-ne` shim for this macOS environment.
+- The script also provides a small `echo-ne` shim for this host environment.
 - `find.tests` is now enabled with the bundled `FEATURE_FIND_*` buckets.
 - `ls.tests` is enabled with `CONFIG_FEATURE_LS_SORTFILES=y`.
 - The old-style `ls` scripts run against a controlled temporary fixture so
@@ -88,7 +88,7 @@ Implementation notes and handoff context for future agents.
   - `flate2` uses `miniz_oxide` only
   - `tar` builds without default features
   - `lzma-rust2` builds with `std`, `encoder`, and `xz`
-- `bzip2` still uses the `static` feature because that is the practical path for current Linux/macOS support.
+- `bzip2` still uses the `static` feature because that is the practical path for current Linux/host support.
 
 ## Architecture Assessment
 

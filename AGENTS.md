@@ -38,8 +38,8 @@
 
 ## Linux Dev Environment
 
-- The target runtime is Linux on Alpine/musl. macOS is only an editing host and temporary stopgap for local iteration.
-- Treat the Alpine container as authoritative for Linux-only applets and behavior. Do not treat macOS results as the final oracle.
+- The target runtime is Linux on Alpine/musl.
+- Treat the Alpine container as authoritative for Linux-only applets and behavior. Do not treat host-native results as the final oracle.
 - Container files:
   - `Dockerfile.alpine-dev`: Alpine + Rust toolchain + test dependencies.
   - `docker-compose.yml`: main `dev` service and a `dev-privileged` variant for kernel/capability-heavy applets.

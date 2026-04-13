@@ -129,7 +129,7 @@ Pass all busybox tests for each.
 Status: baseline implementation exists for all listed applets and the
 current local runner passes. The remaining deliberate gap is the
 non-desktop `od -e` / `od -F` bucket, which is not important for the
-current macOS-driven workflow and is intentionally left for later.
+current host-driven workflow and is intentionally left for later.
 
 ### Phase 4 — Find + ls
 
@@ -163,7 +163,7 @@ Pass all busybox tests for each.
 raw sockets). This is the single hardest applet. Consider implementing
 HTTP-only first, then layering TLS.
 
-### Phase 7 — System utilities (macOS-testable)
+### Phase 7 — System utilities (host-testable)
 
 Implement: `date`, `uname`, `sleep`, `env`.
 Pass all busybox tests for each (date has old-style tests).
@@ -192,7 +192,7 @@ entry point (or similar).
 **Targets:** `aarch64-unknown-linux-musl` and `x86_64-unknown-linux-musl`.
 Fully static. No dynamic linking. No runtime dependencies.
 
-**Development:** Can build and iterate on macOS (the non-Linux-specific
+**Development:** Can build and iterate on the host (the non-Linux-specific
 applets should work). Linux-specific applets (`losetup`, `mknod`) and
 the final integration test require Linux (use Docker if needed).
 

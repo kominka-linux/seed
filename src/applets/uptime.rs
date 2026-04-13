@@ -115,23 +115,6 @@ fn format_clock(seconds: i64) -> Result<String, AppletError> {
         .into_owned())
 }
 
-#[cfg(target_os = "macos")]
-fn collect_snapshot() -> Result<Snapshot, Vec<AppletError>> {
-    // Temporary Darwin fallback for local macOS iteration.
-    let now = current_time()?;
-    let boot = boot_time()?;
-    let users = user_count()?;
-    let loads = load_averages()?;
-    let uptime_seconds = now.saturating_sub(boot) as u64;
-
-    Ok(Snapshot {
-        now,
-        uptime_seconds,
-        users,
-        loads,
-    })
-}
-
 #[cfg(target_os = "linux")]
 fn collect_snapshot() -> Result<Snapshot, Vec<AppletError>> {
     let now = current_time()?;
@@ -147,6 +130,15 @@ fn collect_snapshot() -> Result<Snapshot, Vec<AppletError>> {
     })
 }
 
+#[cfg(not(target_os = "linux"))]
+fn collect_snapshot() -> Result<Snapshot, Vec<AppletError>> {
+    Err(vec![AppletError::new(
+        APPLET,
+        "unsupported on this platform",
+    )])
+}
+
+#[cfg(target_os = "linux")]
 fn current_time() -> Result<i64, Vec<AppletError>> {
     // SAFETY: null tells libc to return the current time without writing it.
     let result = unsafe { libc::time(std::ptr::null_mut()) };
@@ -157,45 +149,6 @@ fn current_time() -> Result<i64, Vec<AppletError>> {
         )]);
     }
     Ok(result as i64)
-}
-
-#[cfg(target_os = "macos")]
-fn boot_time() -> Result<i64, Vec<AppletError>> {
-    let name = b"kern.boottime\0";
-    let mut boot_time = MaybeUninit::<libc::timeval>::uninit();
-    let mut size = std::mem::size_of::<libc::timeval>();
-
-    // SAFETY: `name` is NUL-terminated, `boot_time` points to writable memory,
-    // and `size` describes that buffer accurately.
-    let result = unsafe {
-        libc::sysctlbyname(
-            name.as_ptr().cast(),
-            boot_time.as_mut_ptr().cast(),
-            &mut size,
-            std::ptr::null_mut(),
-            0,
-        )
-    };
-    if result != 0 || size != std::mem::size_of::<libc::timeval>() {
-        return Err(vec![AppletError::new(APPLET, "reading boot time failed")]);
-    }
-
-    // SAFETY: `sysctlbyname` initialized `boot_time` on success.
-    Ok(unsafe { boot_time.assume_init() }.tv_sec)
-}
-
-#[cfg(target_os = "macos")]
-fn load_averages() -> Result<[f64; 3], Vec<AppletError>> {
-    let mut loads = [0.0_f64; 3];
-    // SAFETY: `loads` points to writable memory for three load samples.
-    let result = unsafe { libc::getloadavg(loads.as_mut_ptr(), loads.len() as libc::c_int) };
-    if result != loads.len() as libc::c_int {
-        return Err(vec![AppletError::new(
-            APPLET,
-            "reading load averages failed",
-        )]);
-    }
-    Ok(loads)
 }
 
 #[cfg(target_os = "linux")]
@@ -301,29 +254,6 @@ fn utmp_entry_is_user_process(chunk: &[u8]) -> bool {
     // unaligned, so `read_unaligned` is the correct way to inspect it.
     let entry = unsafe { std::ptr::read_unaligned(chunk.as_ptr().cast::<libc::utmpx>()) };
     entry.ut_type == libc::USER_PROCESS
-}
-
-#[cfg(target_os = "macos")]
-fn user_count() -> Result<usize, Vec<AppletError>> {
-    let mut users = 0_usize;
-
-    // SAFETY: utmpx iteration uses libc-managed global state. We reset it,
-    // iterate until null, read the current entry, then close the database.
-    unsafe {
-        libc::setutxent();
-        loop {
-            let entry = libc::getutxent();
-            if entry.is_null() {
-                break;
-            }
-            if (*entry).ut_type == libc::USER_PROCESS {
-                users += 1;
-            }
-        }
-        libc::endutxent();
-    }
-
-    Ok(users)
 }
 
 #[cfg(test)]

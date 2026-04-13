@@ -32,7 +32,7 @@ Keep this file short and current. Each item should be a discrete piece of work t
 - [ ] Extend the Alpine Phase 7b harness beyond smoke coverage.
 - [ ] Add a glibc-based Linux target alongside Alpine/musl.
 - [ ] Run Linux-only coverage under both privileged and unprivileged container modes where applicable.
-- [ ] Write down which applets are expected to work on macOS, Linux, or both.
+- [ ] Write down which applets are expected to work on Linux and which are intentionally unsupported.
 
 ## Size And Perf
 

@@ -128,10 +128,8 @@ fn mount_for_path(path: &str) -> Result<MountInfo, AppletError> {
         return mount_for_path_linux(path);
     }
 
-    #[cfg(target_os = "macos")]
-    {
-        return mount_for_path_macos(path);
-    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = path;
 
     #[allow(unreachable_code)]
     Err(AppletError::new(APPLET, "unsupported on this platform"))
@@ -146,40 +144,6 @@ fn mount_for_path_linux(path: &str) -> Result<MountInfo, AppletError> {
         filesystem: mount.filesystem,
         mounted_on: mount.mounted_on,
     })
-}
-
-#[cfg(target_os = "macos")]
-fn mount_for_path_macos(path: &str) -> Result<MountInfo, AppletError> {
-    let c_path = CString::new(Path::new(path).as_os_str().as_bytes())
-        .map_err(|_| AppletError::new(APPLET, "path contains NUL byte"))?;
-    let mut stats = std::mem::MaybeUninit::<libc::statfs>::uninit();
-    // SAFETY: pointers are valid and `stats` is writable for libc.
-    let rc = unsafe { libc::statfs(c_path.as_ptr(), stats.as_mut_ptr()) };
-    if rc != 0 {
-        return Err(AppletError::from_io(
-            APPLET,
-            "reading",
-            Some(path),
-            std::io::Error::last_os_error(),
-        ));
-    }
-    // SAFETY: libc initialized `stats` on success.
-    let stats = unsafe { stats.assume_init() };
-    Ok(MountInfo {
-        filesystem: c_buf_to_string(&stats.f_mntfromname),
-        mounted_on: c_buf_to_string(&stats.f_mntonname),
-    })
-}
-
-#[cfg(target_os = "macos")]
-fn c_buf_to_string(buf: &[libc::c_char]) -> String {
-    let bytes = buf
-        .iter()
-        .copied()
-        .take_while(|byte| *byte != 0)
-        .map(|byte| byte as u8)
-        .collect::<Vec<_>>();
-    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 #[cfg(test)]

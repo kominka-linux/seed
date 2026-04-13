@@ -1,7 +1,5 @@
 use std::io::Write;
 
-#[cfg(target_os = "macos")]
-use std::ffi::CString;
 #[cfg(target_os = "linux")]
 use std::fs;
 
@@ -81,10 +79,8 @@ fn read_value(name: &str) -> Result<String, Vec<AppletError>> {
         return read_linux_value(name);
     }
 
-    #[cfg(target_os = "macos")]
-    {
-        return read_macos_value(name);
-    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = name;
 
     #[allow(unreachable_code)]
     Err(vec![AppletError::new(
@@ -116,79 +112,9 @@ fn linux_sysctl_path(name: &str) -> Result<String, Vec<AppletError>> {
     Ok(format!("/proc/sys/{}", name.replace('.', "/")))
 }
 
-#[cfg(target_os = "macos")]
-fn read_macos_value(name: &str) -> Result<String, Vec<AppletError>> {
-    let c_name = CString::new(name)
-        .map_err(|_| vec![AppletError::new(APPLET, format!("invalid name '{name}'"))])?;
-    let mut size = 0_usize;
-
-    // SAFETY: `c_name` is NUL-terminated and `size` points to writable memory.
-    let rc = unsafe {
-        libc::sysctlbyname(
-            c_name.as_ptr(),
-            std::ptr::null_mut(),
-            &mut size,
-            std::ptr::null_mut(),
-            0,
-        )
-    };
-    if rc != 0 || size == 0 {
-        return Err(vec![AppletError::new(
-            APPLET,
-            format!("unknown key '{name}'"),
-        )]);
-    }
-
-    let mut buffer = vec![0_u8; size];
-    // SAFETY: `buffer` points to `size` writable bytes for sysctl to fill.
-    let rc = unsafe {
-        libc::sysctlbyname(
-            c_name.as_ptr(),
-            buffer.as_mut_ptr().cast(),
-            &mut size,
-            std::ptr::null_mut(),
-            0,
-        )
-    };
-    if rc != 0 {
-        return Err(vec![AppletError::new(
-            APPLET,
-            format!("unknown key '{name}'"),
-        )]);
-    }
-    buffer.truncate(size);
-    Ok(format_value(&buffer))
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-fn format_value(bytes: &[u8]) -> String {
-    if bytes.last() == Some(&0)
-        && bytes[..bytes.len() - 1]
-            .iter()
-            .all(|byte| byte.is_ascii_graphic() || *byte == b' ')
-    {
-        return String::from_utf8_lossy(&bytes[..bytes.len() - 1]).into_owned();
-    }
-
-    match bytes.len() {
-        1 => i8::from_ne_bytes([bytes[0]]).to_string(),
-        2 => i16::from_ne_bytes([bytes[0], bytes[1]]).to_string(),
-        4 => i32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]).to_string(),
-        8 => i64::from_ne_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-        ])
-        .to_string(),
-        _ => bytes
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<Vec<_>>()
-            .join(""),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Options, format_value, parse_args};
+    use super::{Options, parse_args};
 
     #[cfg(target_os = "linux")]
     use super::linux_sysctl_path;
@@ -209,12 +135,6 @@ mod tests {
                 String::from("kernel.pid_max")
             ]
         );
-    }
-
-    #[test]
-    fn formats_strings_and_integers() {
-        assert_eq!(format_value(b"Darwin\0"), "Darwin");
-        assert_eq!(format_value(&10_i32.to_ne_bytes()), "10");
     }
 
     #[cfg(target_os = "linux")]

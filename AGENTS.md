@@ -36,6 +36,21 @@
 - Do not widen public/shared interfaces unless another caller needs them now.
 - If a helper would only have one caller, keep it local.
 
+## Linux Dev Environment
+
+- The target runtime is Linux on Alpine/musl. macOS is only an editing host and temporary stopgap for local iteration.
+- Treat the Alpine container as authoritative for Linux-only applets and behavior. Do not treat macOS results as the final oracle.
+- Container files:
+  - `Dockerfile.alpine-dev`: Alpine + Rust toolchain + test dependencies.
+  - `docker-compose.yml`: main `dev` service and a `dev-privileged` variant for kernel/capability-heavy applets.
+  - `bin/alpine-shell`: open an interactive shell in the normal Alpine dev container.
+  - `bin/alpine-shell-privileged`: open an interactive shell in the privileged Alpine container.
+  - `bin/alpine-cargo`: run `cargo ...` inside the normal Alpine container.
+  - `bin/alpine-test`: run `tests/run-applet-tests.sh` in Alpine, or `cargo test --quiet ...` if given test filters.
+  - `bin/alpine-clippy`: run the repo clippy command in Alpine.
+- Cargo caches live in Docker volumes, and Linux build artifacts live in the `cargo-target` volume rather than the host `target/` tree.
+- Use `dev-privileged` only when an applet genuinely needs extra kernel access. Keep the normal loop on unprivileged `dev`.
+
 ## TDD Workflow
 
 1. Add or extend a focused test first.
@@ -62,6 +77,10 @@
 - Prefer targeted `cargo test` runs while developing.
 - Keep shell tests small and direct. Match the existing style in `tests/busybox/*`.
 - When behavior depends on Unix metadata, test the visible contract instead of overfitting to one implementation detail.
+- For Linux-targeted work, prefer the Alpine wrappers over host execution:
+  - `bin/alpine-test`
+  - `bin/alpine-cargo test --quiet <filter>`
+  - `bin/alpine-clippy`
 - Preferred adaptation pattern for external test ideas:
   1. Lift the behavior being tested, not the exact script text.
   2. Rewrite the case in this repo's small shell-test style.

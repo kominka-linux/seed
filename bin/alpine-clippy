@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+
+exec docker compose run --rm dev cargo clippy --all-targets --all-features --quiet -- -D warnings

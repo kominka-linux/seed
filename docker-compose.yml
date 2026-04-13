@@ -1,0 +1,40 @@
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.alpine-dev
+    platform: linux/arm64
+    working_dir: /work
+    stdin_open: true
+    tty: true
+    environment:
+      CARGO_HOME: /cargo
+      CARGO_TARGET_DIR: /cargo-target
+    volumes:
+      - .:/work
+      - cargo-registry:/cargo/registry
+      - cargo-git:/cargo/git
+      - cargo-target:/cargo-target
+
+  dev-privileged:
+    build:
+      context: .
+      dockerfile: Dockerfile.alpine-dev
+    platform: linux/arm64
+    working_dir: /work
+    stdin_open: true
+    tty: true
+    privileged: true
+    environment:
+      CARGO_HOME: /cargo
+      CARGO_TARGET_DIR: /cargo-target
+    volumes:
+      - .:/work
+      - cargo-registry:/cargo/registry
+      - cargo-git:/cargo/git
+      - cargo-target:/cargo-target
+
+volumes:
+  cargo-git:
+  cargo-registry:
+  cargo-target:

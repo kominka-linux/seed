@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -eq 0 ]; then
+    exec docker compose run --rm dev sh tests/run-applet-tests.sh
+fi
+
+exec docker compose run --rm dev cargo test --quiet "$@"

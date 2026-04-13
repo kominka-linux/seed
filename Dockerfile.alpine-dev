@@ -1,0 +1,23 @@
+FROM --platform=$BUILDPLATFORM rust:alpine
+
+RUN apk add --no-cache \
+    bash \
+    build-base \
+    ca-certificates \
+    coreutils \
+    linux-headers \
+    perl \
+    py3-pip \
+    python3 \
+    util-linux
+
+RUN rustup component add clippy rustfmt
+RUN printf '%s\n' 'export PATH=/cargo/bin:/usr/local/cargo/bin:$PATH' > /etc/profile.d/rust-path.sh
+
+WORKDIR /work
+
+ENV CARGO_HOME=/cargo
+ENV CARGO_TARGET_DIR=/cargo-target
+ENV PATH=/cargo/bin:/usr/local/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+CMD ["sh"]

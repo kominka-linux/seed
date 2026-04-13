@@ -1,0 +1,7 @@
+mkdir dir
+dd if=/dev/zero of=dir/file1 bs=1024 count=16 2>/dev/null
+ln dir/file1 dir/file1.link
+dd if=/dev/zero of=dir/file2 bs=1024 count=8 2>/dev/null
+/usr/bin/du -lk dir > expected
+busybox du -lk dir > actual
+cmp expected actual

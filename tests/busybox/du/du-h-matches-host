@@ -1,0 +1,4 @@
+dd if=/dev/zero of=file bs=1048576 count=1 2>/dev/null
+/usr/bin/du -h file > expected
+busybox du -h file > actual
+cmp expected actual

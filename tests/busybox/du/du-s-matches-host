@@ -1,0 +1,7 @@
+mkdir dir
+dd if=/dev/zero of=dir/a bs=1024 count=32 2>/dev/null
+mkdir dir/sub
+dd if=/dev/zero of=dir/sub/b bs=1024 count=16 2>/dev/null
+/usr/bin/du -sk dir > expected
+busybox du -sk dir > actual
+cmp expected actual

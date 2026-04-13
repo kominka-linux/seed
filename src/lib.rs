@@ -64,6 +64,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::diff::main,
     },
     AppletEntry {
+        name: "du",
+        main: applets::du::main,
+    },
+    AppletEntry {
         name: "dirname",
         main: applets::basename::main_dirname,
     },

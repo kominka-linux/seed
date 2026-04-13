@@ -9,6 +9,7 @@ pub mod cp;
 pub mod cut;
 pub mod date;
 pub mod diff;
+pub mod du;
 pub mod echo;
 pub mod env;
 pub mod find;

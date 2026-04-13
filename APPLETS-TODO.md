@@ -83,7 +83,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] chroot
 - [ ] dd
 - [ ] df
-- [ ] du
+- [x] du
 - [ ] expr
 - [ ] install
 - [x] mkfifo

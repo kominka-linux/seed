@@ -63,8 +63,8 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [x] wc
 - [x] whoami
 - [x] yes
-- [ ] base32
-- [ ] base64
+- [x] base32
+- [x] base64
 - [ ] chgrp
 - [ ] chown
 - [ ] chroot
@@ -79,17 +79,17 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] install
 - [x] link
 - [x] ln
-- [ ] md5sum / sha1sum / sha256sum / sha512sum
+- [x] md5sum / sha1sum / sha256sum / sha512sum
 - [ ] mkfifo
 - [ ] nice
 - [x] paste
 - [x] readlink
 - [x] realpath
-- [ ] rev
-- [ ] shuf
+- [x] rev
+- [x] shuf
 - [ ] split
 - [ ] stat
-- [ ] strings
+- [x] strings
 - [ ] stty
 - [x] sync / fsync
 - [ ] test / [ / [[
@@ -210,7 +210,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] ts
 - [ ] tsort
 - [ ] unshare
-- [ ] which
+- [x] which
 
 ## Networking Utilities
 

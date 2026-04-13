@@ -11,6 +11,8 @@ struct AppletEntry {
 }
 
 const APPLETS: &[AppletEntry] = &[
+    AppletEntry { name: "base32",    main: applets::base64::main_base32 },
+    AppletEntry { name: "base64",    main: applets::base64::main_base64 },
     AppletEntry { name: "basename",  main: applets::basename::main_basename },
     AppletEntry { name: "bunzip2",   main: applets::bzip2::main_bunzip2 },
     AppletEntry { name: "bzip2",     main: applets::bzip2::main },
@@ -37,6 +39,7 @@ const APPLETS: &[AppletEntry] = &[
     AppletEntry { name: "md5sum",    main: applets::hashsum::main_md5sum },
     AppletEntry { name: "sha1sum",   main: applets::hashsum::main_sha1sum },
     AppletEntry { name: "sha256sum", main: applets::hashsum::main_sha256sum },
+    AppletEntry { name: "sha512sum", main: applets::hashsum::main_sha512sum },
     AppletEntry { name: "hostname",  main: applets::hostname::main },
     AppletEntry { name: "id",        main: applets::id::main },
     AppletEntry { name: "kill",      main: applets::kill::main },
@@ -59,11 +62,14 @@ const APPLETS: &[AppletEntry] = &[
     AppletEntry { name: "pwd",       main: applets::pwd::main },
     AppletEntry { name: "readlink",  main: applets::readlink::main },
     AppletEntry { name: "realpath",  main: applets::realpath::main },
+    AppletEntry { name: "rev",       main: applets::rev::main },
     AppletEntry { name: "rm",        main: applets::rm::main },
     AppletEntry { name: "rmdir",     main: applets::rmdir::main },
     AppletEntry { name: "seq",       main: applets::seq::main },
     AppletEntry { name: "sleep",     main: applets::sleep::main },
+    AppletEntry { name: "shuf",      main: applets::shuf::main },
     AppletEntry { name: "sort",      main: applets::sort::main },
+    AppletEntry { name: "strings",   main: applets::strings::main },
     AppletEntry { name: "sync",      main: applets::sync::main_sync },
     AppletEntry { name: "tail",      main: applets::tail::main },
     AppletEntry { name: "tar",       main: applets::tar::main },

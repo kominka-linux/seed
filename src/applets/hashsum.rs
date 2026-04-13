@@ -11,8 +11,9 @@ use crate::common::io::{open_input, stdout};
 pub fn main_md5sum(args: &[String]) -> i32 { finish(run(args, Algo::Md5)) }
 pub fn main_sha1sum(args: &[String]) -> i32 { finish(run(args, Algo::Sha1)) }
 pub fn main_sha256sum(args: &[String]) -> i32 { finish(run(args, Algo::Sha256)) }
+pub fn main_sha512sum(args: &[String]) -> i32 { finish(run(args, Algo::Sha512)) }
 
-enum Algo { Md5, Sha1, Sha256 }
+enum Algo { Md5, Sha1, Sha256, Sha512 }
 
 impl Algo {
     fn name(&self) -> &'static str {
@@ -20,6 +21,7 @@ impl Algo {
             Algo::Md5 => "md5sum",
             Algo::Sha1 => "sha1sum",
             Algo::Sha256 => "sha256sum",
+            Algo::Sha512 => "sha512sum",
         }
     }
 }
@@ -183,6 +185,7 @@ fn hash_reader(r: &mut dyn Read, algo: &Algo) -> io::Result<String> {
         Algo::Md5    => hex(&md5::Md5::digest(&data)),
         Algo::Sha1   => hex(&sha1::Sha1::digest(&data)),
         Algo::Sha256 => hex(&sha2::Sha256::digest(&data)),
+        Algo::Sha512 => hex(&sha2::Sha512::digest(&data)),
     })
 }
 
@@ -245,6 +248,24 @@ mod tests {
         assert_eq!(
             hex_hash(Algo::Sha256, b"abc"),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
+    fn sha512_empty() {
+        assert_eq!(
+            hex_hash(Algo::Sha512, b""),
+            "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce\
+             47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e"
+        );
+    }
+
+    #[test]
+    fn sha512_abc() {
+        assert_eq!(
+            hex_hash(Algo::Sha512, b"abc"),
+            "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a\
+             2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"
         );
     }
 

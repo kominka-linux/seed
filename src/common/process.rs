@@ -1,6 +1,9 @@
-use std::ffi::CStr;
-use std::mem::MaybeUninit;
 use std::path::Path;
+
+#[cfg(target_os = "macos")]
+use std::ffi::CStr;
+#[cfg(target_os = "macos")]
+use std::mem::MaybeUninit;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ProcessInfo {

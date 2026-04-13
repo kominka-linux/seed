@@ -1,5 +1,9 @@
-use std::ffi::CString;
 use std::io::Write;
+
+#[cfg(target_os = "macos")]
+use std::ffi::CString;
+#[cfg(target_os = "linux")]
+use std::fs;
 
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
@@ -74,6 +78,48 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
 }
 
 fn read_value(name: &str) -> Result<String, Vec<AppletError>> {
+    #[cfg(target_os = "linux")]
+    {
+        return read_linux_value(name);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        return read_macos_value(name);
+    }
+
+    #[allow(unreachable_code)]
+    Err(vec![AppletError::new(
+        APPLET,
+        "unsupported on this platform",
+    )])
+}
+
+#[cfg(target_os = "linux")]
+fn read_linux_value(name: &str) -> Result<String, Vec<AppletError>> {
+    let path = linux_sysctl_path(name)?;
+    let value = fs::read_to_string(&path)
+        .map_err(|_| vec![AppletError::new(APPLET, format!("unknown key '{name}'"))])?;
+    Ok(value.trim_end().to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn linux_sysctl_path(name: &str) -> Result<String, Vec<AppletError>> {
+    if name.is_empty()
+        || name
+            .split('.')
+            .any(|part| part.is_empty() || part.contains('/'))
+    {
+        return Err(vec![AppletError::new(
+            APPLET,
+            format!("invalid name '{name}'"),
+        )]);
+    }
+    Ok(format!("/proc/sys/{}", name.replace('.', "/")))
+}
+
+#[cfg(target_os = "macos")]
+fn read_macos_value(name: &str) -> Result<String, Vec<AppletError>> {
     let c_name = CString::new(name)
         .map_err(|_| vec![AppletError::new(APPLET, format!("invalid name '{name}'"))])?;
     let mut size = 0_usize;
@@ -116,6 +162,7 @@ fn read_value(name: &str) -> Result<String, Vec<AppletError>> {
     Ok(format_value(&buffer))
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn format_value(bytes: &[u8]) -> String {
     if bytes.last() == Some(&0)
         && bytes[..bytes.len() - 1]

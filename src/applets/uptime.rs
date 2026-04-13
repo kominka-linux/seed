@@ -1,4 +1,6 @@
-use std::ffi::CString;
+use std::ffi::CStr;
+#[cfg(target_os = "linux")]
+use std::fs;
 use std::io::Write;
 use std::mem::MaybeUninit;
 
@@ -6,6 +8,10 @@ use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET: &str = "uptime";
+#[cfg(target_os = "linux")]
+const PROC_LOADAVG: &str = "/proc/loadavg";
+#[cfg(target_os = "linux")]
+const PROC_UPTIME: &str = "/proc/uptime";
 
 pub fn main(args: &[String]) -> i32 {
     match run(args) {
@@ -80,10 +86,10 @@ fn format_uptime(uptime_seconds: u64) -> String {
 }
 
 fn format_clock(seconds: i64) -> Result<String, AppletError> {
-    let c_seconds: libc::time_t = seconds;
+    let c_seconds = seconds;
     let mut tm = MaybeUninit::<libc::tm>::uninit();
-    let format = CString::new("%H:%M").expect("static format is NUL-free");
-    let mut buffer = [0_i8; 16];
+    let format = b"%H:%M\0";
+    let mut buffer = [0 as libc::c_char; 16];
 
     // SAFETY: `c_seconds`, `tm`, `buffer`, and `format` point to valid memory
     // for the duration of these libc calls, and `format` is NUL-terminated.
@@ -94,19 +100,17 @@ fn format_clock(seconds: i64) -> Result<String, AppletError> {
         libc::strftime(
             buffer.as_mut_ptr(),
             buffer.len(),
-            format.as_ptr(),
+            format.as_ptr().cast(),
             tm.as_ptr(),
         )
     };
     if written == 0 {
         return Err(AppletError::new(APPLET, "failed to format time"));
     }
-
-    let bytes = buffer[..written]
-        .iter()
-        .map(|byte| *byte as u8)
-        .collect::<Vec<_>>();
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    // SAFETY: `strftime` writes a NUL-terminated string when it succeeds.
+    Ok(unsafe { CStr::from_ptr(buffer.as_ptr()) }
+        .to_string_lossy()
+        .into_owned())
 }
 
 #[cfg(target_os = "macos")]
@@ -127,31 +131,36 @@ fn collect_snapshot() -> Result<Snapshot, Vec<AppletError>> {
     })
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 fn collect_snapshot() -> Result<Snapshot, Vec<AppletError>> {
-    Err(vec![AppletError::new(
-        APPLET,
-        "unsupported on this platform",
-    )])
+    let now = current_time()?;
+    let uptime_seconds = read_uptime_seconds()?;
+    let users = user_count()?;
+    let loads = read_load_averages()?;
+
+    Ok(Snapshot {
+        now,
+        uptime_seconds,
+        users,
+        loads,
+    })
 }
 
-#[cfg(target_os = "macos")]
 fn current_time() -> Result<i64, Vec<AppletError>> {
-    let mut now: libc::time_t = 0;
-    // SAFETY: `now` points to writable memory for `time` to initialize.
-    let result = unsafe { libc::time(&mut now) };
+    // SAFETY: null tells libc to return the current time without writing it.
+    let result = unsafe { libc::time(std::ptr::null_mut()) };
     if result == -1 {
         return Err(vec![AppletError::new(
             APPLET,
             "reading current time failed",
         )]);
     }
-    Ok(now as i64)
+    Ok(result as i64)
 }
 
 #[cfg(target_os = "macos")]
 fn boot_time() -> Result<i64, Vec<AppletError>> {
-    let name = CString::new("kern.boottime").expect("static string is NUL-free");
+    let name = b"kern.boottime\0";
     let mut boot_time = MaybeUninit::<libc::timeval>::uninit();
     let mut size = std::mem::size_of::<libc::timeval>();
 
@@ -159,7 +168,7 @@ fn boot_time() -> Result<i64, Vec<AppletError>> {
     // and `size` describes that buffer accurately.
     let result = unsafe {
         libc::sysctlbyname(
-            name.as_ptr(),
+            name.as_ptr().cast(),
             boot_time.as_mut_ptr().cast(),
             &mut size,
             std::ptr::null_mut(),
@@ -186,6 +195,74 @@ fn load_averages() -> Result<[f64; 3], Vec<AppletError>> {
         )]);
     }
     Ok(loads)
+}
+
+#[cfg(target_os = "linux")]
+fn read_uptime_seconds() -> Result<u64, Vec<AppletError>> {
+    let uptime = fs::read_to_string(PROC_UPTIME).map_err(|err| {
+        vec![AppletError::from_io(
+            APPLET,
+            "reading",
+            Some(PROC_UPTIME),
+            err,
+        )]
+    })?;
+    let seconds = uptime
+        .split_whitespace()
+        .next()
+        .ok_or_else(|| {
+            vec![AppletError::new(
+                APPLET,
+                format!("invalid {PROC_UPTIME} contents"),
+            )]
+        })?
+        .parse::<f64>()
+        .map_err(|_| {
+            vec![AppletError::new(
+                APPLET,
+                format!("invalid {PROC_UPTIME} contents"),
+            )]
+        })?;
+    Ok(seconds as u64)
+}
+
+#[cfg(target_os = "linux")]
+fn read_load_averages() -> Result<[f64; 3], Vec<AppletError>> {
+    let loadavg = fs::read_to_string(PROC_LOADAVG).map_err(|err| {
+        vec![AppletError::from_io(
+            APPLET,
+            "reading",
+            Some(PROC_LOADAVG),
+            err,
+        )]
+    })?;
+    let mut parts = loadavg.split_whitespace();
+    let mut loads = [0.0_f64; 3];
+    for load in &mut loads {
+        *load = parts
+            .next()
+            .ok_or_else(|| {
+                vec![AppletError::new(
+                    APPLET,
+                    format!("invalid {PROC_LOADAVG} contents"),
+                )]
+            })?
+            .parse::<f64>()
+            .map_err(|_| {
+                vec![AppletError::new(
+                    APPLET,
+                    format!("invalid {PROC_LOADAVG} contents"),
+                )]
+            })?;
+    }
+    Ok(loads)
+}
+
+#[cfg(target_os = "linux")]
+fn user_count() -> Result<usize, Vec<AppletError>> {
+    // TODO: Alpine/musl exposes utmp entry points as stubs. Replace this with
+    // a Linux user-session source that works in the project target environment.
+    Ok(0)
 }
 
 #[cfg(target_os = "macos")]

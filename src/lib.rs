@@ -220,6 +220,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::xz::main_lzma,
     },
     AppletEntry {
+        name: "man",
+        main: applets::man::main,
+    },
+    AppletEntry {
         name: "mkdir",
         main: applets::mkdir::main,
     },

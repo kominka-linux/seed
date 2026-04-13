@@ -168,7 +168,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 
 - [x] less
 - [ ] lsattr / chattr
-- [ ] man
+- [x] man
 - [x] run-parts
 - [x] time
 - [x] which

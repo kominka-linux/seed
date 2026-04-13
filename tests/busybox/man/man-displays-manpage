@@ -1,0 +1,3 @@
+MANPAGER=cat PAGER=cat busybox man true | col -b > actual
+grep '^TRUE(1)' actual >/dev/null || exit 1
+grep '^NAME$' actual >/dev/null || exit 1

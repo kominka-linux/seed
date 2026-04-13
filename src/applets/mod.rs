@@ -37,6 +37,7 @@ pub mod link;
 pub mod ln;
 pub mod losetup;
 pub mod ls;
+pub mod man;
 pub mod mkdir;
 pub mod mkfifo;
 pub mod mknod;

@@ -1,0 +1,16 @@
+mkdir scripts
+cat > scripts/10-fail <<'EOF'
+#!/bin/sh
+printf 'fail\n' > actual
+exit 3
+EOF
+cat > scripts/20-run <<'EOF'
+#!/bin/sh
+printf 'later\n' >> actual
+EOF
+chmod +x scripts/10-fail scripts/20-run
+if busybox run-parts scripts; then
+	exit 1
+fi
+printf 'fail\n' > expected
+cmp expected actual

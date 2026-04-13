@@ -1,0 +1,14 @@
+mkdir scripts
+cat > scripts/10-run <<'EOF'
+#!/bin/sh
+printf 'ran\n' > should-not-exist
+EOF
+cat > scripts/20-also-run <<'EOF'
+#!/bin/sh
+printf 'also\n' >> should-not-exist
+EOF
+chmod +x scripts/10-run scripts/20-also-run
+busybox run-parts --test scripts > actual
+printf 'scripts/10-run\nscripts/20-also-run\n' > expected
+cmp expected actual
+test ! -e should-not-exist

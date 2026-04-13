@@ -1,0 +1,13 @@
+mkdir scripts
+cat > scripts/20-second <<'EOF'
+#!/bin/sh
+printf 'second\n' >> actual
+EOF
+cat > scripts/10-first <<'EOF'
+#!/bin/sh
+printf 'first\n' >> actual
+EOF
+chmod +x scripts/20-second scripts/10-first
+busybox run-parts scripts
+printf 'first\nsecond\n' > expected
+cmp expected actual

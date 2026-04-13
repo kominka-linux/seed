@@ -49,6 +49,7 @@ pub mod realpath;
 pub mod rev;
 pub mod rm;
 pub mod rmdir;
+pub mod run_parts;
 pub mod seq;
 pub mod shuf;
 pub mod sleep;

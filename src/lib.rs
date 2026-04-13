@@ -268,6 +268,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::rmdir::main,
     },
     AppletEntry {
+        name: "run-parts",
+        main: applets::run_parts::main,
+    },
+    AppletEntry {
         name: "seq",
         main: applets::seq::main,
     },

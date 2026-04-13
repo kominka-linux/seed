@@ -46,8 +46,12 @@ fn run(args: &[String]) -> AppletResult {
         i += 1;
     }
 
-    let spec = size_spec
-        .ok_or_else(|| vec![AppletError::new(APPLET, "you must specify either --size or --reference")])?;
+    let spec = size_spec.ok_or_else(|| {
+        vec![AppletError::new(
+            APPLET,
+            "you must specify either --size or --reference",
+        )]
+    })?;
 
     if paths.is_empty() {
         return Err(vec![AppletError::new(APPLET, "missing file operand")]);
@@ -59,7 +63,11 @@ fn run(args: &[String]) -> AppletResult {
             errors.push(e);
         }
     }
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 fn truncate_file(path: &str, spec: &str, no_create: bool) -> Result<(), AppletError> {
@@ -89,7 +97,11 @@ fn truncate_file(path: &str, spec: &str, no_create: bool) -> Result<(), AppletEr
         SizeOp::AtMost => current_len.min(size),
         SizeOp::AtLeast => current_len.max(size),
         SizeOp::RoundDown => {
-            if size == 0 { 0 } else { (current_len / size) * size }
+            if size == 0 {
+                0
+            } else {
+                (current_len / size) * size
+            }
         }
         SizeOp::RoundUp => {
             if size == 0 {
@@ -117,13 +129,13 @@ enum SizeOp {
 
 fn parse_size_spec(spec: &str) -> (SizeOp, &str) {
     match spec.as_bytes().first() {
-        Some(b'+') => (SizeOp::Extend,    &spec[1..]),
-        Some(b'-') => (SizeOp::Reduce,    &spec[1..]),
-        Some(b'<') => (SizeOp::AtMost,    &spec[1..]),
-        Some(b'>') => (SizeOp::AtLeast,   &spec[1..]),
+        Some(b'+') => (SizeOp::Extend, &spec[1..]),
+        Some(b'-') => (SizeOp::Reduce, &spec[1..]),
+        Some(b'<') => (SizeOp::AtMost, &spec[1..]),
+        Some(b'>') => (SizeOp::AtLeast, &spec[1..]),
         Some(b'/') => (SizeOp::RoundDown, &spec[1..]),
-        Some(b'%') => (SizeOp::RoundUp,   &spec[1..]),
-        _          => (SizeOp::Set,        spec),
+        Some(b'%') => (SizeOp::RoundUp, &spec[1..]),
+        _ => (SizeOp::Set, spec),
     }
 }
 
@@ -135,15 +147,15 @@ fn parse_bytes(s: &str) -> Option<u64> {
     let split = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
     let n: u64 = s[..split].parse().ok()?;
     let mult = match &s[split..] {
-        "" | "B"   => 1u64,
+        "" | "B" => 1u64,
         "K" | "KB" => 1_000,
-        "k" | "KiB"=> 1_024,
+        "k" | "KiB" => 1_024,
         "M" | "MB" => 1_000_000,
-        "m" | "MiB"=> 1_048_576,
+        "m" | "MiB" => 1_048_576,
         "G" | "GB" => 1_000_000_000,
-        "g" | "GiB"=> 1_073_741_824,
+        "g" | "GiB" => 1_073_741_824,
         "T" | "TB" => 1_000_000_000_000,
-        "t" | "TiB"=> 1_099_511_627_776,
+        "t" | "TiB" => 1_099_511_627_776,
         _ => return None,
     };
     n.checked_mul(mult)
@@ -169,8 +181,8 @@ mod tests {
 
     #[test]
     fn iec_suffixes() {
-        assert_eq!(parse_bytes("1k"),   Some(1_024));
-        assert_eq!(parse_bytes("2k"),   Some(2_048));
+        assert_eq!(parse_bytes("1k"), Some(1_024));
+        assert_eq!(parse_bytes("2k"), Some(2_048));
         assert_eq!(parse_bytes("1KiB"), Some(1_024));
     }
 
@@ -181,13 +193,16 @@ mod tests {
 
     #[test]
     fn size_op_prefixes() {
-        assert!(matches!(parse_size_spec("+100"), (SizeOp::Extend,    "100")));
-        assert!(matches!(parse_size_spec("-100"), (SizeOp::Reduce,    "100")));
-        assert!(matches!(parse_size_spec("<100"), (SizeOp::AtMost,    "100")));
-        assert!(matches!(parse_size_spec(">100"), (SizeOp::AtLeast,   "100")));
-        assert!(matches!(parse_size_spec("/100"), (SizeOp::RoundDown, "100")));
-        assert!(matches!(parse_size_spec("%100"), (SizeOp::RoundUp,   "100")));
-        assert!(matches!(parse_size_spec("100"),  (SizeOp::Set,       "100")));
+        assert!(matches!(parse_size_spec("+100"), (SizeOp::Extend, "100")));
+        assert!(matches!(parse_size_spec("-100"), (SizeOp::Reduce, "100")));
+        assert!(matches!(parse_size_spec("<100"), (SizeOp::AtMost, "100")));
+        assert!(matches!(parse_size_spec(">100"), (SizeOp::AtLeast, "100")));
+        assert!(matches!(
+            parse_size_spec("/100"),
+            (SizeOp::RoundDown, "100")
+        ));
+        assert!(matches!(parse_size_spec("%100"), (SizeOp::RoundUp, "100")));
+        assert!(matches!(parse_size_spec("100"), (SizeOp::Set, "100")));
     }
 
     #[test]

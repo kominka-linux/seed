@@ -6,16 +6,24 @@ use crate::common::io::{open_input, stdout};
 
 const APPLET: &str = "rev";
 
-pub fn main(args: &[String]) -> i32 { finish(run(args)) }
+pub fn main(args: &[String]) -> i32 {
+    finish(run(args))
+}
 
 fn run(args: &[String]) -> AppletResult {
     let mut paths: Vec<&str> = Vec::new();
     let mut end_of_opts = false;
 
     for arg in args {
-        if !end_of_opts && arg == "--" { end_of_opts = true; continue; }
+        if !end_of_opts && arg == "--" {
+            end_of_opts = true;
+            continue;
+        }
         if !end_of_opts && arg.starts_with('-') && arg.len() > 1 {
-            return Err(vec![AppletError::invalid_option(APPLET, arg.chars().nth(1).unwrap())]);
+            return Err(vec![AppletError::invalid_option(
+                APPLET,
+                arg.chars().nth(1).unwrap(),
+            )]);
         }
         paths.push(arg);
     }
@@ -47,7 +55,11 @@ fn run(args: &[String]) -> AppletResult {
         }
     }
 
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 #[cfg(test)]

@@ -21,7 +21,11 @@ struct Range {
 enum Mode {
     Bytes(Vec<Range>),
     Chars(Vec<Range>),
-    Fields { ranges: Vec<Range>, delim: u8, suppress: bool },
+    Fields {
+        ranges: Vec<Range>,
+        delim: u8,
+        suppress: bool,
+    },
 }
 
 fn run(args: &[String]) -> AppletResult {
@@ -36,7 +40,10 @@ fn run(args: &[String]) -> AppletResult {
         match arg.as_str() {
             "--" => {
                 i += 1;
-                while i < args.len() { paths.push(&args[i]); i += 1; }
+                while i < args.len() {
+                    paths.push(&args[i]);
+                    i += 1;
+                }
                 break;
             }
             "-b" | "--bytes" => {
@@ -67,13 +74,19 @@ fn run(args: &[String]) -> AppletResult {
                 }
                 let s = &args[i];
                 if s.len() != 1 {
-                    return Err(vec![AppletError::new(APPLET, "the delimiter must be a single character")]);
+                    return Err(vec![AppletError::new(
+                        APPLET,
+                        "the delimiter must be a single character",
+                    )]);
                 }
                 delim = s.as_bytes()[0];
             }
             "-s" | "--only-delimited" => suppress = true,
             a if a.starts_with('-') && a.len() > 1 => {
-                return Err(vec![AppletError::invalid_option(APPLET, a.chars().nth(1).unwrap_or('-'))]);
+                return Err(vec![AppletError::invalid_option(
+                    APPLET,
+                    a.chars().nth(1).unwrap_or('-'),
+                )]);
             }
             _ => paths.push(arg),
         }
@@ -83,12 +96,18 @@ fn run(args: &[String]) -> AppletResult {
     let mode = match mode_kind {
         Some(("b", ranges)) => Mode::Bytes(ranges),
         Some(("c", ranges)) => Mode::Chars(ranges),
-        Some(("f", ranges)) => Mode::Fields { ranges, delim, suppress },
+        Some(("f", ranges)) => Mode::Fields {
+            ranges,
+            delim,
+            suppress,
+        },
         Some(_) => unreachable!(),
-        None => return Err(vec![AppletError::new(
-            APPLET,
-            "you must specify a list of bytes, characters, or fields",
-        )]),
+        None => {
+            return Err(vec![AppletError::new(
+                APPLET,
+                "you must specify a list of bytes, characters, or fields",
+            )]);
+        }
     };
 
     let mut out = stdout();
@@ -112,16 +131,26 @@ fn run(args: &[String]) -> AppletResult {
         }
     }
 
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 fn cut_reader<R: BufRead, W: Write>(reader: &mut R, out: &mut W, mode: &Mode) -> io::Result<()> {
     let mut line = Vec::new();
     loop {
         line.clear();
-        if reader.read_until(b'\n', &mut line)? == 0 { break; }
+        if reader.read_until(b'\n', &mut line)? == 0 {
+            break;
+        }
         let has_nl = line.last() == Some(&b'\n');
-        let content = if has_nl { &line[..line.len() - 1] } else { &line[..] };
+        let content = if has_nl {
+            &line[..line.len() - 1]
+        } else {
+            &line[..]
+        };
         if cut_line(content, out, mode)? {
             out.write_all(b"\n")?;
         }
@@ -157,7 +186,11 @@ fn cut_line<W: Write>(line: &[u8], out: &mut W, mode: &Mode) -> io::Result<bool>
             }
             Ok(true)
         }
-        Mode::Fields { ranges, delim, suppress } => {
+        Mode::Fields {
+            ranges,
+            delim,
+            suppress,
+        } => {
             let fields: Vec<&[u8]> = line.split(|&b| b == *delim).collect();
             if fields.len() == 1 && *suppress {
                 // No delimiter found; suppress this line entirely
@@ -211,16 +244,25 @@ fn parse_range(s: &str) -> Result<Range, Vec<AppletError>> {
         Ok(Range { start, end })
     } else {
         let n = parse_pos(s)?;
-        Ok(Range { start: Some(n), end: Some(n) })
+        Ok(Range {
+            start: Some(n),
+            end: Some(n),
+        })
     }
 }
 
 fn parse_pos(s: &str) -> Result<usize, Vec<AppletError>> {
     let n: usize = s.parse().map_err(|_| {
-        vec![AppletError::new(APPLET, format!("invalid field value: '{s}'"))]
+        vec![AppletError::new(
+            APPLET,
+            format!("invalid field value: '{s}'"),
+        )]
     })?;
     if n == 0 {
-        return Err(vec![AppletError::new(APPLET, "fields and positions are numbered from 1")]);
+        return Err(vec![AppletError::new(
+            APPLET,
+            "fields and positions are numbered from 1",
+        )]);
     }
     Ok(n)
 }
@@ -252,23 +294,40 @@ mod tests {
     #[test]
     fn fields() {
         let ranges = parse_ranges("1,3").unwrap();
-        let mode = Mode::Fields { ranges, delim: b':', suppress: false };
+        let mode = Mode::Fields {
+            ranges,
+            delim: b':',
+            suppress: false,
+        };
         assert_eq!(cut("a:b:c:d", &mode), "a:c");
     }
 
     #[test]
     fn suppress_no_delim() {
         let ranges = parse_ranges("1").unwrap();
-        let mode = Mode::Fields { ranges, delim: b':', suppress: true };
+        let mode = Mode::Fields {
+            ranges,
+            delim: b':',
+            suppress: true,
+        };
         assert_eq!(cut("no-colon-here", &mode), "");
     }
 
     #[test]
     fn suppress_no_delim_does_not_emit_blank_line() {
         let ranges = parse_ranges("2").unwrap();
-        let mode = Mode::Fields { ranges, delim: b':', suppress: true };
+        let mode = Mode::Fields {
+            ranges,
+            delim: b':',
+            suppress: true,
+        };
         let mut out = Vec::new();
-        cut_reader(&mut BufReader::new("a:b\nplain\nc:d\n".as_bytes()), &mut out, &mode).unwrap();
+        cut_reader(
+            &mut BufReader::new("a:b\nplain\nc:d\n".as_bytes()),
+            &mut out,
+            &mode,
+        )
+        .unwrap();
         assert_eq!(String::from_utf8(out).unwrap(), "b\nd\n");
     }
 }

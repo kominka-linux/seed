@@ -116,10 +116,14 @@ pub(crate) fn create_unique(
         .subsec_nanos() as u64
         ^ (u64::from(std::process::id()) << 17);
 
-    let mut rng = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    let mut rng = seed
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
 
     for _ in 0..1000 {
-        rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        rng = rng
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
 
         let suffix: String = (0..x_count)
             .map(|j| {
@@ -170,7 +174,13 @@ mod tests {
         assert!(path.exists());
         assert!(path.is_file());
         // Name starts with the prefix
-        assert!(path.file_name().unwrap().to_str().unwrap().starts_with("tmp."));
+        assert!(
+            path.file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("tmp.")
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 

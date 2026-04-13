@@ -126,7 +126,10 @@ fn current_times(options: Options<'_>) -> [libc::timespec; 2] {
     ]
 }
 
-fn reference_times(reference: &str, options: Options<'_>) -> Result<[libc::timespec; 2], AppletError> {
+fn reference_times(
+    reference: &str,
+    options: Options<'_>,
+) -> Result<[libc::timespec; 2], AppletError> {
     let metadata = fs::metadata(reference)
         .map_err(|e| AppletError::from_io(APPLET, "reading", Some(reference), e))?;
     Ok([

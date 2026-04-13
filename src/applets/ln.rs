@@ -163,7 +163,10 @@ mod tests {
 
         create_link(&src, &dst, Options::default()).unwrap();
 
-        assert_eq!(std::fs::metadata(&src).unwrap().ino(), std::fs::metadata(&dst).unwrap().ino());
+        assert_eq!(
+            std::fs::metadata(&src).unwrap().ino(),
+            std::fs::metadata(&dst).unwrap().ino()
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -206,7 +209,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(std::fs::metadata(&src).unwrap().ino(), std::fs::metadata(&dst).unwrap().ino());
+        assert_eq!(
+            std::fs::metadata(&src).unwrap().ino(),
+            std::fs::metadata(&dst).unwrap().ino()
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 

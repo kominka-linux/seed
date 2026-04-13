@@ -7,7 +7,9 @@ use crate::common::io::{open_input, stdout};
 const APPLET: &str = "strings";
 const DEFAULT_MIN_LEN: usize = 4;
 
-pub fn main(args: &[String]) -> i32 { finish(run(args)) }
+pub fn main(args: &[String]) -> i32 {
+    finish(run(args))
+}
 
 fn run(args: &[String]) -> AppletResult {
     let mut min_len = DEFAULT_MIN_LEN;
@@ -18,30 +20,48 @@ fn run(args: &[String]) -> AppletResult {
         let arg = &args[i];
         match arg.as_str() {
             "--" => {
-                for arg in &args[i + 1..] { paths.push(arg); }
+                for arg in &args[i + 1..] {
+                    paths.push(arg);
+                }
                 break;
             }
             "-n" | "--bytes" => {
                 i += 1;
-                let val = args.get(i)
+                let val = args
+                    .get(i)
                     .ok_or_else(|| vec![AppletError::option_requires_arg(APPLET, "-n")])?;
-                min_len = val.parse()
-                    .map_err(|_| vec![AppletError::new(APPLET, format!("invalid minimum string length '{val}'"))])?;
+                min_len = val.parse().map_err(|_| {
+                    vec![AppletError::new(
+                        APPLET,
+                        format!("invalid minimum string length '{val}'"),
+                    )]
+                })?;
             }
             a if a.starts_with("--bytes=") => {
                 let val = &a["--bytes=".len()..];
-                min_len = val.parse()
-                    .map_err(|_| vec![AppletError::new(APPLET, format!("invalid minimum string length '{val}'"))])?;
+                min_len = val.parse().map_err(|_| {
+                    vec![AppletError::new(
+                        APPLET,
+                        format!("invalid minimum string length '{val}'"),
+                    )]
+                })?;
             }
             a if a.starts_with("-n") && a.len() > 2 => {
                 let val = &a[2..];
-                min_len = val.parse()
-                    .map_err(|_| vec![AppletError::new(APPLET, format!("invalid minimum string length '{val}'"))])?;
+                min_len = val.parse().map_err(|_| {
+                    vec![AppletError::new(
+                        APPLET,
+                        format!("invalid minimum string length '{val}'"),
+                    )]
+                })?;
             }
             // -a / --all: scan entire file — always our behavior, so accept and ignore
             "-a" | "--all" | "--data" => {}
             a if a.starts_with('-') && a.len() > 1 => {
-                return Err(vec![AppletError::invalid_option(APPLET, a.chars().nth(1).unwrap())]);
+                return Err(vec![AppletError::invalid_option(
+                    APPLET,
+                    a.chars().nth(1).unwrap(),
+                )]);
             }
             a => paths.push(a),
         }
@@ -68,21 +88,32 @@ fn run(args: &[String]) -> AppletResult {
         }
     }
 
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 fn is_printable(b: u8) -> bool {
     // ASCII printable: space (0x20) through tilde (0x7e), plus tab (0x09)
-    b == b'\t' || (b >= b' ' && b <= b'~')
+    b == b'\t' || (b' '..=b'~').contains(&b)
 }
 
-fn extract_strings<W: std::io::Write>(data: &[u8], min_len: usize, out: &mut W) -> std::io::Result<()> {
+fn extract_strings<W: std::io::Write>(
+    data: &[u8],
+    min_len: usize,
+    out: &mut W,
+) -> std::io::Result<()> {
     let mut start = 0;
     let mut in_run = false;
 
     for (i, &b) in data.iter().enumerate() {
         if is_printable(b) {
-            if !in_run { start = i; in_run = true; }
+            if !in_run {
+                start = i;
+                in_run = true;
+            }
         } else if in_run {
             in_run = false;
             if i - start >= min_len {

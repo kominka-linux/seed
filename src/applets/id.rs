@@ -71,8 +71,12 @@ fn run(args: &[String]) -> AppletResult {
     let mut out = stdout();
 
     if let Some(username) = user_arg {
-        let info = lookup_user_by_name(username)
-            .ok_or_else(|| vec![AppletError::new(APPLET, format!("{username}: no such user"))])?;
+        let info = lookup_user_by_name(username).ok_or_else(|| {
+            vec![AppletError::new(
+                APPLET,
+                format!("{username}: no such user"),
+            )]
+        })?;
 
         if show_uid {
             let s = if name_only {
@@ -91,19 +95,33 @@ fn run(args: &[String]) -> AppletResult {
             writeln!(out, "{s}")
                 .map_err(|e| vec![AppletError::from_io(APPLET, "writing", None, e)])?;
         } else if show_groups {
-            let parts: Vec<String> = info.groups.iter().map(|&g| {
-                if name_only { lookup_group(g) } else { g.to_string() }
-            }).collect();
+            let parts: Vec<String> = info
+                .groups
+                .iter()
+                .map(|&g| {
+                    if name_only {
+                        lookup_group(g)
+                    } else {
+                        g.to_string()
+                    }
+                })
+                .collect();
             writeln!(out, "{}", parts.join(" "))
                 .map_err(|e| vec![AppletError::from_io(APPLET, "writing", None, e)])?;
         } else {
-            let groups_str: Vec<String> = info.groups.iter().map(|&g| {
-                format!("{}({})", g, lookup_group(g))
-            }).collect();
+            let groups_str: Vec<String> = info
+                .groups
+                .iter()
+                .map(|&g| format!("{}({})", g, lookup_group(g)))
+                .collect();
             writeln!(
                 out,
                 "uid={}({}) gid={}({}) groups={}",
-                info.uid, info.name, info.gid, lookup_group(info.gid), groups_str.join(",")
+                info.uid,
+                info.name,
+                info.gid,
+                lookup_group(info.gid),
+                groups_str.join(",")
             )
             .map_err(|e| vec![AppletError::from_io(APPLET, "writing", None, e)])?;
         }
@@ -117,31 +135,44 @@ fn run(args: &[String]) -> AppletResult {
 
         if show_uid {
             let id = if real_only { ruid } else { euid };
-            let s = if name_only { lookup_user(id) } else { id.to_string() };
+            let s = if name_only {
+                lookup_user(id)
+            } else {
+                id.to_string()
+            };
             writeln!(out, "{s}")
                 .map_err(|e| vec![AppletError::from_io(APPLET, "writing", None, e)])?;
         } else if show_gid {
             let id = if real_only { rgid } else { egid };
-            let s = if name_only { lookup_group(id) } else { id.to_string() };
+            let s = if name_only {
+                lookup_group(id)
+            } else {
+                id.to_string()
+            };
             writeln!(out, "{s}")
                 .map_err(|e| vec![AppletError::from_io(APPLET, "writing", None, e)])?;
         } else if show_groups {
-            let parts: Vec<String> = groups.iter().map(|&g| {
-                if name_only { lookup_group(g) } else { g.to_string() }
-            }).collect();
+            let parts: Vec<String> = groups
+                .iter()
+                .map(|&g| {
+                    if name_only {
+                        lookup_group(g)
+                    } else {
+                        g.to_string()
+                    }
+                })
+                .collect();
             writeln!(out, "{}", parts.join(" "))
                 .map_err(|e| vec![AppletError::from_io(APPLET, "writing", None, e)])?;
         } else {
             let uid_name = lookup_user(ruid);
             let gid_name = lookup_group(rgid);
-            let groups_str: Vec<String> = groups.iter().map(|&g| {
-                format!("{}({})", g, lookup_group(g))
-            }).collect();
+            let groups_str: Vec<String> = groups
+                .iter()
+                .map(|&g| format!("{}({})", g, lookup_group(g)))
+                .collect();
 
-            let mut line = format!(
-                "uid={}({}) gid={}({})",
-                ruid, uid_name, rgid, gid_name
-            );
+            let mut line = format!("uid={}({}) gid={}({})", ruid, uid_name, rgid, gid_name);
             // Show effective IDs only if they differ from real
             if euid != ruid {
                 line.push_str(&format!(" euid={}({})", euid, lookup_user(euid)));
@@ -182,7 +213,12 @@ fn lookup_user_by_name(username: &str) -> Option<UserInfo> {
         (uid, gid, name)
     };
     let groups = get_groups_for_user(&c_name, gid);
-    Some(UserInfo { uid, gid, name, groups })
+    Some(UserInfo {
+        uid,
+        gid,
+        name,
+        groups,
+    })
 }
 
 fn get_groups_for_user(c_name: &CString, primary_gid: u32) -> Vec<u32> {
@@ -253,7 +289,7 @@ fn get_supplementary_groups() -> Vec<u32> {
         return vec![];
     }
     buf.truncate(n as usize);
-    buf.into_iter().map(|g| g as u32).collect()
+    buf.into_iter().collect()
 }
 
 #[cfg(test)]

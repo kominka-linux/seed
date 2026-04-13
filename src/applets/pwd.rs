@@ -29,19 +29,28 @@ fn run(args: &[String]) -> AppletResult {
         }
     }
 
-    let current_dir = env::current_dir()
-        .map_err(|e| vec![AppletError::from_io(APPLET, "getting current directory", None, e)])?;
+    let current_dir = env::current_dir().map_err(|e| {
+        vec![AppletError::from_io(
+            APPLET,
+            "getting current directory",
+            None,
+            e,
+        )]
+    })?;
     let env_pwd_var = env::var_os("PWD");
     let env_pwd = env_pwd_var.as_deref().map(std::path::Path::new);
     let path = resolve_pwd(logical, env_pwd, &current_dir);
 
     let mut out = stdout();
-    writeln!(out, "{path}")
-        .map_err(|e| vec![AppletError::from_io(APPLET, "writing", None, e)])?;
+    writeln!(out, "{path}").map_err(|e| vec![AppletError::from_io(APPLET, "writing", None, e)])?;
     Ok(())
 }
 
-fn resolve_pwd(logical: bool, env_pwd: Option<&std::path::Path>, current_dir: &std::path::Path) -> String {
+fn resolve_pwd(
+    logical: bool,
+    env_pwd: Option<&std::path::Path>,
+    current_dir: &std::path::Path,
+) -> String {
     if logical {
         env_pwd
             .filter(|p| p.is_absolute())

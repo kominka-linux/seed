@@ -96,8 +96,8 @@ fn is_executable(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::os::unix::fs::PermissionsExt;
     use super::is_executable;
+    use std::os::unix::fs::PermissionsExt;
 
     #[test]
     fn executable_file_detected() {

@@ -40,7 +40,6 @@ fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
             .unwrap_or_else(|| "nohup.out".to_string());
 
         let file = OpenOptions::new()
-            .write(true)
             .create(true)
             .append(true)
             .open(&out_path)

@@ -105,7 +105,11 @@ fn run_main(args: &[String], default_extended: bool, default_fixed: bool) -> i32
     }
 }
 
-fn run_with_mode(args: &[String], default_extended: bool, default_fixed: bool) -> Result<i32, String> {
+fn run_with_mode(
+    args: &[String],
+    default_extended: bool,
+    default_fixed: bool,
+) -> Result<i32, String> {
     let parsed = parse_args(args, default_extended, default_fixed)?;
     let inputs = if parsed.inputs.is_empty() {
         vec![InputTarget {
@@ -194,7 +198,11 @@ struct ParsedArgs {
     inputs: Vec<String>,
 }
 
-fn parse_args(args: &[String], default_extended: bool, default_fixed: bool) -> Result<ParsedArgs, String> {
+fn parse_args(
+    args: &[String],
+    default_extended: bool,
+    default_fixed: bool,
+) -> Result<ParsedArgs, String> {
     let mut options = Options {
         extended: default_extended,
         fixed: default_fixed,

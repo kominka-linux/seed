@@ -184,7 +184,9 @@ fn apply_format(fmt: &str, val: f64) -> String {
     // Skip flags, width, precision
     let mut i = spec_start;
     let bytes = fmt.as_bytes();
-    while i < bytes.len() && (bytes[i] == b'-' || bytes[i] == b'+' || bytes[i] == b' ' || bytes[i] == b'0') {
+    while i < bytes.len()
+        && (bytes[i] == b'-' || bytes[i] == b'+' || bytes[i] == b' ' || bytes[i] == b'0')
+    {
         i += 1;
     }
     while i < bytes.len() && bytes[i].is_ascii_digit() {
@@ -228,7 +230,10 @@ fn unescape(s: &str) -> String {
                 Some('n') => out.push('\n'),
                 Some('t') => out.push('\t'),
                 Some('\\') => out.push('\\'),
-                Some(other) => { out.push('\\'); out.push(other); }
+                Some(other) => {
+                    out.push('\\');
+                    out.push(other);
+                }
                 None => out.push('\\'),
             }
         } else {
@@ -240,7 +245,9 @@ fn unescape(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_format, decimal_places, format_val, looks_like_number, run, unescape, zero_pad};
+    use super::{
+        apply_format, decimal_places, format_val, looks_like_number, run, unescape, zero_pad,
+    };
 
     #[test]
     fn decimal_precision() {

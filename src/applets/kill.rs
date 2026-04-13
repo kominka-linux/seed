@@ -56,7 +56,10 @@ fn run(args: &[String]) -> AppletResult {
             for p in &pids {
                 if let Ok(n) = p.parse::<libc::c_int>() {
                     let name = signal_name(n).ok_or_else(|| {
-                        vec![AppletError::new(APPLET, format!("invalid signal number: {n}"))]
+                        vec![AppletError::new(
+                            APPLET,
+                            format!("invalid signal number: {n}"),
+                        )]
                     })?;
                     writeln!(out, "{name}")
                         .map_err(|e| vec![AppletError::from_io(APPLET, "writing", None, e)])?;
@@ -95,14 +98,18 @@ fn run(args: &[String]) -> AppletResult {
         }
     }
 
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 fn parse_signal(applet: &'static str, s: &str) -> Result<libc::c_int, Vec<AppletError>> {
-    if let Ok(n) = s.parse::<libc::c_int>() {
-        if n >= 0 {
-            return Ok(n);
-        }
+    if let Ok(n) = s.parse::<libc::c_int>()
+        && n >= 0
+    {
+        return Ok(n);
     }
     let upper = s.to_ascii_uppercase();
     let name = upper.strip_prefix("SIG").unwrap_or(&upper);

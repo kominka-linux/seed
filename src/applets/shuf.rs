@@ -6,7 +6,9 @@ use crate::common::io::{open_input, stdout};
 
 const APPLET: &str = "shuf";
 
-pub fn main(args: &[String]) -> i32 { finish(run(args)) }
+pub fn main(args: &[String]) -> i32 {
+    finish(run(args))
+}
 
 // Xorshift64 PRNG — good enough for shuffling, seeded from wall-clock time.
 struct Rng(u64);
@@ -46,57 +48,93 @@ fn run(args: &[String]) -> AppletResult {
         let arg = &args[i];
         if !end_of_opts {
             match arg.as_str() {
-                "--" => { end_of_opts = true; i += 1; continue; }
-                "-e" | "--echo" => { echo_mode = true; i += 1; continue; }
-                "-r" | "--repeat" => { repeat = true; i += 1; continue; }
+                "--" => {
+                    end_of_opts = true;
+                    i += 1;
+                    continue;
+                }
+                "-e" | "--echo" => {
+                    echo_mode = true;
+                    i += 1;
+                    continue;
+                }
+                "-r" | "--repeat" => {
+                    repeat = true;
+                    i += 1;
+                    continue;
+                }
                 "-n" | "--head-count" => {
                     i += 1;
-                    let val = args.get(i)
+                    let val = args
+                        .get(i)
                         .ok_or_else(|| vec![AppletError::option_requires_arg(APPLET, "-n")])?;
-                    head_count = Some(val.parse()
-                        .map_err(|_| vec![AppletError::new(APPLET, format!("invalid count '{val}'"))])?);
-                    i += 1; continue;
+                    head_count = Some(val.parse().map_err(|_| {
+                        vec![AppletError::new(APPLET, format!("invalid count '{val}'"))]
+                    })?);
+                    i += 1;
+                    continue;
                 }
                 a if a.starts_with("--head-count=") => {
                     let val = &a["--head-count=".len()..];
-                    head_count = Some(val.parse()
-                        .map_err(|_| vec![AppletError::new(APPLET, format!("invalid count '{val}'"))])?);
-                    i += 1; continue;
+                    head_count = Some(val.parse().map_err(|_| {
+                        vec![AppletError::new(APPLET, format!("invalid count '{val}'"))]
+                    })?);
+                    i += 1;
+                    continue;
                 }
                 "-i" | "--input-range" => {
                     i += 1;
-                    let val = args.get(i)
+                    let val = args
+                        .get(i)
                         .ok_or_else(|| vec![AppletError::option_requires_arg(APPLET, "-i")])?;
-                    input_range = Some(parse_range(val)
-                        .ok_or_else(|| vec![AppletError::new(APPLET, format!("invalid range '{val}'"))])?);
-                    i += 1; continue;
+                    input_range = Some(parse_range(val).ok_or_else(|| {
+                        vec![AppletError::new(APPLET, format!("invalid range '{val}'"))]
+                    })?);
+                    i += 1;
+                    continue;
                 }
                 a if a.starts_with("--input-range=") => {
                     let val = &a["--input-range=".len()..];
-                    input_range = Some(parse_range(val)
-                        .ok_or_else(|| vec![AppletError::new(APPLET, format!("invalid range '{val}'"))])?);
-                    i += 1; continue;
+                    input_range = Some(parse_range(val).ok_or_else(|| {
+                        vec![AppletError::new(APPLET, format!("invalid range '{val}'"))]
+                    })?);
+                    i += 1;
+                    continue;
                 }
                 a if a.starts_with('-') && a.len() > 1 => {
-                    return Err(vec![AppletError::invalid_option(APPLET, a.chars().nth(1).unwrap())]);
+                    return Err(vec![AppletError::invalid_option(
+                        APPLET,
+                        a.chars().nth(1).unwrap(),
+                    )]);
                 }
                 _ => {}
             }
         }
-        if echo_mode { echo_args.push(arg); } else { paths.push(arg); }
+        if echo_mode {
+            echo_args.push(arg);
+        } else {
+            paths.push(arg);
+        }
         i += 1;
     }
 
     // Build the pool of lines to shuffle.
     let lines: Vec<String> = if let Some((lo, hi)) = input_range {
         if hi < lo {
-            return Err(vec![AppletError::new(APPLET, format!("invalid range: {lo}-{hi}"))]);
+            return Err(vec![AppletError::new(
+                APPLET,
+                format!("invalid range: {lo}-{hi}"),
+            )]);
         }
         (lo..=hi).map(|n| n.to_string()).collect()
     } else if echo_mode {
         echo_args.iter().map(|s| s.to_string()).collect()
     } else {
-        let read_paths: Vec<&str> = if paths.is_empty() { vec!["-"] } else { paths.clone() };
+        let read_paths: Vec<&str> = if paths.is_empty() {
+            vec!["-"]
+        } else {
+            paths.clone()
+        };
         let mut collected = Vec::new();
         let mut errors = Vec::new();
         for path in read_paths {
@@ -106,18 +144,25 @@ fn run(args: &[String]) -> AppletResult {
                     let reader = BufReader::new(f);
                     for line in reader.lines() {
                         match line {
-                            Err(e) => { errors.push(AppletError::from_io(APPLET, "reading", Some(path), e)); break; }
+                            Err(e) => {
+                                errors.push(AppletError::from_io(APPLET, "reading", Some(path), e));
+                                break;
+                            }
                             Ok(l) => collected.push(l),
                         }
                     }
                 }
             }
         }
-        if !errors.is_empty() { return Err(errors); }
+        if !errors.is_empty() {
+            return Err(errors);
+        }
         collected
     };
 
-    if lines.is_empty() { return Ok(()); }
+    if lines.is_empty() {
+        return Ok(());
+    }
 
     let mut rng = Rng::new();
     let mut out = stdout();

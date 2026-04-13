@@ -79,7 +79,10 @@ mod tests {
         let target = dir.join("target");
         std::fs::write(&target, b"x").unwrap();
 
-        assert_eq!(canonicalize(target.to_str().unwrap()).unwrap(), target.canonicalize().unwrap());
+        assert_eq!(
+            canonicalize(target.to_str().unwrap()).unwrap(),
+            target.canonicalize().unwrap()
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 }

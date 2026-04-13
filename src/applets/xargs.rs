@@ -11,14 +11,14 @@ pub fn main(args: &[String]) -> i32 {
 }
 
 fn run(args: &[String]) -> AppletResult {
-    let mut null_delim = false;      // -0: NUL-delimited input
-    let mut max_args: usize = 0;     // -n N: max args per invocation (0 = unlimited)
-    let mut max_lines: usize = 0;    // -L N: max lines per invocation
+    let mut null_delim = false; // -0: NUL-delimited input
+    let mut max_args: usize = 0; // -n N: max args per invocation (0 = unlimited)
+    let mut max_lines: usize = 0; // -L N: max lines per invocation
     let mut replace: Option<String> = None; // -I STR: replace occurrences of STR
     let mut no_run_if_empty = false; // -r: don't run if no args
-    let mut verbose = false;         // -t: print command to stderr
-    let mut interactive = false;     // -p: prompt
-    let mut max_procs: usize = 1;    // -P N: max parallel processes (basic)
+    let mut verbose = false; // -t: print command to stderr
+    let mut interactive = false; // -p: prompt
+    let mut max_procs: usize = 1; // -P N: max parallel processes (basic)
     let mut delimiter: Option<u8> = None; // -d DELIM
     let mut cmd_args: Vec<&str> = Vec::new();
     let mut i = 0;
@@ -28,7 +28,10 @@ fn run(args: &[String]) -> AppletResult {
         match arg.as_str() {
             "--" => {
                 i += 1;
-                while i < args.len() { cmd_args.push(&args[i]); i += 1; }
+                while i < args.len() {
+                    cmd_args.push(&args[i]);
+                    i += 1;
+                }
                 break;
             }
             "-0" | "--null" => null_delim = true,
@@ -108,7 +111,7 @@ fn run(args: &[String]) -> AppletResult {
     let (cmd, initial_args): (&str, &[&str]) = if cmd_args.is_empty() {
         ("echo", &[])
     } else {
-        (&cmd_args[0], &cmd_args[1..])
+        (cmd_args[0], &cmd_args[1..])
     };
 
     // Read tokens from stdin
@@ -186,7 +189,9 @@ fn invoke(
     all_args.extend_from_slice(extra_args);
 
     if verbose {
-        let parts: Vec<&str> = std::iter::once(cmd).chain(all_args.iter().copied()).collect();
+        let parts: Vec<&str> = std::iter::once(cmd)
+            .chain(all_args.iter().copied())
+            .collect();
         eprintln!("{}", parts.join(" "));
     }
 
@@ -254,7 +259,11 @@ fn read_by_delimiter<R: io::Read>(mut reader: R, delim: u8) -> Vec<String> {
     let _ = reader.read_to_end(&mut data);
     data.split(|&b| b == delim)
         .filter_map(|s| {
-            if s.is_empty() { None } else { String::from_utf8(s.to_vec()).ok() }
+            if s.is_empty() {
+                None
+            } else {
+                String::from_utf8(s.to_vec()).ok()
+            }
         })
         .collect()
 }
@@ -273,17 +282,23 @@ fn parse_delimiter(applet: &'static str, s: &str) -> Result<u8, Vec<AppletError>
         });
     }
     // Hex: \xNN
-    if let Some(hex) = s.strip_prefix("\\x") {
-        if let Ok(n) = u8::from_str_radix(hex, 16) {
-            return Ok(n);
-        }
+    if let Some(hex) = s.strip_prefix("\\x")
+        && let Ok(n) = u8::from_str_radix(hex, 16)
+    {
+        return Ok(n);
     }
-    Err(vec![AppletError::new(applet, format!("invalid delimiter: '{s}'"))])
+    Err(vec![AppletError::new(
+        applet,
+        format!("invalid delimiter: '{s}'"),
+    )])
 }
 
 fn parse_usize(applet: &'static str, flag: &str, s: &str) -> Result<usize, Vec<AppletError>> {
     s.parse::<usize>().map_err(|_| {
-        vec![AppletError::new(applet, format!("{flag}: invalid number: '{s}'"))]
+        vec![AppletError::new(
+            applet,
+            format!("{flag}: invalid number: '{s}'"),
+        )]
     })
 }
 

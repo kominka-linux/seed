@@ -16,8 +16,14 @@ pub fn main_unlink(args: &[String]) -> i32 {
 
 fn run_link(args: &[String]) -> AppletResult {
     match args {
-        [src, dst] => fs::hard_link(src, dst)
-            .map_err(|e| vec![AppletError::from_io(APPLET_LINK, "creating link", Some(dst), e)]),
+        [src, dst] => fs::hard_link(src, dst).map_err(|e| {
+            vec![AppletError::from_io(
+                APPLET_LINK,
+                "creating link",
+                Some(dst),
+                e,
+            )]
+        }),
         [] => Err(vec![AppletError::new(APPLET_LINK, "missing operand")]),
         [_] => Err(vec![AppletError::new(
             APPLET_LINK,
@@ -29,8 +35,14 @@ fn run_link(args: &[String]) -> AppletResult {
 
 fn run_unlink(args: &[String]) -> AppletResult {
     match args {
-        [path] => fs::remove_file(path)
-            .map_err(|e| vec![AppletError::from_io(APPLET_UNLINK, "unlinking", Some(path), e)]),
+        [path] => fs::remove_file(path).map_err(|e| {
+            vec![AppletError::from_io(
+                APPLET_UNLINK,
+                "unlinking",
+                Some(path),
+                e,
+            )]
+        }),
         [] => Err(vec![AppletError::new(APPLET_UNLINK, "missing operand")]),
         _ => Err(vec![AppletError::new(APPLET_UNLINK, "extra operand")]),
     }

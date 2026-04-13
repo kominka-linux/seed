@@ -26,8 +26,7 @@ fn run(args: &[String]) -> AppletResult {
     let name = lookup_user(uid);
 
     let mut out = stdout();
-    writeln!(out, "{name}")
-        .map_err(|e| vec![AppletError::from_io(APPLET, "writing", None, e)])?;
+    writeln!(out, "{name}").map_err(|e| vec![AppletError::from_io(APPLET, "writing", None, e)])?;
     Ok(())
 }
 

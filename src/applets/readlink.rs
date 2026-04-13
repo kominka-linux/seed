@@ -95,7 +95,10 @@ mod tests {
         std::fs::write(&target, b"x").unwrap();
         std::os::unix::fs::symlink("target", &link).unwrap();
 
-        assert_eq!(resolve_path(link.to_str().unwrap(), false).unwrap(), PathBuf::from("target"));
+        assert_eq!(
+            resolve_path(link.to_str().unwrap(), false).unwrap(),
+            PathBuf::from("target")
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -107,7 +110,10 @@ mod tests {
         std::fs::write(&target, b"x").unwrap();
         std::os::unix::fs::symlink(&target, &link).unwrap();
 
-        assert_eq!(resolve_path(link.to_str().unwrap(), true).unwrap(), target.canonicalize().unwrap());
+        assert_eq!(
+            resolve_path(link.to_str().unwrap(), true).unwrap(),
+            target.canonicalize().unwrap()
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 

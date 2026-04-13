@@ -75,16 +75,43 @@ fn expand_escapes(input: &[u8], stop: &mut bool) -> Vec<u8> {
         }
         i += 1;
         match input[i] {
-            b'\\' => { out.push(b'\\'); i += 1; }
-            b'n'  => { out.push(b'\n'); i += 1; }
-            b't'  => { out.push(b'\t'); i += 1; }
-            b'r'  => { out.push(b'\r'); i += 1; }
-            b'a'  => { out.push(0x07);  i += 1; }
-            b'b'  => { out.push(0x08);  i += 1; }
-            b'f'  => { out.push(0x0C);  i += 1; }
-            b'v'  => { out.push(0x0B);  i += 1; }
-            b'c'  => { *stop = true; return out; }
-            b'0'  => {
+            b'\\' => {
+                out.push(b'\\');
+                i += 1;
+            }
+            b'n' => {
+                out.push(b'\n');
+                i += 1;
+            }
+            b't' => {
+                out.push(b'\t');
+                i += 1;
+            }
+            b'r' => {
+                out.push(b'\r');
+                i += 1;
+            }
+            b'a' => {
+                out.push(0x07);
+                i += 1;
+            }
+            b'b' => {
+                out.push(0x08);
+                i += 1;
+            }
+            b'f' => {
+                out.push(0x0C);
+                i += 1;
+            }
+            b'v' => {
+                out.push(0x0B);
+                i += 1;
+            }
+            b'c' => {
+                *stop = true;
+                return out;
+            }
+            b'0' => {
                 // \0NNN: 1-3 octal digits
                 i += 1;
                 let mut val: u32 = 0;
@@ -96,7 +123,7 @@ fn expand_escapes(input: &[u8], stop: &mut bool) -> Vec<u8> {
                 }
                 out.push(val as u8);
             }
-            b'x'  => {
+            b'x' => {
                 // \xHH: 1-2 hex digits
                 i += 1;
                 let mut val: u8 = 0;

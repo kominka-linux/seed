@@ -59,8 +59,7 @@ fn run(args: &[String]) -> AppletResult {
 
     let name = get_hostname()?;
     let mut out = stdout();
-    writeln!(out, "{name}")
-        .map_err(|e| vec![AppletError::from_io(APPLET, "writing", None, e)])?;
+    writeln!(out, "{name}").map_err(|e| vec![AppletError::from_io(APPLET, "writing", None, e)])?;
     Ok(())
 }
 
@@ -68,12 +67,15 @@ fn get_hostname() -> Result<String, Vec<AppletError>> {
     let mut buf = vec![0u8; 256];
     // SAFETY: buf points to buf.len() writable bytes; gethostname writes a
     // NUL-terminated string into it on success.
-    let ret = unsafe {
-        libc::gethostname(buf.as_mut_ptr() as *mut libc::c_char, buf.len() as _)
-    };
+    let ret = unsafe { libc::gethostname(buf.as_mut_ptr() as *mut libc::c_char, buf.len() as _) };
     if ret != 0 {
         let e = std::io::Error::last_os_error();
-        return Err(vec![AppletError::from_io(APPLET, "getting hostname", None, e)]);
+        return Err(vec![AppletError::from_io(
+            APPLET,
+            "getting hostname",
+            None,
+            e,
+        )]);
     }
     Ok(
         unsafe { CStr::from_ptr(buf.as_ptr() as *const libc::c_char) }
@@ -83,14 +85,18 @@ fn get_hostname() -> Result<String, Vec<AppletError>> {
 }
 
 fn set_hostname(name: &str) -> AppletResult {
-    let c_name = CString::new(name).map_err(|_| {
-        vec![AppletError::new(APPLET, "hostname contains NUL byte")]
-    })?;
+    let c_name = CString::new(name)
+        .map_err(|_| vec![AppletError::new(APPLET, "hostname contains NUL byte")])?;
     // SAFETY: c_name is a valid NUL-terminated C string.
     let ret = unsafe { libc::sethostname(c_name.as_ptr(), name.len() as _) };
     if ret != 0 {
         let e = std::io::Error::last_os_error();
-        return Err(vec![AppletError::from_io(APPLET, "setting hostname", None, e)]);
+        return Err(vec![AppletError::from_io(
+            APPLET,
+            "setting hostname",
+            None,
+            e,
+        )]);
     }
     Ok(())
 }

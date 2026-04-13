@@ -27,11 +27,7 @@ fn run(args: &[String]) -> AppletResult {
     }
 
     let squeeze_set: &[u8] = if options.squeeze {
-        if !set2.is_empty() {
-            &set2
-        } else {
-            &set1
-        }
+        if !set2.is_empty() { &set2 } else { &set1 }
     } else {
         &[]
     };
@@ -56,7 +52,8 @@ fn run(args: &[String]) -> AppletResult {
             }
 
             let translated = map[byte as usize].unwrap_or(byte);
-            if options.squeeze && previous == Some(translated) && squeeze_set.contains(&translated) {
+            if options.squeeze && previous == Some(translated) && squeeze_set.contains(&translated)
+            {
                 continue;
             }
 

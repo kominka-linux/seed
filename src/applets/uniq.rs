@@ -32,7 +32,10 @@ fn run(args: &[String]) -> AppletResult {
         match arg.as_str() {
             "--" => {
                 i += 1;
-                while i < args.len() { positionals.push(&args[i]); i += 1; }
+                while i < args.len() {
+                    positionals.push(&args[i]);
+                    i += 1;
+                }
                 break;
             }
             "-c" | "--count" => opts.count = true,
@@ -62,7 +65,10 @@ fn run(args: &[String]) -> AppletResult {
                 opts.check_chars = Some(parse_usize(APPLET, &args[i])?);
             }
             a if a.starts_with('-') && a.len() > 1 => {
-                return Err(vec![AppletError::invalid_option(APPLET, a.chars().nth(1).unwrap_or('-'))]);
+                return Err(vec![AppletError::invalid_option(
+                    APPLET,
+                    a.chars().nth(1).unwrap_or('-'),
+                )]);
             }
             _ => positionals.push(arg),
         }
@@ -76,10 +82,14 @@ fn run(args: &[String]) -> AppletResult {
         .map_err(|e| vec![AppletError::from_io(APPLET, "opening", Some(input_path), e)])?;
 
     let mut out_box: Box<dyn Write> = if let Some(path) = output_path {
-        Box::new(
-            std::fs::File::create(path)
-                .map_err(|e| vec![AppletError::from_io(APPLET, "opening output", Some(path), e)])?,
-        )
+        Box::new(std::fs::File::create(path).map_err(|e| {
+            vec![AppletError::from_io(
+                APPLET,
+                "opening output",
+                Some(path),
+                e,
+            )]
+        })?)
     } else {
         Box::new(stdout())
     };
@@ -193,11 +203,11 @@ fn make_key(line: &str, opts: &Options) -> String {
     }
 }
 
-fn skip_fields<'a>(s: &'a str, n: usize) -> &'a str {
+fn skip_fields(s: &str, n: usize) -> &str {
     let mut remaining = s;
     for _ in 0..n {
         // Skip leading whitespace
-        let trimmed = remaining.trim_start_matches(|c| c == ' ' || c == '\t');
+        let trimmed = remaining.trim_start_matches([' ', '\t']);
         // Skip the field (non-whitespace)
         let after = trimmed.trim_start_matches(|c| c != ' ' && c != '\t');
         remaining = after;
@@ -205,13 +215,12 @@ fn skip_fields<'a>(s: &'a str, n: usize) -> &'a str {
             break;
         }
     }
-    remaining.trim_start_matches(|c| c == ' ' || c == '\t')
+    remaining.trim_start_matches([' ', '\t'])
 }
 
 fn parse_usize(applet: &'static str, s: &str) -> Result<usize, Vec<AppletError>> {
-    s.parse::<usize>().map_err(|_| {
-        vec![AppletError::new(applet, format!("invalid count: '{s}'"))]
-    })
+    s.parse::<usize>()
+        .map_err(|_| vec![AppletError::new(applet, format!("invalid count: '{s}'"))])
 }
 
 #[cfg(test)]
@@ -228,7 +237,10 @@ mod tests {
 
     #[test]
     fn ignore_case_key() {
-        let opts = Options { ignore_case: true, ..Default::default() };
+        let opts = Options {
+            ignore_case: true,
+            ..Default::default()
+        };
         assert_eq!(make_key("Hello\n", &opts), "hello");
     }
 
@@ -241,13 +253,7 @@ mod tests {
 
     fn process_to_string(input: &str, opts: Options) -> String {
         let mut out = Vec::new();
-        process(
-            BufReader::new(Cursor::new(input)),
-            &mut out,
-            opts,
-            "<test>",
-        )
-        .unwrap();
+        process(BufReader::new(Cursor::new(input)), &mut out, opts, "<test>").unwrap();
         String::from_utf8(out).unwrap()
     }
 

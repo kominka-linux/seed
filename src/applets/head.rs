@@ -2,7 +2,7 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 
 use crate::common::applet::{AppletResult, finish};
 use crate::common::error::AppletError;
-use crate::common::io::{open_input, stdout, BUFFER_SIZE};
+use crate::common::io::{BUFFER_SIZE, open_input, stdout};
 
 const APPLET: &str = "head";
 
@@ -23,7 +23,10 @@ fn run(args: &[String]) -> AppletResult {
         match arg.as_str() {
             "--" => {
                 i += 1;
-                while i < args.len() { paths.push(&args[i]); i += 1; }
+                while i < args.len() {
+                    paths.push(&args[i]);
+                    i += 1;
+                }
                 break;
             }
             "-q" | "--quiet" | "--silent" => quiet = true,
@@ -43,11 +46,20 @@ fn run(args: &[String]) -> AppletResult {
                 bytes = Some(parse_count(APPLET, &args[i])?);
             }
             // -NUM shorthand: head -5 ≡ head -n 5
-            a if a.starts_with('-') && a[1..].chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) => {
+            a if a.starts_with('-')
+                && a[1..]
+                    .chars()
+                    .next()
+                    .map(|c| c.is_ascii_digit())
+                    .unwrap_or(false) =>
+            {
                 lines = Some(parse_count(APPLET, &a[1..])?);
             }
             a if a.starts_with('-') && a.len() > 1 => {
-                return Err(vec![AppletError::invalid_option(APPLET, a.chars().nth(1).unwrap_or('-'))]);
+                return Err(vec![AppletError::invalid_option(
+                    APPLET,
+                    a.chars().nth(1).unwrap_or('-'),
+                )]);
             }
             _ => paths.push(arg),
         }
@@ -77,7 +89,7 @@ fn run(args: &[String]) -> AppletResult {
         for (idx, path) in paths.iter().enumerate() {
             if (multiple || verbose) && !quiet {
                 if idx > 0 {
-                    writeln!(out, "")
+                    writeln!(out)
                         .map_err(|e| vec![AppletError::from_io(APPLET, "writing", None, e)])?;
                 }
                 let label = if *path == "-" { "standard input" } else { path };
@@ -100,22 +112,31 @@ fn run(args: &[String]) -> AppletResult {
         }
     }
 
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 fn parse_count(applet: &'static str, s: &str) -> Result<i64, Vec<AppletError>> {
-    s.parse::<i64>().map_err(|_| {
-        vec![AppletError::new(applet, format!("invalid count: '{s}'"))]
-    })
+    s.parse::<i64>()
+        .map_err(|_| vec![AppletError::new(applet, format!("invalid count: '{s}'"))])
 }
 
-pub(crate) fn head_lines<R: BufRead, W: Write>(reader: &mut R, out: &mut W, n: i64) -> io::Result<()> {
+pub(crate) fn head_lines<R: BufRead, W: Write>(
+    reader: &mut R,
+    out: &mut W,
+    n: i64,
+) -> io::Result<()> {
     if n >= 0 {
         let mut remaining = n;
         let mut line = Vec::new();
         while remaining > 0 {
             line.clear();
-            if reader.read_until(b'\n', &mut line)? == 0 { break; }
+            if reader.read_until(b'\n', &mut line)? == 0 {
+                break;
+            }
             out.write_all(&line)?;
             remaining -= 1;
         }
@@ -126,7 +147,9 @@ pub(crate) fn head_lines<R: BufRead, W: Write>(reader: &mut R, out: &mut W, n: i
         let mut line = Vec::new();
         loop {
             line.clear();
-            if reader.read_until(b'\n', &mut line)? == 0 { break; }
+            if reader.read_until(b'\n', &mut line)? == 0 {
+                break;
+            }
             ring.push_back(line.clone());
         }
         if ring.len() > skip {
@@ -145,7 +168,9 @@ pub(crate) fn head_bytes<R: Read, W: Write>(reader: &mut R, out: &mut W, n: i64)
         while remaining > 0 {
             let to_read = (buf.len() as u64).min(remaining) as usize;
             let got = reader.read(&mut buf[..to_read])?;
-            if got == 0 { break; }
+            if got == 0 {
+                break;
+            }
             out.write_all(&buf[..got])?;
             remaining -= got as u64;
         }
@@ -163,8 +188,8 @@ pub(crate) fn head_bytes<R: Read, W: Write>(reader: &mut R, out: &mut W, n: i64)
 
 #[cfg(test)]
 mod tests {
-    use std::io::{BufReader, Cursor};
     use super::{head_bytes, head_lines};
+    use std::io::{BufReader, Cursor};
 
     fn lines(input: &str, n: i64) -> String {
         let mut out = Vec::new();

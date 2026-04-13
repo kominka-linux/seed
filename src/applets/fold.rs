@@ -23,7 +23,10 @@ fn run(args: &[String]) -> AppletResult {
         match arg.as_str() {
             "--" => {
                 i += 1;
-                while i < args.len() { paths.push(&args[i]); i += 1; }
+                while i < args.len() {
+                    paths.push(&args[i]);
+                    i += 1;
+                }
                 break;
             }
             "-b" | "--bytes" => byte_mode = true,
@@ -39,11 +42,17 @@ fn run(args: &[String]) -> AppletResult {
                 width = parse_width(APPLET, &a[2..])?;
             }
             // -N shorthand
-            a if a.starts_with('-') && a[1..].chars().all(|c| c.is_ascii_digit()) && a.len() > 1 => {
+            a if a.starts_with('-')
+                && a[1..].chars().all(|c| c.is_ascii_digit())
+                && a.len() > 1 =>
+            {
                 width = parse_width(APPLET, &a[1..])?;
             }
             a if a.starts_with('-') && a.len() > 1 => {
-                return Err(vec![AppletError::invalid_option(APPLET, a.chars().nth(1).unwrap_or('-'))]);
+                return Err(vec![AppletError::invalid_option(
+                    APPLET,
+                    a.chars().nth(1).unwrap_or('-'),
+                )]);
             }
             _ => paths.push(arg),
         }
@@ -55,7 +64,13 @@ fn run(args: &[String]) -> AppletResult {
 
     if paths.is_empty() {
         let stdin = io::stdin();
-        if let Err(e) = fold_reader(&mut BufReader::new(stdin.lock()), &mut out, width, byte_mode, break_spaces) {
+        if let Err(e) = fold_reader(
+            &mut BufReader::new(stdin.lock()),
+            &mut out,
+            width,
+            byte_mode,
+            break_spaces,
+        ) {
             errors.push(AppletError::from_io(APPLET, "reading stdin", None, e));
         }
     } else {
@@ -63,7 +78,13 @@ fn run(args: &[String]) -> AppletResult {
             match open_input(path) {
                 Err(e) => errors.push(AppletError::from_io(APPLET, "opening", Some(path), e)),
                 Ok(input) => {
-                    if let Err(e) = fold_reader(&mut BufReader::new(input), &mut out, width, byte_mode, break_spaces) {
+                    if let Err(e) = fold_reader(
+                        &mut BufReader::new(input),
+                        &mut out,
+                        width,
+                        byte_mode,
+                        break_spaces,
+                    ) {
                         errors.push(AppletError::from_io(APPLET, "reading", Some(path), e));
                     }
                 }
@@ -71,15 +92,22 @@ fn run(args: &[String]) -> AppletResult {
         }
     }
 
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 fn parse_width(applet: &'static str, s: &str) -> Result<usize, Vec<AppletError>> {
-    let w: usize = s.parse().map_err(|_| {
-        vec![AppletError::new(applet, format!("invalid width: '{s}'"))]
-    })?;
+    let w: usize = s
+        .parse()
+        .map_err(|_| vec![AppletError::new(applet, format!("invalid width: '{s}'"))])?;
     if w == 0 {
-        return Err(vec![AppletError::new(applet, "width must be greater than 0")]);
+        return Err(vec![AppletError::new(
+            applet,
+            "width must be greater than 0",
+        )]);
     }
     Ok(w)
 }
@@ -98,7 +126,11 @@ fn fold_reader<R: BufRead, W: Write>(
             break;
         }
         let has_nl = line.last() == Some(&b'\n');
-        let content = if has_nl { &line[..line.len() - 1] } else { &line[..] };
+        let content = if has_nl {
+            &line[..line.len() - 1]
+        } else {
+            &line[..]
+        };
         if byte_mode {
             fold_bytes(content, out, width, break_spaces)?;
         } else {
@@ -111,7 +143,12 @@ fn fold_reader<R: BufRead, W: Write>(
     Ok(())
 }
 
-fn fold_bytes<W: Write>(data: &[u8], out: &mut W, width: usize, break_spaces: bool) -> io::Result<()> {
+fn fold_bytes<W: Write>(
+    data: &[u8],
+    out: &mut W,
+    width: usize,
+    break_spaces: bool,
+) -> io::Result<()> {
     let mut pos = 0;
     while pos < data.len() {
         let end = (pos + width).min(data.len());
@@ -137,7 +174,12 @@ fn fold_bytes<W: Write>(data: &[u8], out: &mut W, width: usize, break_spaces: bo
     Ok(())
 }
 
-fn fold_columns<W: Write>(data: &[u8], out: &mut W, width: usize, break_spaces: bool) -> io::Result<()> {
+fn fold_columns<W: Write>(
+    data: &[u8],
+    out: &mut W,
+    width: usize,
+    break_spaces: bool,
+) -> io::Result<()> {
     // Count columns: tabs advance to next multiple-of-8 tab stop; all other
     // printable characters occupy 1 column. We work on bytes (assuming UTF-8
     // or ASCII), treating each non-tab byte as 1 column.
@@ -216,8 +258,8 @@ mod tests {
     #[test]
     fn tab_column_count() {
         assert_eq!(count_columns(b""), 0);
-        assert_eq!(count_columns(b"\t"), 8);      // tab at col 0 → col 8
-        assert_eq!(count_columns(b"a\t"), 8);     // 'a' at col 0, tab → col 8
+        assert_eq!(count_columns(b"\t"), 8); // tab at col 0 → col 8
+        assert_eq!(count_columns(b"a\t"), 8); // 'a' at col 0, tab → col 8
         assert_eq!(count_columns(b"abcdefg\t"), 8); // 7 chars then tab → col 8
         assert_eq!(count_columns(b"abcdefgh\t"), 16); // 8 chars then tab → col 16
     }

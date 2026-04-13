@@ -27,17 +27,16 @@ fn run(args: &[String]) -> AppletResult {
     }
 
     let conf = if all {
-        libc::_SC_NPROCESSORS_CONF  // total installed CPUs
+        libc::_SC_NPROCESSORS_CONF // total installed CPUs
     } else {
-        libc::_SC_NPROCESSORS_ONLN  // available (online) CPUs
+        libc::_SC_NPROCESSORS_ONLN // available (online) CPUs
     };
 
     // SAFETY: sysconf with a valid constant is always safe; treat <= 0 as 1.
     let count = unsafe { libc::sysconf(conf) }.max(1);
 
     let mut out = stdout();
-    writeln!(out, "{count}")
-        .map_err(|e| vec![AppletError::from_io(APPLET, "writing", None, e)])?;
+    writeln!(out, "{count}").map_err(|e| vec![AppletError::from_io(APPLET, "writing", None, e)])?;
     Ok(())
 }
 

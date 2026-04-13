@@ -97,11 +97,7 @@ fn parse_delimiters(input: &str) -> Vec<u8> {
             out.extend_from_slice(ch.to_string().as_bytes());
         }
     }
-    if out.is_empty() {
-        vec![b'\t']
-    } else {
-        out
-    }
+    if out.is_empty() { vec![b'\t'] } else { out }
 }
 
 fn paste_parallel<R: BufRead, W: Write>(
@@ -145,7 +141,11 @@ fn paste_parallel<R: BufRead, W: Write>(
     Ok(())
 }
 
-fn paste_serial<R: BufRead, W: Write>(mut reader: R, out: &mut W, options: &Options) -> io::Result<()> {
+fn paste_serial<R: BufRead, W: Write>(
+    mut reader: R,
+    out: &mut W,
+    options: &Options,
+) -> io::Result<()> {
     let mut first = true;
     let mut index = 0;
     let mut line = Vec::new();

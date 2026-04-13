@@ -104,7 +104,7 @@ fn make_agent(options: &Options) -> Result<Agent, AppletError> {
     let ca_file = options
         .ca_certificate
         .as_deref()
-        .or_else(|| ssl_cert_file.as_deref());
+        .or(ssl_cert_file.as_deref());
 
     let tls_builder = TlsConfig::builder()
         .unversioned_rustls_crypto_provider(Arc::new(rustls::crypto::ring::default_provider()));
@@ -125,8 +125,8 @@ fn make_agent(options: &Options) -> Result<Agent, AppletError> {
 }
 
 fn load_ca_certs(path: &str) -> Result<Vec<ureq::tls::Certificate<'static>>, AppletError> {
-    let pem = std::fs::read(path)
-        .map_err(|e| AppletError::from_io(APPLET, "reading", Some(path), e))?;
+    let pem =
+        std::fs::read(path).map_err(|e| AppletError::from_io(APPLET, "reading", Some(path), e))?;
     let certs = parse_pem(&pem)
         .filter_map(|item| match item {
             Ok(PemItem::Certificate(c)) => Some(Ok(c)),
@@ -249,8 +249,7 @@ mod tests {
 
     #[test]
     fn parse_no_check_certificate_short() {
-        let (options, _) =
-            parse_args(&args(&["-k", "http://example.com"])).expect("parse");
+        let (options, _) = parse_args(&args(&["-k", "http://example.com"])).expect("parse");
         assert!(options.no_check_certificate);
     }
 
@@ -263,9 +262,12 @@ mod tests {
 
     #[test]
     fn parse_ca_certificate_separate_arg() {
-        let (options, _) =
-            parse_args(&args(&["--ca-certificate", "/etc/ssl/certs/ca-certificates.crt", "http://example.com"]))
-                .expect("parse");
+        let (options, _) = parse_args(&args(&[
+            "--ca-certificate",
+            "/etc/ssl/certs/ca-certificates.crt",
+            "http://example.com",
+        ]))
+        .expect("parse");
         assert_eq!(
             options.ca_certificate.as_deref(),
             Some("/etc/ssl/certs/ca-certificates.crt")
@@ -274,9 +276,11 @@ mod tests {
 
     #[test]
     fn parse_ca_certificate_equals_form() {
-        let (options, _) =
-            parse_args(&args(&["--ca-certificate=/etc/ssl/certs/ca-certificates.crt", "http://example.com"]))
-                .expect("parse");
+        let (options, _) = parse_args(&args(&[
+            "--ca-certificate=/etc/ssl/certs/ca-certificates.crt",
+            "http://example.com",
+        ]))
+        .expect("parse");
         assert_eq!(
             options.ca_certificate.as_deref(),
             Some("/etc/ssl/certs/ca-certificates.crt")
@@ -379,38 +383,56 @@ mod tests {
     #[ignore = "requires network access"]
     fn badssl_tls12_cert_expired_fails() {
         // tls12.badssl.com has a certificate that expired in 2018 and was never renewed.
-        assert_ne!(super::main(&args(&["-q", "-O", "-", "https://tls12.badssl.com/"])), 0);
+        assert_ne!(
+            super::main(&args(&["-q", "-O", "-", "https://tls12.badssl.com/"])),
+            0
+        );
     }
 
     #[test]
     #[ignore = "requires network access"]
     fn badssl_tls13_cert_expired_fails() {
         // tls13.badssl.com has a certificate that expired in 2018 and was never renewed.
-        assert_ne!(super::main(&args(&["-q", "-O", "-", "https://tls13.badssl.com/"])), 0);
+        assert_ne!(
+            super::main(&args(&["-q", "-O", "-", "https://tls13.badssl.com/"])),
+            0
+        );
     }
 
     #[test]
     #[ignore = "requires network access"]
     fn badssl_sha256_succeeds() {
-        assert_eq!(super::main(&args(&["-q", "-O", "-", "https://sha256.badssl.com/"])), 0);
+        assert_eq!(
+            super::main(&args(&["-q", "-O", "-", "https://sha256.badssl.com/"])),
+            0
+        );
     }
 
     #[test]
     #[ignore = "requires network access"]
     fn badssl_ecc256_succeeds() {
-        assert_eq!(super::main(&args(&["-q", "-O", "-", "https://ecc256.badssl.com/"])), 0);
+        assert_eq!(
+            super::main(&args(&["-q", "-O", "-", "https://ecc256.badssl.com/"])),
+            0
+        );
     }
 
     #[test]
     #[ignore = "requires network access"]
     fn badssl_rsa2048_succeeds() {
-        assert_eq!(super::main(&args(&["-q", "-O", "-", "https://rsa2048.badssl.com/"])), 0);
+        assert_eq!(
+            super::main(&args(&["-q", "-O", "-", "https://rsa2048.badssl.com/"])),
+            0
+        );
     }
 
     #[test]
     #[ignore = "requires network access"]
     fn badssl_expired_fails() {
-        assert_ne!(super::main(&args(&["-q", "-O", "-", "https://expired.badssl.com/"])), 0);
+        assert_ne!(
+            super::main(&args(&["-q", "-O", "-", "https://expired.badssl.com/"])),
+            0
+        );
     }
 
     #[test]
@@ -435,7 +457,12 @@ mod tests {
     #[ignore = "requires network access"]
     fn badssl_untrusted_root_fails() {
         assert_ne!(
-            super::main(&args(&["-q", "-O", "-", "https://untrusted-root.badssl.com/"])),
+            super::main(&args(&[
+                "-q",
+                "-O",
+                "-",
+                "https://untrusted-root.badssl.com/"
+            ])),
             0
         );
     }
@@ -476,7 +503,9 @@ mod tests {
                 for e in &errors {
                     let msg = e.to_string();
                     assert!(
-                        !msg.contains("certificate") && !msg.contains("tls") && !msg.contains("TLS"),
+                        !msg.contains("certificate")
+                            && !msg.contains("tls")
+                            && !msg.contains("TLS"),
                         "unexpected TLS error: {msg}"
                     );
                 }

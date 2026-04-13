@@ -6,14 +6,24 @@ use crate::common::applet::{AppletResult, finish};
 use crate::common::error::AppletError;
 use crate::common::io::{open_input, stdout};
 
-pub fn main_base64(args: &[String]) -> i32 { finish(run(args, Variant::B64)) }
-pub fn main_base32(args: &[String]) -> i32 { finish(run(args, Variant::B32)) }
+pub fn main_base64(args: &[String]) -> i32 {
+    finish(run(args, Variant::B64))
+}
+pub fn main_base32(args: &[String]) -> i32 {
+    finish(run(args, Variant::B32))
+}
 
-enum Variant { B64, B32 }
+enum Variant {
+    B64,
+    B32,
+}
 
 impl Variant {
     fn name(&self) -> &'static str {
-        match self { Variant::B64 => "base64", Variant::B32 => "base32" }
+        match self {
+            Variant::B64 => "base64",
+            Variant::B32 => "base32",
+        }
     }
 }
 
@@ -29,30 +39,48 @@ fn run(args: &[String], variant: Variant) -> AppletResult {
         let arg = &args[i];
         match arg.as_str() {
             "--" => {
-                for arg in &args[i + 1..] { paths.push(arg); }
+                for arg in &args[i + 1..] {
+                    paths.push(arg);
+                }
                 break;
             }
             "-d" | "--decode" => decode = true,
             "-i" | "--ignore-garbage" => ignore_garbage = true,
             "-w" | "--wrap" => {
                 i += 1;
-                let val = args.get(i)
+                let val = args
+                    .get(i)
                     .ok_or_else(|| vec![AppletError::option_requires_arg(applet, "-w")])?;
-                wrap = val.parse()
-                    .map_err(|_| vec![AppletError::new(applet, format!("invalid wrap size '{val}'"))])?;
+                wrap = val.parse().map_err(|_| {
+                    vec![AppletError::new(
+                        applet,
+                        format!("invalid wrap size '{val}'"),
+                    )]
+                })?;
             }
             a if a.starts_with("--wrap=") => {
                 let val = &a[7..];
-                wrap = val.parse()
-                    .map_err(|_| vec![AppletError::new(applet, format!("invalid wrap size '{val}'"))])?;
+                wrap = val.parse().map_err(|_| {
+                    vec![AppletError::new(
+                        applet,
+                        format!("invalid wrap size '{val}'"),
+                    )]
+                })?;
             }
             a if a.starts_with("-w") && a.len() > 2 => {
                 let val = &a[2..];
-                wrap = val.parse()
-                    .map_err(|_| vec![AppletError::new(applet, format!("invalid wrap size '{val}'"))])?;
+                wrap = val.parse().map_err(|_| {
+                    vec![AppletError::new(
+                        applet,
+                        format!("invalid wrap size '{val}'"),
+                    )]
+                })?;
             }
             a if a.starts_with('-') && a.len() > 1 => {
-                return Err(vec![AppletError::invalid_option(applet, a.chars().nth(1).unwrap())]);
+                return Err(vec![AppletError::invalid_option(
+                    applet,
+                    a.chars().nth(1).unwrap(),
+                )]);
             }
             a => paths.push(a),
         }
@@ -75,7 +103,10 @@ fn run(args: &[String], variant: Variant) -> AppletResult {
                 if decode {
                     let filtered = match filter_alphabet(&data, &variant, ignore_garbage) {
                         Ok(v) => v,
-                        Err(msg) => { errors.push(AppletError::new(applet, msg)); continue; }
+                        Err(msg) => {
+                            errors.push(AppletError::new(applet, msg));
+                            continue;
+                        }
                     };
                     match decode_data(&filtered, &variant) {
                         Ok(decoded) => {
@@ -95,25 +126,42 @@ fn run(args: &[String], variant: Variant) -> AppletResult {
         }
     }
 
-    if errors.is_empty() { Ok(()) } else { Err(errors) }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 fn encode_data(data: &[u8], variant: &Variant) -> String {
-    match variant { Variant::B64 => b64_encode(data), Variant::B32 => b32_encode(data) }
+    match variant {
+        Variant::B64 => b64_encode(data),
+        Variant::B32 => b32_encode(data),
+    }
 }
 
 fn decode_data(filtered: &[u8], variant: &Variant) -> Result<Vec<u8>, String> {
-    match variant { Variant::B64 => b64_decode(filtered), Variant::B32 => b32_decode(filtered) }
+    match variant {
+        Variant::B64 => b64_decode(filtered),
+        Variant::B32 => b32_decode(filtered),
+    }
 }
 
-fn filter_alphabet(data: &[u8], variant: &Variant, ignore_garbage: bool) -> Result<Vec<u8>, String> {
+fn filter_alphabet(
+    data: &[u8],
+    variant: &Variant,
+    ignore_garbage: bool,
+) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
     for &b in data {
-        if b.is_ascii_whitespace() { continue; }
-        let valid = b == b'=' || match variant {
-            Variant::B64 => b64_val(b).is_some(),
-            Variant::B32 => b32_val(b).is_some(),
-        };
+        if b.is_ascii_whitespace() {
+            continue;
+        }
+        let valid = b == b'='
+            || match variant {
+                Variant::B64 => b64_val(b).is_some(),
+                Variant::B32 => b32_val(b).is_some(),
+            };
         if valid {
             out.push(b);
         } else if !ignore_garbage {
@@ -139,7 +187,7 @@ fn write_wrapped<W: Write>(out: &mut W, encoded: &str, wrap: usize) -> io::Resul
 const B64_ALPHA: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 fn b64_encode(data: &[u8]) -> String {
-    let mut out = Vec::with_capacity((data.len() + 2) / 3 * 4);
+    let mut out = Vec::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
         let a = chunk[0];
         let b = chunk.get(1).copied().unwrap_or(0);
@@ -147,8 +195,16 @@ fn b64_encode(data: &[u8]) -> String {
         let n = chunk.len();
         out.push(B64_ALPHA[((a >> 2) & 0x3f) as usize]);
         out.push(B64_ALPHA[(((a & 3) << 4) | (b >> 4)) as usize]);
-        out.push(if n >= 2 { B64_ALPHA[(((b & 0xf) << 2) | (c >> 6)) as usize] } else { b'=' });
-        out.push(if n == 3 { B64_ALPHA[(c & 0x3f) as usize] } else { b'=' });
+        out.push(if n >= 2 {
+            B64_ALPHA[(((b & 0xf) << 2) | (c >> 6)) as usize]
+        } else {
+            b'='
+        });
+        out.push(if n == 3 {
+            B64_ALPHA[(c & 0x3f) as usize]
+        } else {
+            b'='
+        });
     }
     String::from_utf8(out).unwrap()
 }
@@ -168,7 +224,9 @@ fn b64_decode(data: &[u8]) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < data.len() {
-        if data.len() - i < 2 { return Err("invalid base64 data".into()); }
+        if data.len() - i < 2 {
+            return Err("invalid base64 data".into());
+        }
         let a = b64_val(data[i]).ok_or("invalid base64 data")?;
         let b = b64_val(data[i + 1]).ok_or("invalid base64 data")?;
         out.push((a << 2) | (b >> 4));
@@ -207,12 +265,36 @@ fn b32_encode(data: &[u8]) -> String {
 
         out.push(B32_ALPHA[(a >> 3) as usize]);
         out.push(B32_ALPHA[(((a & 7) << 2) | (b >> 6)) as usize]);
-        out.push(if n >= 2 { B32_ALPHA[((b >> 1) & 0x1f) as usize] } else { b'=' });
-        out.push(if n >= 2 { B32_ALPHA[(((b & 1) << 4) | (c >> 4)) as usize] } else { b'=' });
-        out.push(if n >= 3 { B32_ALPHA[(((c & 0xf) << 1) | (d >> 7)) as usize] } else { b'=' });
-        out.push(if n >= 4 { B32_ALPHA[((d >> 2) & 0x1f) as usize] } else { b'=' });
-        out.push(if n >= 4 { B32_ALPHA[(((d & 3) << 3) | (e >> 5)) as usize] } else { b'=' });
-        out.push(if n == 5 { B32_ALPHA[(e & 0x1f) as usize] } else { b'=' });
+        out.push(if n >= 2 {
+            B32_ALPHA[((b >> 1) & 0x1f) as usize]
+        } else {
+            b'='
+        });
+        out.push(if n >= 2 {
+            B32_ALPHA[(((b & 1) << 4) | (c >> 4)) as usize]
+        } else {
+            b'='
+        });
+        out.push(if n >= 3 {
+            B32_ALPHA[(((c & 0xf) << 1) | (d >> 7)) as usize]
+        } else {
+            b'='
+        });
+        out.push(if n >= 4 {
+            B32_ALPHA[((d >> 2) & 0x1f) as usize]
+        } else {
+            b'='
+        });
+        out.push(if n >= 4 {
+            B32_ALPHA[(((d & 3) << 3) | (e >> 5)) as usize]
+        } else {
+            b'='
+        });
+        out.push(if n == 5 {
+            B32_ALPHA[(e & 0x1f) as usize]
+        } else {
+            b'='
+        });
     }
     String::from_utf8(out).unwrap()
 }
@@ -220,7 +302,7 @@ fn b32_encode(data: &[u8]) -> String {
 fn b32_val(c: u8) -> Option<u8> {
     match c {
         b'A'..=b'Z' => Some(c - b'A'),
-        b'a'..=b'z' => Some(c - b'a'),  // case-insensitive
+        b'a'..=b'z' => Some(c - b'a'), // case-insensitive
         b'2'..=b'7' => Some(c - b'2' + 26),
         _ => None,
     }
@@ -232,32 +314,46 @@ fn b32_decode(data: &[u8]) -> Result<Vec<u8>, String> {
     while i < data.len() {
         let get = |j: usize| data.get(i + j).copied().unwrap_or(b'=');
         let (c0, c1) = (get(0), get(1));
-        if c0 == b'=' { break; }
+        if c0 == b'=' {
+            break;
+        }
         let v0 = b32_val(c0).ok_or("invalid base32 data")?;
         let v1 = b32_val(c1).ok_or("invalid base32 data")?;
-        out.push((v0 << 3) | (v1 >> 2));  // byte 0: bits 39-32
+        out.push((v0 << 3) | (v1 >> 2)); // byte 0: bits 39-32
 
         let (c2, c3) = (get(2), get(3));
-        if c2 == b'=' { i += 8; continue; }
+        if c2 == b'=' {
+            i += 8;
+            continue;
+        }
         let v2 = b32_val(c2).ok_or("invalid base32 data")?;
         let v3 = b32_val(c3).ok_or("invalid base32 data")?;
-        out.push(((v1 & 3) << 6) | (v2 << 1) | (v3 >> 4));  // byte 1: bits 31-24
+        out.push(((v1 & 3) << 6) | (v2 << 1) | (v3 >> 4)); // byte 1: bits 31-24
 
         let c4 = get(4);
-        if c4 == b'=' { i += 8; continue; }
+        if c4 == b'=' {
+            i += 8;
+            continue;
+        }
         let v4 = b32_val(c4).ok_or("invalid base32 data")?;
-        out.push(((v3 & 0xf) << 4) | (v4 >> 1));  // byte 2: bits 23-16
+        out.push(((v3 & 0xf) << 4) | (v4 >> 1)); // byte 2: bits 23-16
 
         let (c5, c6) = (get(5), get(6));
-        if c5 == b'=' { i += 8; continue; }
+        if c5 == b'=' {
+            i += 8;
+            continue;
+        }
         let v5 = b32_val(c5).ok_or("invalid base32 data")?;
         let v6 = b32_val(c6).ok_or("invalid base32 data")?;
-        out.push(((v4 & 1) << 7) | (v5 << 2) | (v6 >> 3));  // byte 3: bits 15-8
+        out.push(((v4 & 1) << 7) | (v5 << 2) | (v6 >> 3)); // byte 3: bits 15-8
 
         let c7 = get(7);
-        if c7 == b'=' { i += 8; continue; }
+        if c7 == b'=' {
+            i += 8;
+            continue;
+        }
         let v7 = b32_val(c7).ok_or("invalid base32 data")?;
-        out.push(((v6 & 7) << 5) | v7);  // byte 4: bits 7-0
+        out.push(((v6 & 7) << 5) | v7); // byte 4: bits 7-0
 
         i += 8;
     }
@@ -367,7 +463,7 @@ mod tests {
     fn wrap_option() {
         // -w 4 wraps every 4 chars
         let data = b"foobar";
-        let encoded = b64_encode(data);  // "Zm9vYmFy"
+        let encoded = b64_encode(data); // "Zm9vYmFy"
         assert_eq!(encoded.len(), 8);
         // Verify wrap logic: 8-char encoded with wrap=4 → two lines
         let mut out = Vec::new();

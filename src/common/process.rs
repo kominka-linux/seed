@@ -1,5 +1,6 @@
 use std::ffi::CStr;
 use std::mem::MaybeUninit;
+use std::path::Path;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ProcessInfo {
@@ -14,6 +15,21 @@ impl ProcessInfo {
     pub(crate) fn matches_pattern(&self, pattern: &str) -> bool {
         self.name.contains(pattern) || self.command.contains(pattern)
     }
+
+    pub(crate) fn matches_exact_name(&self, target: &str) -> bool {
+        self.name == target
+            || self
+                .command
+                .split_whitespace()
+                .any(|part| basename(part) == target)
+    }
+}
+
+fn basename(path: &str) -> &str {
+    Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(path)
 }
 
 #[cfg(target_os = "macos")]

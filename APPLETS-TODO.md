@@ -191,7 +191,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 
 - [x] kill
 - [ ] free
-- [ ] killall
+- [x] killall
 - [ ] killall5
 - [ ] lsof
 - [x] pgrep

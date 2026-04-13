@@ -62,6 +62,14 @@
 - Prefer targeted `cargo test` runs while developing.
 - Keep shell tests small and direct. Match the existing style in `tests/busybox/*`.
 - When behavior depends on Unix metadata, test the visible contract instead of overfitting to one implementation detail.
+- Preferred adaptation pattern for external test ideas:
+  1. Lift the behavior being tested, not the exact script text.
+  2. Rewrite the case in this repo's small shell-test style.
+  3. Use the host tool as the oracle when that behavior is stable on the current platform.
+  4. Pin flags explicitly when host defaults differ from BusyBox or `seed` defaults.
+  5. Keep the test scoped to the applet or option being added; avoid dragging in unrelated semantics.
+- Rewrite applicable existing tests when working on an applet if an adapted case is clearer, stronger, or less platform-fragile than what is already in the repo.
+- Prefer incremental replacement by applet or test area so the suite stays reviewable and regressions stay attributable.
 
 ## Commit Discipline
 

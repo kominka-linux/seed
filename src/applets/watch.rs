@@ -3,6 +3,8 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
+use crate::common::applet::finish_code;
+use crate::common::args::{ArgCursor, ArgToken};
 use crate::common::error::AppletError;
 
 const APPLET: &str = "watch";
@@ -15,15 +17,7 @@ struct Options {
 }
 
 pub fn main(args: &[String]) -> i32 {
-    match run(args) {
-        Ok(code) => code,
-        Err(errors) => {
-            for error in errors {
-                error.print();
-            }
-            1
-        }
-    }
+    finish_code(run(args))
 }
 
 fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
@@ -49,45 +43,35 @@ fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
 
 fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     let mut interval = 2.0_f64;
-    let mut index = 0;
+    let mut cursor = ArgCursor::new(args);
 
-    while let Some(arg) = args.get(index) {
-        if arg == "--" {
-            index += 1;
-            break;
-        }
-        if arg == "-n" {
-            let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::option_requires_arg(APPLET, "n")]);
-            };
-            interval = parse_interval(value)?;
-            index += 2;
-            continue;
-        }
-        if let Some(value) = arg.strip_prefix("-n") {
-            if value.is_empty() {
-                return Err(vec![AppletError::option_requires_arg(APPLET, "n")]);
+    while let Some(arg) = cursor.next_arg() {
+        match arg {
+            ArgToken::ShortFlags(flags) => {
+                let mut chars = flags.chars();
+                let Some(flag) = chars.next() else {
+                    continue;
+                };
+                let attached = chars.as_str();
+                match flag {
+                    'n' => {
+                        let value = cursor.next_value_or_attached(attached, APPLET, "n")?;
+                        interval = parse_interval(value)?;
+                    }
+                    _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
+                }
             }
-            interval = parse_interval(value)?;
-            index += 1;
-            continue;
+            ArgToken::Operand(command) => {
+                return Ok(Options {
+                    interval,
+                    command: command.to_owned(),
+                    args: cursor.remaining().to_vec(),
+                });
+            }
         }
-        if arg.starts_with('-') && arg.len() > 1 {
-            let flag = arg.chars().nth(1).expect("short option has flag");
-            return Err(vec![AppletError::invalid_option(APPLET, flag)]);
-        }
-        break;
     }
 
-    let Some(command) = args.get(index) else {
-        return Err(vec![AppletError::new(APPLET, "missing operand")]);
-    };
-
-    Ok(Options {
-        interval,
-        command: command.clone(),
-        args: args[index + 1..].to_vec(),
-    })
+    Err(vec![AppletError::new(APPLET, "missing operand")])
 }
 
 fn parse_interval(value: &str) -> Result<f64, Vec<AppletError>> {
@@ -126,6 +110,14 @@ mod tests {
                 args: vec![String::from("hi")],
             }
         );
+    }
+
+    #[test]
+    fn parses_attached_interval() {
+        let options = parse_args(&args(&["-n0.5", "echo"])).expect("parse watch");
+        assert_eq!(options.interval, 0.5);
+        assert_eq!(options.command, "echo");
+        assert!(options.args.is_empty());
     }
 
     #[test]

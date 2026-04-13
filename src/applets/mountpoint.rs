@@ -5,6 +5,7 @@ use std::os::unix::fs::MetadataExt;
 #[cfg(target_os = "linux")]
 use std::path::Path;
 
+use crate::common::applet::finish_code;
 use crate::common::error::AppletError;
 #[cfg(target_os = "linux")]
 use crate::common::mounts;
@@ -19,15 +20,7 @@ struct Options {
 }
 
 pub fn main(args: &[String]) -> i32 {
-    match run(args) {
-        Ok(code) => code,
-        Err(errors) => {
-            for error in errors {
-                error.print();
-            }
-            1
-        }
-    }
+    finish_code(run(args))
 }
 
 fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {

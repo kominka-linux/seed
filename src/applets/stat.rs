@@ -3,6 +3,7 @@ use std::io::Write;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::{ArgCursor, ArgToken};
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
@@ -38,34 +39,26 @@ fn run(args: &[String]) -> AppletResult {
 fn parse_args(args: &[String]) -> Result<(String, Vec<String>), Vec<AppletError>> {
     let mut format = None;
     let mut paths = Vec::new();
-    let mut parsing_flags = true;
-    let mut index = 0;
+    let mut cursor = ArgCursor::new(args);
 
-    while index < args.len() {
-        let arg = &args[index];
-        if parsing_flags && arg == "--" {
-            parsing_flags = false;
-            index += 1;
-            continue;
+    while let Some(arg) = cursor.next_arg() {
+        match arg {
+            ArgToken::ShortFlags(flags) => {
+                let mut chars = flags.chars();
+                let Some(flag) = chars.next() else {
+                    continue;
+                };
+                let attached = chars.as_str();
+                match flag {
+                    'c' => {
+                        let value = cursor.next_value_or_attached(attached, APPLET, "c")?;
+                        format = Some(value.to_owned());
+                    }
+                    _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
+                }
+            }
+            ArgToken::Operand(arg) => paths.push(arg.to_owned()),
         }
-        if parsing_flags && arg == "-c" {
-            index += 1;
-            let Some(value) = args.get(index) else {
-                return Err(vec![AppletError::option_requires_arg(APPLET, "c")]);
-            };
-            format = Some(value.clone());
-            index += 1;
-            continue;
-        }
-        if parsing_flags && arg.starts_with('-') && arg.len() > 1 {
-            return Err(vec![AppletError::invalid_option(
-                APPLET,
-                arg.chars().nth(1).unwrap_or('-'),
-            )]);
-        }
-
-        paths.push(arg.clone());
-        index += 1;
     }
 
     let Some(format) = format else {
@@ -167,6 +160,13 @@ mod tests {
     fn parses_c_format() {
         let (format, paths) = parse_args(&args(&["-c", "%s %n", "file"])).expect("parse stat");
         assert_eq!(format, "%s %n");
+        assert_eq!(paths, vec!["file"]);
+    }
+
+    #[test]
+    fn parses_attached_c_format() {
+        let (format, paths) = parse_args(&args(&["-c%s", "file"])).expect("parse stat");
+        assert_eq!(format, "%s");
         assert_eq!(paths, vec!["file"]);
     }
 

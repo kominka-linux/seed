@@ -2,6 +2,7 @@ use std::fs;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::Path;
 
+use crate::common::args::{ArgCursor, ArgToken};
 use crate::common::error::AppletError;
 use crate::common::io::open_input;
 
@@ -211,80 +212,47 @@ fn parse_args(
     let mut inline_patterns = Vec::new();
     let mut pattern_files = Vec::new();
     let mut positionals = Vec::new();
-    let mut parsing_flags = true;
-    let mut index = 0;
+    let mut cursor = ArgCursor::new(args);
 
-    while index < args.len() {
-        let arg = &args[index];
-        if parsing_flags && arg == "--" {
-            parsing_flags = false;
-            index += 1;
-            continue;
-        }
-        if parsing_flags && arg == "-e" {
-            let Some(pattern) = args.get(index + 1) else {
-                return Err(AppletError::option_requires_arg_message("e"));
-            };
-            inline_patterns.push(pattern.clone());
-            index += 2;
-            continue;
-        }
-        if parsing_flags && arg == "-f" {
-            let Some(path) = args.get(index + 1) else {
-                return Err(AppletError::option_requires_arg_message("f"));
-            };
-            pattern_files.push(path.clone());
-            index += 2;
-            continue;
-        }
-        if parsing_flags && arg.starts_with('-') && arg.len() > 1 {
-            let mut chars = arg[1..].chars().peekable();
-            while let Some(flag) = chars.next() {
-                match flag {
-                    'E' => options.extended = true,
-                    'F' => options.fixed = true,
-                    'i' => options.ignore_case = true,
-                    'q' => options.quiet = true,
-                    's' => options.silent = true,
-                    'x' => options.line_regexp = true,
-                    'v' => options.invert = true,
-                    'L' => options.files_without_match = true,
-                    'w' => options.word = true,
-                    'o' => options.only_matching = true,
-                    'r' => options.recursive = true,
-                    'a' => {}
-                    'e' => {
-                        if chars.peek().is_some() {
-                            inline_patterns.push(chars.collect());
+    while let Some(arg) = cursor.next_arg() {
+        match arg {
+            ArgToken::ShortFlags(flags) => {
+                let mut chars = flags.chars();
+                while let Some(flag) = chars.next() {
+                    let attached = chars.as_str();
+                    match flag {
+                        'E' => options.extended = true,
+                        'F' => options.fixed = true,
+                        'i' => options.ignore_case = true,
+                        'q' => options.quiet = true,
+                        's' => options.silent = true,
+                        'x' => options.line_regexp = true,
+                        'v' => options.invert = true,
+                        'L' => options.files_without_match = true,
+                        'w' => options.word = true,
+                        'o' => options.only_matching = true,
+                        'r' => options.recursive = true,
+                        'a' => {}
+                        'e' => {
+                            let pattern = cursor
+                                .next_value_or_attached(attached, APPLET, "e")
+                                .map_err(|_| AppletError::option_requires_arg_message("e"))?;
+                            inline_patterns.push(pattern.to_owned());
                             break;
                         }
-                        let Some(pattern) = args.get(index + 1) else {
-                            return Err(AppletError::option_requires_arg_message("e"));
-                        };
-                        inline_patterns.push(pattern.clone());
-                        index += 1;
-                        break;
-                    }
-                    'f' => {
-                        if chars.peek().is_some() {
-                            pattern_files.push(chars.collect());
+                        'f' => {
+                            let path = cursor
+                                .next_value_or_attached(attached, APPLET, "f")
+                                .map_err(|_| AppletError::option_requires_arg_message("f"))?;
+                            pattern_files.push(path.to_owned());
                             break;
                         }
-                        let Some(path) = args.get(index + 1) else {
-                            return Err(AppletError::option_requires_arg_message("f"));
-                        };
-                        pattern_files.push(path.clone());
-                        index += 1;
-                        break;
+                        _ => return Err(AppletError::invalid_option_message(flag)),
                     }
-                    _ => return Err(AppletError::invalid_option_message(flag)),
                 }
             }
-            index += 1;
-            continue;
+            ArgToken::Operand(arg) => positionals.push(arg.to_owned()),
         }
-        positionals.push(arg.clone());
-        index += 1;
     }
 
     if inline_patterns.is_empty() && pattern_files.is_empty() {
@@ -897,5 +865,21 @@ fn parse_posix_class(pattern: &[u8], index: usize) -> Option<(ClassItem, usize)>
     match std::str::from_utf8(&pattern[index + 2..end]).ok()? {
         "xdigit" => Some((ClassItem::Xdigit, end + 2)),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_args;
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn parses_attached_pattern_option() {
+        let parsed = parse_args(&args(&["-efoo", "input"]), false, false).expect("parse grep");
+        assert_eq!(parsed.inputs, vec!["input"]);
+        assert_eq!(parsed.patterns.matchers.len(), 1);
     }
 }

@@ -1,19 +1,11 @@
+use crate::common::applet::finish_code;
 use crate::common::error::AppletError;
 use crate::common::process::list_processes;
 
 const APPLET: &str = "killall";
 
 pub fn main(args: &[String]) -> i32 {
-    match run(args) {
-        Ok(true) => 0,
-        Ok(false) => 1,
-        Err(errors) => {
-            for error in errors {
-                error.print();
-            }
-            1
-        }
-    }
+    finish_code(run(args).map(i32::from))
 }
 
 fn run(args: &[String]) -> Result<bool, Vec<AppletError>> {

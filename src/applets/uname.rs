@@ -1,6 +1,7 @@
 use std::ffi::CStr;
 use std::mem::MaybeUninit;
 
+use crate::common::applet::fail;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "uname";
@@ -24,12 +25,7 @@ pub fn main(args: &[String]) -> i32 {
             println!("{output}");
             0
         }
-        Err(errors) => {
-            for error in errors {
-                error.print();
-            }
-            1
-        }
+        Err(errors) => fail(errors, 1),
     }
 }
 

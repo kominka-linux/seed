@@ -4,6 +4,7 @@ use std::fs;
 use std::io::Write;
 use std::mem::MaybeUninit;
 
+use crate::common::applet::finish;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
@@ -16,15 +17,7 @@ const PROC_UPTIME: &str = "/proc/uptime";
 const UTMP_PATHS: &[&str] = &["/run/utmp", "/var/run/utmp"];
 
 pub fn main(args: &[String]) -> i32 {
-    match run(args) {
-        Ok(()) => 0,
-        Err(errors) => {
-            for error in errors {
-                error.print();
-            }
-            1
-        }
-    }
+    finish(run(args))
 }
 
 fn run(args: &[String]) -> Result<(), Vec<AppletError>> {

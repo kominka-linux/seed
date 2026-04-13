@@ -3,6 +3,7 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::{ArgCursor, ArgToken};
 use crate::common::error::AppletError;
 use crate::common::io::{Input, open_input};
 
@@ -94,98 +95,43 @@ fn run(args: &[String]) -> AppletResult {
 fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError>> {
     let mut options = Options::default();
     let mut files = Vec::new();
-    let mut parsing_flags = true;
-    let mut index = 0;
+    let mut cursor = ArgCursor::new(args);
 
-    while index < args.len() {
-        let arg = &args[index];
-        if parsing_flags && arg == "--" {
-            parsing_flags = false;
-            index += 1;
-            continue;
-        }
-        if parsing_flags && arg == "-k" {
-            let Some(spec) = args.get(index + 1) else {
-                return Err(vec![AppletError::option_requires_arg(APPLET, "k")]);
-            };
-            options.keys.push(parse_key_spec(spec)?);
-            index += 2;
-            continue;
-        }
-        if parsing_flags && arg == "-o" {
-            let Some(path) = args.get(index + 1) else {
-                return Err(vec![AppletError::option_requires_arg(APPLET, "o")]);
-            };
-            options.output = Some(path.clone());
-            index += 2;
-            continue;
-        }
-        if parsing_flags && arg == "-t" {
-            let Some(delimiter) = args.get(index + 1) else {
-                return Err(vec![AppletError::option_requires_arg(APPLET, "t")]);
-            };
-            options.delimiter = Some(parse_delimiter(delimiter)?);
-            index += 2;
-            continue;
-        }
-        if parsing_flags && arg.starts_with('-') && arg.len() > 1 {
-            let mut chars = arg[1..].chars().peekable();
-            while let Some(flag) = chars.next() {
-                match flag {
-                    'n' => options.mode = SortMode::Numeric,
-                    'r' => options.reverse = true,
-                    'u' => options.unique = true,
-                    'z' => options.zero_terminated = true,
-                    's' => options.stable = true,
-                    'h' => options.mode = SortMode::HumanNumeric,
-                    'M' => options.mode = SortMode::Month,
-                    'k' => {
-                        let spec = if chars.peek().is_some() {
-                            chars.collect::<String>()
-                        } else {
-                            index += 1;
-                            let Some(spec) = args.get(index) else {
-                                return Err(vec![AppletError::option_requires_arg(APPLET, "k")]);
-                            };
-                            spec.clone()
-                        };
-                        options.keys.push(parse_key_spec(&spec)?);
-                        break;
+    while let Some(arg) = cursor.next_arg() {
+        match arg {
+            ArgToken::ShortFlags(flags) => {
+                let mut chars = flags.chars();
+                while let Some(flag) = chars.next() {
+                    let attached = chars.as_str();
+                    match flag {
+                        'n' => options.mode = SortMode::Numeric,
+                        'r' => options.reverse = true,
+                        'u' => options.unique = true,
+                        'z' => options.zero_terminated = true,
+                        's' => options.stable = true,
+                        'h' => options.mode = SortMode::HumanNumeric,
+                        'M' => options.mode = SortMode::Month,
+                        'k' => {
+                            let spec = cursor.next_value_or_attached(attached, APPLET, "k")?;
+                            options.keys.push(parse_key_spec(spec)?);
+                            break;
+                        }
+                        'o' => {
+                            let value = cursor.next_value_or_attached(attached, APPLET, "o")?;
+                            options.output = Some(value.to_owned());
+                            break;
+                        }
+                        't' => {
+                            let value = cursor.next_value_or_attached(attached, APPLET, "t")?;
+                            options.delimiter = Some(parse_delimiter(value)?);
+                            break;
+                        }
+                        _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
                     }
-                    'o' => {
-                        let value = if chars.peek().is_some() {
-                            chars.collect::<String>()
-                        } else {
-                            index += 1;
-                            let Some(path) = args.get(index) else {
-                                return Err(vec![AppletError::option_requires_arg(APPLET, "o")]);
-                            };
-                            path.clone()
-                        };
-                        options.output = Some(value);
-                        break;
-                    }
-                    't' => {
-                        let value = if chars.peek().is_some() {
-                            chars.collect::<String>()
-                        } else {
-                            index += 1;
-                            let Some(delimiter) = args.get(index) else {
-                                return Err(vec![AppletError::option_requires_arg(APPLET, "t")]);
-                            };
-                            delimiter.clone()
-                        };
-                        options.delimiter = Some(parse_delimiter(&value)?);
-                        break;
-                    }
-                    _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
                 }
             }
-            index += 1;
-            continue;
+            ArgToken::Operand(arg) => files.push(arg.to_owned()),
         }
-        files.push(arg.clone());
-        index += 1;
     }
 
     Ok((options, files))
@@ -603,9 +549,13 @@ fn parse_month(input: &str) -> Option<u8> {
 mod tests {
     use super::{
         KeySpec, Options, SortMode, compare_human_numeric, field_span_with_blanks,
-        field_span_with_delimiter, parse_key_spec, scale_suffix,
+        field_span_with_delimiter, parse_args, parse_key_spec, scale_suffix,
     };
     use std::cmp::Ordering;
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
 
     #[test]
     fn parses_key_spec_with_range_and_flags() {
@@ -655,5 +605,15 @@ mod tests {
         };
         assert_eq!(options.mode, SortMode::Numeric);
         assert!(options.keys[0].mode.is_none());
+    }
+
+    #[test]
+    fn parses_attached_key_option() {
+        let (options, files) = parse_args(&args(&["-k2,3n", "input"])).expect("parse sort");
+        assert_eq!(options.keys.len(), 1);
+        assert_eq!(options.keys[0].start_field, 2);
+        assert_eq!(options.keys[0].end_field, Some(3));
+        assert_eq!(options.keys[0].mode, Some(SortMode::Numeric));
+        assert_eq!(files, vec!["input"]);
     }
 }

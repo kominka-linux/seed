@@ -2,21 +2,14 @@ use std::collections::BTreeSet;
 use std::io::Write;
 use std::net::ToSocketAddrs;
 
+use crate::common::applet::finish;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET: &str = "nslookup";
 
 pub fn main(args: &[String]) -> i32 {
-    match run(args) {
-        Ok(()) => 0,
-        Err(errors) => {
-            for error in errors {
-                error.print();
-            }
-            1
-        }
-    }
+    finish(run(args))
 }
 
 fn run(args: &[String]) -> Result<(), Vec<AppletError>> {

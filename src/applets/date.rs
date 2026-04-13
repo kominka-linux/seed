@@ -6,6 +6,7 @@ use std::os::raw::c_char;
 use std::time::UNIX_EPOCH;
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::{ArgCursor, ArgToken};
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
@@ -65,112 +66,85 @@ fn run(args: &[String]) -> AppletResult {
 
 fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     let mut options = Options::default();
-    let mut parsing_flags = true;
-    let mut index = 0;
+    let mut cursor = ArgCursor::new(args);
 
-    while index < args.len() {
-        let arg = &args[index];
-        if parsing_flags && arg == "--" {
-            parsing_flags = false;
-            index += 1;
-            continue;
-        }
-
-        if let Some(format) = arg.strip_prefix('+') {
-            if options.format.is_some() {
-                return Err(vec![AppletError::new(
-                    APPLET,
-                    "multiple output formats specified",
-                )]);
-            }
-            options.format = Some(format.to_string());
-            index += 1;
-            continue;
-        }
-
-        if parsing_flags && arg == "-d" {
-            let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::option_requires_arg(APPLET, "d")]);
-            };
-            assign_time_source(&mut options.display_time, value.clone())?;
-            index += 2;
-            continue;
-        }
-
-        if parsing_flags && arg == "-s" {
-            let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::option_requires_arg(APPLET, "s")]);
-            };
-            assign_time_source(&mut options.set_time, value.clone())?;
-            index += 2;
-            continue;
-        }
-
-        if parsing_flags && arg == "-r" {
-            let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::option_requires_arg(APPLET, "r")]);
-            };
-            if options.reference_file.is_some() {
-                return Err(vec![AppletError::new(
-                    APPLET,
-                    "multiple reference files specified",
-                )]);
-            }
-            options.reference_file = Some(value.clone());
-            index += 2;
-            continue;
-        }
-
-        if parsing_flags && arg == "-D" {
-            let Some(value) = args.get(index + 1) else {
-                return Err(vec![AppletError::option_requires_arg(APPLET, "D")]);
-            };
-            if options.input_format.is_some() {
-                return Err(vec![AppletError::new(
-                    APPLET,
-                    "multiple input formats specified",
-                )]);
-            }
-            options.input_format = Some(value.clone());
-            index += 2;
-            continue;
-        }
-
-        if parsing_flags && arg == "-I" {
-            assign_iso_spec(&mut options, IsoSpec::Date)?;
-            index += 1;
-            continue;
-        }
-
-        if parsing_flags && arg.starts_with("-I") && arg.len() > 2 {
-            let spec = parse_iso_spec(&arg[2..])?;
-            assign_iso_spec(&mut options, spec)?;
-            index += 1;
-            continue;
-        }
-
-        if parsing_flags && arg.starts_with('-') && arg.len() > 1 {
-            for flag in arg[1..].chars() {
-                match flag {
-                    'R' => options.rfc2822 = true,
-                    'u' => options.utc = true,
-                    _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
+    while let Some(arg) = cursor.next_arg() {
+        match arg {
+            ArgToken::ShortFlags(flags) => {
+                let mut chars = flags.chars();
+                while let Some(flag) = chars.next() {
+                    let attached = chars.as_str();
+                    match flag {
+                        'd' => {
+                            let value = cursor.next_value_or_attached(attached, APPLET, "d")?;
+                            assign_time_source(&mut options.display_time, value.to_owned())?;
+                            break;
+                        }
+                        's' => {
+                            let value = cursor.next_value_or_attached(attached, APPLET, "s")?;
+                            assign_time_source(&mut options.set_time, value.to_owned())?;
+                            break;
+                        }
+                        'r' => {
+                            let value = cursor.next_value_or_attached(attached, APPLET, "r")?;
+                            if options.reference_file.is_some() {
+                                return Err(vec![AppletError::new(
+                                    APPLET,
+                                    "multiple reference files specified",
+                                )]);
+                            }
+                            options.reference_file = Some(value.to_owned());
+                            break;
+                        }
+                        'D' => {
+                            let value = cursor.next_value_or_attached(attached, APPLET, "D")?;
+                            if options.input_format.is_some() {
+                                return Err(vec![AppletError::new(
+                                    APPLET,
+                                    "multiple input formats specified",
+                                )]);
+                            }
+                            options.input_format = Some(value.to_owned());
+                            break;
+                        }
+                        'I' => {
+                            let spec = if attached.is_empty() {
+                                IsoSpec::Date
+                            } else {
+                                parse_iso_spec(attached)?
+                            };
+                            assign_iso_spec(&mut options, spec)?;
+                            break;
+                        }
+                        'R' => options.rfc2822 = true,
+                        'u' => options.utc = true,
+                        _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
+                    }
                 }
             }
-            index += 1;
-            continue;
-        }
+            ArgToken::Operand(arg) => {
+                if let Some(format) = arg.strip_prefix('+') {
+                    if options.format.is_some() {
+                        return Err(vec![AppletError::new(
+                            APPLET,
+                            "multiple output formats specified",
+                        )]);
+                    }
+                    options.format = Some(format.to_owned());
+                    continue;
+                }
 
-        if options.set_time.is_none() {
-            options.set_time = Some(arg.clone());
-            index += 1;
-            continue;
-        }
+                if options.set_time.is_none() {
+                    options.set_time = Some(arg.to_owned());
+                    continue;
+                }
 
-        return Err(vec![AppletError::new(
-            APPLET,
-            format!("unexpected operand '{arg}'"),
-        )]);
+                return Err(vec![AppletError::new(
+                    APPLET,
+                    format!("unexpected operand '{arg}'"),
+                )]);
+            }
+        }
     }
 
     let source_count = usize::from(options.display_time.is_some())
@@ -578,7 +552,13 @@ fn invalid_date(spec: &str) -> Vec<AppletError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{IsoSpec, format_iso_time, parse_iso_spec, parse_time_spec, parse_utc_offset};
+    use super::{
+        IsoSpec, format_iso_time, parse_args, parse_iso_spec, parse_time_spec, parse_utc_offset,
+    };
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
 
     #[test]
     fn parses_epoch_spec() {
@@ -613,6 +593,12 @@ mod tests {
             parse_iso_spec("seconds").expect("seconds"),
             IsoSpec::Seconds
         );
+    }
+
+    #[test]
+    fn parses_attached_iso_specifier() {
+        let options = parse_args(&args(&["-Iseconds"])).expect("parse date");
+        assert_eq!(options.iso_spec, Some(IsoSpec::Seconds));
     }
 
     #[test]

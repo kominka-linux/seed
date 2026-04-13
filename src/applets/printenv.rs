@@ -1,21 +1,14 @@
 use std::io::Write;
 use std::os::unix::ffi::OsStrExt;
 
+use crate::common::applet::finish_code;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET: &str = "printenv";
 
 pub fn main(args: &[String]) -> i32 {
-    match run(args) {
-        Ok(code) => code,
-        Err(errors) => {
-            for e in errors {
-                e.print();
-            }
-            1
-        }
-    }
+    finish_code(run(args))
 }
 
 fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {

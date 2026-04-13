@@ -2,21 +2,14 @@ use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
+use crate::common::applet::finish_code;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET: &str = "which";
 
 pub fn main(args: &[String]) -> i32 {
-    match run(args) {
-        Ok(found_all) => i32::from(!found_all),
-        Err(errors) => {
-            for e in errors {
-                e.print();
-            }
-            1
-        }
-    }
+    finish_code(run(args).map(|found_all| i32::from(!found_all)))
 }
 
 fn run(args: &[String]) -> Result<bool, Vec<AppletError>> {

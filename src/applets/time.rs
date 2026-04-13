@@ -3,20 +3,13 @@ use std::os::unix::process::ExitStatusExt;
 use std::process::Command;
 use std::time::Instant;
 
+use crate::common::applet::finish_code_or;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "time";
 
 pub fn main(args: &[String]) -> i32 {
-    match run(args) {
-        Ok(code) => code,
-        Err(errors) => {
-            for error in errors {
-                error.print();
-            }
-            125
-        }
-    }
+    finish_code_or(run(args), 125)
 }
 
 fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {

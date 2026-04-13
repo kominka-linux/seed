@@ -1,20 +1,13 @@
 use std::os::unix::process::ExitStatusExt;
 use std::process::Command;
 
+use crate::common::applet::finish_code;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "man";
 
 pub fn main(args: &[String]) -> i32 {
-    match run(args) {
-        Ok(code) => code,
-        Err(errors) => {
-            for error in errors {
-                error.print();
-            }
-            1
-        }
-    }
+    finish_code(run(args))
 }
 
 fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {

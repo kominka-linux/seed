@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::{self, BufReader, Read, Write};
 
+use crate::common::applet::finish;
 use crate::common::error::AppletError;
 use crate::common::io::{BUFFER_SIZE, copy_stream, stdout};
 
@@ -26,15 +27,7 @@ impl Options {
 }
 
 pub fn main(args: &[String]) -> i32 {
-    match run(args) {
-        Ok(()) => 0,
-        Err(errors) => {
-            for error in errors {
-                error.print();
-            }
-            1
-        }
-    }
+    finish(run(args))
 }
 
 fn run(args: &[String]) -> Result<(), Vec<AppletError>> {

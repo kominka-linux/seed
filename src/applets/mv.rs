@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+use crate::common::applet::finish;
 use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
 use crate::common::fs::move_path;
@@ -8,15 +9,7 @@ use crate::common::fs::move_path;
 const APPLET: &str = "mv";
 
 pub fn main(args: &[String]) -> i32 {
-    match run(args) {
-        Ok(()) => 0,
-        Err(errors) => {
-            for error in errors {
-                error.print();
-            }
-            1
-        }
-    }
+    finish(run(args))
 }
 
 fn run(args: &[String]) -> Result<(), Vec<AppletError>> {

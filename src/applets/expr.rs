@@ -1,5 +1,6 @@
 use std::io::Write;
 
+use crate::common::applet::fail;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
@@ -19,12 +20,7 @@ pub fn main(args: &[String]) -> i32 {
             }
             if value.is_truthy() { 0 } else { 1 }
         }
-        Err(errors) => {
-            for error in errors {
-                error.print();
-            }
-            2
-        }
+        Err(errors) => fail(errors, 2),
     }
 }
 

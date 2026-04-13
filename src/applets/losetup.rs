@@ -7,6 +7,7 @@ use std::os::fd::AsRawFd;
 #[cfg(target_os = "linux")]
 use std::path::Path;
 
+use crate::common::applet::finish;
 use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
 #[cfg(target_os = "linux")]
@@ -48,15 +49,7 @@ struct Options {
 }
 
 pub fn main(args: &[String]) -> i32 {
-    match run(args) {
-        Ok(()) => 0,
-        Err(errors) => {
-            for error in errors {
-                error.print();
-            }
-            1
-        }
-    }
+    finish(run(args))
 }
 
 fn run(args: &[String]) -> Result<(), Vec<AppletError>> {

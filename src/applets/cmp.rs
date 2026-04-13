@@ -1,5 +1,6 @@
 use std::io::{self, BufReader, Read, Write};
 
+use crate::common::applet::finish_code_or;
 use crate::common::error::AppletError;
 use crate::common::io::{BUFFER_SIZE, open_input, stdout};
 
@@ -17,16 +18,13 @@ enum Comparison {
 }
 
 pub fn main(args: &[String]) -> i32 {
-    match run(args) {
-        Ok(Comparison::Same) => 0,
-        Ok(Comparison::Different { .. }) => 1,
-        Err(errors) => {
-            for error in errors {
-                error.print();
-            }
-            2
-        }
-    }
+    finish_code_or(
+        run(args).map(|comparison| match comparison {
+            Comparison::Same => 0,
+            Comparison::Different { .. } => 1,
+        }),
+        2,
+    )
 }
 
 fn run(args: &[String]) -> Result<Comparison, Vec<AppletError>> {

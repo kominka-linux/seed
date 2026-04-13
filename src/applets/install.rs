@@ -3,6 +3,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::{ArgCursor, ArgToken};
 use crate::common::error::AppletError;
 
 const APPLET: &str = "install";
@@ -41,43 +42,28 @@ fn run(args: &[String]) -> AppletResult {
 fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError>> {
     let mut options = Options::default();
     let mut paths = Vec::new();
-    let mut index = 0;
-    let mut parsing_flags = true;
+    let mut cursor = ArgCursor::new(args);
 
-    while index < args.len() {
-        let arg = &args[index];
-        if parsing_flags && arg == "--" {
-            parsing_flags = false;
-            index += 1;
-            continue;
+    while let Some(arg) = cursor.next_arg() {
+        match arg {
+            ArgToken::ShortFlags(flags) => {
+                let mut chars = flags.chars();
+                while let Some(flag) = chars.next() {
+                    let attached = chars.as_str();
+                    match flag {
+                        'D' => options.create_parents = true,
+                        'd' => options.create_directories = true,
+                        'm' => {
+                            let value = cursor.next_value_or_attached(attached, APPLET, "m")?;
+                            options.mode = Some(parse_mode(value)?);
+                            break;
+                        }
+                        _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
+                    }
+                }
+            }
+            ArgToken::Operand(arg) => paths.push(arg.to_owned()),
         }
-        if parsing_flags && arg == "-D" {
-            options.create_parents = true;
-            index += 1;
-            continue;
-        }
-        if parsing_flags && arg == "-d" {
-            options.create_directories = true;
-            index += 1;
-            continue;
-        }
-        if parsing_flags && arg == "-m" {
-            index += 1;
-            let Some(value) = args.get(index) else {
-                return Err(vec![AppletError::option_requires_arg(APPLET, "m")]);
-            };
-            options.mode = Some(parse_mode(value)?);
-            index += 1;
-            continue;
-        }
-        if parsing_flags && arg.starts_with('-') && arg.len() > 1 {
-            return Err(vec![AppletError::invalid_option(
-                APPLET,
-                arg.chars().nth(1).unwrap_or('-'),
-            )]);
-        }
-        paths.push(arg.clone());
-        index += 1;
     }
 
     Ok((options, paths))
@@ -189,5 +175,12 @@ mod tests {
             }
         );
         assert_eq!(paths, vec!["dir"]);
+    }
+
+    #[test]
+    fn parses_attached_mode_flag() {
+        let (options, paths) = parse_args(&args(&["-m755", "file"])).expect("parse install");
+        assert_eq!(options.mode, Some(0o755));
+        assert_eq!(paths, vec!["file"]);
     }
 }

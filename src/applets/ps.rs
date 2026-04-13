@@ -1,5 +1,6 @@
 use std::io::Write;
 
+use crate::common::applet::finish;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 use crate::common::process::list_processes;
@@ -7,15 +8,7 @@ use crate::common::process::list_processes;
 const APPLET: &str = "ps";
 
 pub fn main(args: &[String]) -> i32 {
-    match run(args) {
-        Ok(()) => 0,
-        Err(errors) => {
-            for error in errors {
-                error.print();
-            }
-            1
-        }
-    }
+    finish(run(args))
 }
 
 fn run(args: &[String]) -> Result<(), Vec<AppletError>> {

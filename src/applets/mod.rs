@@ -52,6 +52,7 @@ pub mod sync;
 pub mod tail;
 pub mod tar;
 pub mod tee;
+pub mod test;
 pub mod timeout;
 pub mod touch;
 pub mod tr;

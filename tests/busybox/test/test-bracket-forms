@@ -1,0 +1,4 @@
+printf 'x\n' > file
+busybox [ a = a ]
+busybox [ -f file ]
+busybox [[ ! '' ]]

@@ -1,0 +1,2 @@
+busybox test
+test "$?" = 1

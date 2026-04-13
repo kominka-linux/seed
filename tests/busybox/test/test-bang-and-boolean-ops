@@ -1,0 +1,4 @@
+busybox test ! ''
+busybox test a -a ! ''
+busybox test '' -o a
+! busybox test '' -a a

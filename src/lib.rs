@@ -280,6 +280,18 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::tee::main,
     },
     AppletEntry {
+        name: "test",
+        main: applets::test::main_test,
+    },
+    AppletEntry {
+        name: "[",
+        main: applets::test::main_bracket,
+    },
+    AppletEntry {
+        name: "[[",
+        main: applets::test::main_double_bracket,
+    },
+    AppletEntry {
         name: "touch",
         main: applets::touch::main,
     },

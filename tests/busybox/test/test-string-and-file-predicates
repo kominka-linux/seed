@@ -1,0 +1,5 @@
+printf 'x\n' > file
+busybox test a
+busybox test a = a
+busybox test -f file
+! busybox test -d file

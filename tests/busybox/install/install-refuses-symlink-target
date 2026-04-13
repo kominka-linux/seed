@@ -1,0 +1,15 @@
+set -eu
+
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT HUP INT TERM
+
+printf 'old\n' > "$tmpdir/real"
+ln -s real "$tmpdir/link"
+printf 'new\n' > "$tmpdir/src"
+
+if busybox install "$tmpdir/src" "$tmpdir/link" >/dev/null 2>&1; then
+	exit 1
+fi
+
+test "$(cat "$tmpdir/real")" = "old"
+

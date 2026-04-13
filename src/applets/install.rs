@@ -107,11 +107,7 @@ fn install_directories(paths: &[String], mode: Option<u32>) -> AppletResult {
 fn install_file(source: &str, destination: &str, options: Options) -> AppletResult {
     let source_path = Path::new(source);
     let destination_path = Path::new(destination);
-    let target = if destination_path.is_dir() {
-        destination_path.join(file_name(source_path))
-    } else {
-        destination_path.to_path_buf()
-    };
+    let target = resolve_target_path(source_path, destination_path)?;
 
     if options.create_parents {
         ensure_parent(&target).map_err(|err| {
@@ -141,6 +137,52 @@ fn install_file(source: &str, destination: &str, options: Options) -> AppletResu
     Ok(())
 }
 
+fn resolve_target_path(source: &Path, destination: &Path) -> Result<std::path::PathBuf, Vec<AppletError>> {
+    let destination_metadata = match fs::symlink_metadata(destination) {
+        Ok(metadata) => Some(metadata),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+        Err(err) => {
+            return Err(vec![AppletError::from_io(
+                APPLET,
+                "checking",
+                Some(&destination.display().to_string()),
+                err,
+            )]);
+        }
+    };
+
+    if destination_metadata
+        .as_ref()
+        .is_some_and(|metadata| metadata.file_type().is_symlink())
+    {
+        return Err(vec![AppletError::new(
+            APPLET,
+            format!("refusing to overwrite symlink {}", destination.display()),
+        )]);
+    }
+
+    let target = if destination_metadata.as_ref().is_some_and(|metadata| metadata.is_dir()) {
+        destination.join(file_name(source))
+    } else {
+        destination.to_path_buf()
+    };
+
+    match fs::symlink_metadata(&target) {
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(vec![AppletError::new(
+            APPLET,
+            format!("refusing to overwrite symlink {}", target.display()),
+        )]),
+        Ok(_) => Ok(target),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(target),
+        Err(err) => Err(vec![AppletError::from_io(
+            APPLET,
+            "checking",
+            Some(&target.display().to_string()),
+            err,
+        )]),
+    }
+}
+
 fn ensure_parent(path: &Path) -> std::io::Result<()> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
@@ -156,7 +198,9 @@ fn file_name(path: &Path) -> &std::ffi::OsStr {
 
 #[cfg(test)]
 mod tests {
-    use super::{Options, parse_args};
+    use std::fs;
+
+    use super::{Options, install_file, parse_args};
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
@@ -182,5 +226,30 @@ mod tests {
         let (options, paths) = parse_args(&args(&["-m755", "file"])).expect("parse install");
         assert_eq!(options.mode, Some(0o755));
         assert_eq!(paths, vec!["file"]);
+    }
+
+    #[test]
+    fn refuses_symlink_destination() {
+        let dir = crate::common::unix::temp_dir("install-symlink");
+        let source = dir.join("src");
+        let target = dir.join("real");
+        let link = dir.join("link");
+        fs::write(&source, b"new").expect("write source");
+        fs::write(&target, b"old").expect("write target");
+        std::os::unix::fs::symlink(&target, &link).expect("symlink");
+
+        let err = install_file(
+            source.to_str().expect("source path"),
+            link.to_str().expect("link path"),
+            Options::default(),
+        )
+        .expect_err("expected symlink refusal");
+        assert_eq!(
+            err[0].to_string(),
+            format!("install: refusing to overwrite symlink {}", link.display())
+        );
+        assert_eq!(fs::read(&target).expect("read target"), b"old");
+
+        let _ = fs::remove_dir_all(dir);
     }
 }

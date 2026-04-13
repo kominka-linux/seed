@@ -364,6 +364,7 @@ run_old_style tests/busybox/install/install-copies-file
 run_old_style tests/busybox/install/install-D-creates-parent-directories
 run_old_style tests/busybox/install/install-d-creates-directories
 run_old_style tests/busybox/install/install-m-sets-mode
+run_old_style tests/busybox/install/install-refuses-symlink-target
 
 run_old_style tests/busybox/ln/ln-creates-hard-link
 run_old_style tests/busybox/ln/ln-creates-link-in-directory

@@ -1,0 +1,5 @@
+printf 'x\n' > target
+ln -s target link
+busybox stat -c '%F %N' link > actual
+printf "symbolic link 'link' -> 'target'\n" > expected
+cmp expected actual

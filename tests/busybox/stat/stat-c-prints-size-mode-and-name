@@ -1,0 +1,5 @@
+printf 'abc' > file
+chmod 640 file
+busybox stat -c '%s %a %n' file > actual
+printf '3 640 file\n' > expected
+cmp expected actual

@@ -260,6 +260,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::strings::main,
     },
     AppletEntry {
+        name: "stat",
+        main: applets::stat::main,
+    },
+    AppletEntry {
         name: "sync",
         main: applets::sync::main_sync,
     },

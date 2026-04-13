@@ -88,7 +88,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] install
 - [x] mkfifo
 - [ ] split
-- [ ] stat
+- [x] stat
 - [ ] stty
 - [ ] test / [ / [[
 - [ ] tree

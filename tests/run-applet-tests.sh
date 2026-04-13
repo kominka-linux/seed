@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod cmp cp date diff du egrep env find grep gunzip gzip ln ls lzcat lzma mkdir mkfifo mv od paste printf readlink realpath rm rmdir sleep sort tar tee touch timeout tr uname unlzma unxz wc wget xz xzcat zcat; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod cmp cp date diff du egrep env find grep gunzip gzip ln ls lzcat lzma mkdir mkfifo mv od paste printf readlink realpath rm rmdir sleep sort stat tar tee touch timeout tr uname unlzma unxz wc wget xz xzcat zcat; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -211,6 +211,10 @@ run_old_style tests/busybox/du/du-l-matches-host
 
 run_old_style tests/busybox/env/env-runs-command-with-assignment
 run_old_style tests/busybox/env/env-unsets-variable
+
+run_old_style tests/busybox/stat/stat-c-prints-size-mode-and-name
+run_old_style tests/busybox/stat/stat-c-reports-hard-links
+run_old_style tests/busybox/stat/stat-c-reports-symlink
 
 run_old_style tests/busybox/cp/cp-RHL-does_not_preserve-links
 run_old_style tests/busybox/cp/cp-a-files-to-dir

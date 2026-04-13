@@ -1,0 +1,5 @@
+printf 'x\n' > file
+ln file twin
+busybox stat -c '%h %F %n' file twin > actual
+printf '2 regular file file\n2 regular file twin\n' > expected
+cmp expected actual

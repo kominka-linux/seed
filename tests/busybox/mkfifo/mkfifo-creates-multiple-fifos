@@ -1,0 +1,3 @@
+busybox mkfifo first second
+test -p first
+test -p second

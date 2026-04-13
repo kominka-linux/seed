@@ -24,6 +24,7 @@ pub mod ln;
 pub mod losetup;
 pub mod ls;
 pub mod mkdir;
+pub mod mkfifo;
 pub mod mknod;
 pub mod mktemp;
 pub mod mv;

@@ -168,6 +168,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::mkdir::main,
     },
     AppletEntry {
+        name: "mkfifo",
+        main: applets::mkfifo::main,
+    },
+    AppletEntry {
         name: "mktemp",
         main: applets::mktemp::main,
     },

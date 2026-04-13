@@ -78,7 +78,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [x] timeout
 - [x] touch
 - [x] tr
-- [ ] chgrp
+- [x] chgrp
 - [x] chown
 - [ ] chroot
 - [ ] dd

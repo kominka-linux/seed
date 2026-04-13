@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod chown cmp cp date df diff du egrep env expr find grep gunzip gzip install ln ls lzcat lzma mkdir mkfifo mv od paste printf readlink realpath rm rmdir sleep sort split stat tar tee test time touch timeout tr tree uname unlzma unxz wc wget xz xzcat zcat '[' '[['; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown cmp cp date df diff du egrep env expr find grep gunzip gzip install ln ls lzcat lzma mkdir mkfifo mv od paste printf readlink realpath rm rmdir sleep sort split stat tar tee test time touch timeout tr tree uname unlzma unxz wc wget xz xzcat zcat '[' '[['; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -183,6 +183,7 @@ run_old_style tests/busybox/basename/basename-multiple-names
 run_old_style tests/busybox/basename/dirname-basic
 
 run_old_style tests/busybox/chmod/chmod-R-descends-before-changing-directory
+run_old_style tests/busybox/chgrp/chgrp-sets-group
 run_old_style tests/busybox/chown/chown-sets-owner
 run_old_style tests/busybox/chown/chown-sets-owner-and-group
 

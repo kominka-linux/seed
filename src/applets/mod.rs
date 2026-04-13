@@ -2,6 +2,7 @@ pub mod base64;
 pub mod basename;
 pub mod bzip2;
 pub mod cat;
+pub mod chgrp;
 pub mod chmod;
 pub mod chown;
 pub mod cmp;

@@ -40,6 +40,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::cat::main,
     },
     AppletEntry {
+        name: "chgrp",
+        main: applets::chgrp::main,
+    },
+    AppletEntry {
         name: "chmod",
         main: applets::chmod::main,
     },

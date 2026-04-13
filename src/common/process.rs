@@ -2,6 +2,8 @@ use std::path::Path;
 
 #[cfg(target_os = "macos")]
 use std::ffi::CStr;
+#[cfg(target_os = "linux")]
+use std::fs;
 #[cfg(target_os = "macos")]
 use std::mem::MaybeUninit;
 
@@ -35,11 +37,30 @@ fn basename(path: &str) -> &str {
         .unwrap_or(path)
 }
 
+#[cfg(target_os = "linux")]
+pub(crate) fn list_processes() -> Result<Vec<ProcessInfo>, String> {
+    let mut processes = Vec::new();
+
+    for entry in fs::read_dir("/proc").map_err(|_| String::from("listing processes failed"))? {
+        let entry = entry.map_err(|_| String::from("listing processes failed"))?;
+        let file_name = entry.file_name();
+        let Some(file_name) = file_name.to_str() else {
+            continue;
+        };
+        let Ok(pid) = file_name.parse::<i32>() else {
+            continue;
+        };
+        if let Some(process) = process_info_linux(pid) {
+            processes.push(process);
+        }
+    }
+
+    processes.sort_by_key(|process| process.pid);
+    Ok(processes)
+}
+
 #[cfg(target_os = "macos")]
 pub(crate) fn list_processes() -> Result<Vec<ProcessInfo>, String> {
-    // TODO: Replace this temporary Darwin libproc walker with Linux /proc
-    // process enumeration. The project target is Linux; this exists only so
-    // process applets can be exercised on macOS for now.
     // SAFETY: null buffer with size 0 asks libproc for the current pid count.
     let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
     if count <= 0 {
@@ -68,9 +89,100 @@ pub(crate) fn list_processes() -> Result<Vec<ProcessInfo>, String> {
     Ok(processes)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 pub(crate) fn list_processes() -> Result<Vec<ProcessInfo>, String> {
     Err(String::from("unsupported on this platform"))
+}
+
+#[cfg(target_os = "linux")]
+fn process_info_linux(pid: i32) -> Option<ProcessInfo> {
+    let stat = parse_linux_stat(pid)?;
+    let command = command_line_for_pid_linux(pid).unwrap_or_else(|| stat.name.clone());
+
+    Some(ProcessInfo {
+        pid,
+        tty: tty_for_pid_linux(pid),
+        cpu_time_ns: stat.cpu_time_ns,
+        name: stat.name,
+        command,
+    })
+}
+
+#[cfg(target_os = "linux")]
+struct LinuxStat {
+    name: String,
+    cpu_time_ns: u64,
+}
+
+#[cfg(target_os = "linux")]
+fn parse_linux_stat(pid: i32) -> Option<LinuxStat> {
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    parse_linux_stat_text(&stat)
+}
+
+#[cfg(target_os = "linux")]
+fn parse_linux_stat_text(stat: &str) -> Option<LinuxStat> {
+    let open = stat.find('(')?;
+    let close = stat.rfind(") ")?;
+    if close <= open {
+        return None;
+    }
+
+    let name = stat[open + 1..close].to_string();
+    let rest = &stat[close + 2..];
+    let fields = rest.split_whitespace().collect::<Vec<_>>();
+    let utime = fields.get(11)?.parse::<u64>().ok()?;
+    let stime = fields.get(12)?.parse::<u64>().ok()?;
+    let ticks = utime.saturating_add(stime);
+    let ticks_per_second = clock_ticks_per_second().ok()?;
+    let cpu_time_ns = ticks
+        .saturating_mul(1_000_000_000)
+        .checked_div(ticks_per_second)
+        .unwrap_or(0);
+
+    Some(LinuxStat { name, cpu_time_ns })
+}
+
+#[cfg(target_os = "linux")]
+fn clock_ticks_per_second() -> Result<u64, String> {
+    // SAFETY: `sysconf` reads process-global configuration and has no side effects.
+    let value = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+    if value <= 0 {
+        Err(String::from("reading clock tick size failed"))
+    } else {
+        Ok(value as u64)
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn command_line_for_pid_linux(pid: i32) -> Option<String> {
+    let bytes = fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+    let args = bytes
+        .split(|byte| *byte == 0)
+        .filter(|part| !part.is_empty())
+        .map(|part| String::from_utf8_lossy(part).into_owned())
+        .collect::<Vec<_>>();
+    if args.is_empty() {
+        None
+    } else {
+        Some(args.join(" "))
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn tty_for_pid_linux(pid: i32) -> String {
+    let path = format!("/proc/{pid}/fd/0");
+    match fs::read_link(path) {
+        Ok(target) => {
+            let target = target.to_string_lossy();
+            if let Some(name) = target.strip_prefix("/dev/") {
+                name.to_string()
+            } else {
+                String::from("??")
+            }
+        }
+        Err(_) => String::from("??"),
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -253,10 +365,22 @@ fn c_char_array_to_string(bytes: &[libc::c_char]) -> Option<String> {
 mod tests {
     use super::list_processes;
 
+    #[cfg(target_os = "linux")]
+    use super::parse_linux_stat_text;
+
     #[test]
     fn process_list_contains_current_process() {
         let pid = std::process::id() as i32;
         let processes = list_processes().expect("list processes");
         assert!(processes.iter().any(|process| process.pid == pid));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn parses_linux_stat_format() {
+        let stat = parse_linux_stat_text("1234 (seed worker) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14")
+            .expect("parse stat");
+        assert_eq!(stat.name, "seed worker");
+        assert!(stat.cpu_time_ns > 0);
     }
 }

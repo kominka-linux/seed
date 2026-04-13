@@ -1,0 +1,6 @@
+printf 'a b c\n' | busybox xargs -n2 printf '%s,%s\n' > actual
+cat > expected <<'EOF'
+a,b
+c,
+EOF
+cmp expected actual

@@ -1,0 +1,31 @@
+cat > worker <<'EOF'
+#!/bin/sh
+sleep 1
+printf '%s\n' "$1" >> seen
+EOF
+chmod +x worker
+
+python3 - <<'PY'
+import os
+import subprocess
+import time
+
+start = time.perf_counter()
+subprocess.run(
+    "printf '1\n2\n3\n4\n' | busybox xargs -n1 -P2 ./worker",
+    shell=True,
+    check=True,
+    env=os.environ.copy(),
+)
+elapsed = time.perf_counter() - start
+assert elapsed < 3.5, elapsed
+PY
+
+sort seen > actual
+cat > expected <<'EOF'
+1
+2
+3
+4
+EOF
+cmp expected actual

@@ -37,7 +37,6 @@ const APPLETS: &[AppletEntry] = &[
     AppletEntry { name: "md5sum",    main: applets::hashsum::main_md5sum },
     AppletEntry { name: "sha1sum",   main: applets::hashsum::main_sha1sum },
     AppletEntry { name: "sha256sum", main: applets::hashsum::main_sha256sum },
-    AppletEntry { name: "sha512sum", main: applets::hashsum::main_sha512sum },
     AppletEntry { name: "hostname",  main: applets::hostname::main },
     AppletEntry { name: "id",        main: applets::id::main },
     AppletEntry { name: "kill",      main: applets::kill::main },

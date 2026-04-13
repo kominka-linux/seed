@@ -232,12 +232,16 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::mkfifo::main,
     },
     AppletEntry {
-        name: "mktemp",
-        main: applets::mktemp::main,
-    },
-    AppletEntry {
         name: "mknod",
         main: applets::mknod::main,
+    },
+    AppletEntry {
+        name: "mountpoint",
+        main: applets::mountpoint::main,
+    },
+    AppletEntry {
+        name: "mktemp",
+        main: applets::mktemp::main,
     },
     AppletEntry {
         name: "mv",

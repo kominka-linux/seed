@@ -1,0 +1,5 @@
+busybox mountpoint /proc > actual
+cat > expected <<'EOF'
+/proc is a mountpoint
+EOF
+cmp expected actual

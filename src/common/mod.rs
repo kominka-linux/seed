@@ -3,6 +3,8 @@ pub mod args;
 pub mod error;
 pub mod fs;
 pub mod io;
+#[cfg(target_os = "linux")]
+pub mod mounts;
 pub mod process;
 pub mod runtime;
 pub mod unix;

@@ -2,11 +2,10 @@ use std::ffi::CString;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
-#[cfg(target_os = "linux")]
-use std::fs;
-
 use crate::common::applet::{AppletResult, finish};
 use crate::common::error::AppletError;
+#[cfg(target_os = "linux")]
+use crate::common::mounts;
 
 const APPLET: &str = "df";
 
@@ -140,58 +139,13 @@ fn mount_for_path(path: &str) -> Result<MountInfo, AppletError> {
 
 #[cfg(target_os = "linux")]
 fn mount_for_path_linux(path: &str) -> Result<MountInfo, AppletError> {
-    let target = fs::canonicalize(path)
-        .map_err(|err| AppletError::from_io(APPLET, "reading", Some(path), err))?;
-    let mountinfo = fs::read_to_string("/proc/self/mountinfo").map_err(|err| {
-        AppletError::from_io(APPLET, "reading", Some("/proc/self/mountinfo"), err)
-    })?;
-
-    mountinfo
-        .lines()
-        .filter_map(parse_mountinfo_line)
-        .filter(|mount| target.starts_with(Path::new(&mount.mounted_on)))
-        .max_by_key(|mount| Path::new(&mount.mounted_on).components().count())
-        .ok_or_else(|| AppletError::new(APPLET, format!("no mount for '{path}'")))
-}
-
-#[cfg(target_os = "linux")]
-fn parse_mountinfo_line(line: &str) -> Option<MountInfo> {
-    let (left, right) = line.split_once(" - ")?;
-    let left_fields = left.split_whitespace().collect::<Vec<_>>();
-    let right_fields = right.split_whitespace().collect::<Vec<_>>();
-    if left_fields.len() < 5 || right_fields.len() < 2 {
-        return None;
-    }
-
-    Some(MountInfo {
-        filesystem: unescape_mount_field(right_fields[1]),
-        mounted_on: unescape_mount_field(left_fields[4]),
+    let mount = mounts::mount_for_path(Path::new(path))
+        .map_err(|err| AppletError::from_io(APPLET, "reading", Some(path), err))?
+        .ok_or_else(|| AppletError::new(APPLET, format!("no mount for '{path}'")))?;
+    Ok(MountInfo {
+        filesystem: mount.filesystem,
+        mounted_on: mount.mounted_on,
     })
-}
-
-#[cfg(target_os = "linux")]
-fn unescape_mount_field(value: &str) -> String {
-    let mut result = String::with_capacity(value.len());
-    let bytes = value.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'\\' && index + 3 < bytes.len() {
-            let octal = &value[index + 1..index + 4];
-            if octal
-                .as_bytes()
-                .iter()
-                .all(|byte| (b'0'..=b'7').contains(byte))
-                && let Ok(decoded) = u8::from_str_radix(octal, 8)
-            {
-                result.push(decoded as char);
-                index += 4;
-                continue;
-            }
-        }
-        result.push(bytes[index] as char);
-        index += 1;
-    }
-    result
 }
 
 #[cfg(target_os = "macos")]

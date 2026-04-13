@@ -160,7 +160,7 @@ with Linux-native behavior.
 - [ ] mdev
 - [ ] mkswap
 - [ ] mount
-- [ ] mountpoint
+- [x] mountpoint
 - [ ] pivot_root
 - [x] setsid
 - [ ] swapoff

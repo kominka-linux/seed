@@ -42,6 +42,7 @@ pub mod mkdir;
 pub mod mkfifo;
 pub mod mknod;
 pub mod mktemp;
+pub mod mountpoint;
 pub mod mv;
 pub mod nohup;
 pub mod nproc;

@@ -1,0 +1,3 @@
+busybox mountpoint -d /proc > actual
+mountpoint -d /proc > expected
+cmp expected actual

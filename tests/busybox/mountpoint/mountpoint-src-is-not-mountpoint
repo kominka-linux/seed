@@ -1,0 +1,5 @@
+if busybox mountpoint /work/src > actual 2>stderr; then
+	exit 1
+fi
+test "$(cat actual)" = "/work/src is not a mountpoint"
+test ! -s stderr

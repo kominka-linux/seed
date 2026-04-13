@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown cmp cp date dd df diff du egrep env expr find flock free getopt grep gunzip gzip hexdump install killall less ln ls lzcat lzma man mkdir mkfifo mv nslookup od paste pgrep pkill printf ps readlink realpath rm rmdir run-parts setsid sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown cmp cp date dd df diff du egrep env expr find flock free getopt grep gunzip gzip hexdump install killall less ln ls lzcat lzma man mkdir mkfifo mountpoint mv nslookup od paste pgrep pkill printf ps readlink realpath rm rmdir run-parts setsid sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -270,6 +270,12 @@ run_old_style tests/busybox/pkill/pkill-rejects-missing-pattern
 run_old_style tests/busybox/killall/killall-terminates-exact-name-match
 run_old_style tests/busybox/killall/killall-exits-one-when-no-match
 run_old_style tests/busybox/killall/killall-rejects-missing-name
+
+run_old_style tests/busybox/mountpoint/mountpoint-d-matches-host
+run_old_style tests/busybox/mountpoint/mountpoint-proc-is-mountpoint
+run_old_style tests/busybox/mountpoint/mountpoint-q-suppresses-output
+run_old_style tests/busybox/mountpoint/mountpoint-src-is-not-mountpoint
+run_old_style tests/busybox/mountpoint/mountpoint-symlink-nofollow
 
 run_old_style tests/busybox/flock/flock-runs-command-under-lock
 run_old_style tests/busybox/flock/flock-nonblock-fails-when-locked

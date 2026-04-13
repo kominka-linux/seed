@@ -1,0 +1,12 @@
+ln -s /proc proc-link
+busybox mountpoint proc-link > actual-follow
+cat > expected-follow <<'EOF'
+proc-link is a mountpoint
+EOF
+cmp expected-follow actual-follow
+
+if busybox mountpoint --nofollow proc-link > actual-nofollow 2>stderr; then
+	exit 1
+fi
+test "$(cat actual-nofollow)" = "proc-link is not a mountpoint"
+test ! -s stderr

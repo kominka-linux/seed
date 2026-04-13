@@ -288,6 +288,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::test::main_test,
     },
     AppletEntry {
+        name: "time",
+        main: applets::time::main,
+    },
+    AppletEntry {
         name: "[",
         main: applets::test::main_bracket,
     },

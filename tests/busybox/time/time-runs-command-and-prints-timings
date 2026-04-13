@@ -1,0 +1,7 @@
+busybox time sh -c "printf 'out\n'; printf 'err\n' >&2" >stdout 2>stderr
+printf 'out\n' > expected-stdout
+cmp expected-stdout stdout
+grep '^err$' stderr
+grep '^real ' stderr
+grep '^user ' stderr
+grep '^sys ' stderr

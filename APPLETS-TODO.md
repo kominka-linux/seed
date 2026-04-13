@@ -170,7 +170,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] lsattr / chattr
 - [ ] man
 - [ ] run-parts
-- [ ] time
+- [x] time
 - [x] which
 
 ## Networking Utilities

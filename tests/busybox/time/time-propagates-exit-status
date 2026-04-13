@@ -1,0 +1,3 @@
+busybox time sh -c 'exit 7' >/dev/null 2>stderr
+test "$?" = 7
+grep '^real ' stderr

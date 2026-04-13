@@ -332,6 +332,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::sync::main_sync,
     },
     AppletEntry {
+        name: "sysctl",
+        main: applets::sysctl::main,
+    },
+    AppletEntry {
         name: "tail",
         main: applets::tail::main,
     },

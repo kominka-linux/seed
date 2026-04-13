@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown cmp cp date dd df diff du egrep env expr find flock grep gunzip gzip hexdump install killall less ln ls lzcat lzma mkdir mkfifo mv nslookup od paste pgrep pkill printf ps readlink realpath rm rmdir run-parts sleep sort split stat tar tee test time touch timeout tr tree uname unlzma unxz uptime watch wc wget xz xzcat zcat '[' '[['; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown cmp cp date dd df diff du egrep env expr find flock grep gunzip gzip hexdump install killall less ln ls lzcat lzma mkdir mkfifo mv nslookup od paste pgrep pkill printf ps readlink realpath rm rmdir run-parts sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz uptime watch wc wget xz xzcat zcat '[' '[['; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -275,6 +275,10 @@ run_old_style tests/busybox/flock/flock-c-runs-command-string
 run_old_style tests/busybox/nslookup/nslookup-resolves-localhost
 run_old_style tests/busybox/nslookup/nslookup-fails-unknown-host
 run_old_style tests/busybox/nslookup/nslookup-rejects-missing-host
+
+run_old_style tests/busybox/sysctl/sysctl-prints-keyed-values
+run_old_style tests/busybox/sysctl/sysctl-n-suppresses-keys
+run_old_style tests/busybox/sysctl/sysctl-fails-on-unknown-name
 
 run_old_style tests/busybox/watch/watch-runs-command-repeatedly
 run_old_style tests/busybox/watch/watch-rejects-invalid-interval

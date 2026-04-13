@@ -161,7 +161,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] swapoff
 - [ ] swapon
 - [ ] switch_root
-- [ ] sysctl
+- [x] sysctl
 - [ ] umount
 
 ## Miscellaneous Utilities

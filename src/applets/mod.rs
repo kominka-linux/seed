@@ -65,6 +65,7 @@ pub mod split;
 pub mod stat;
 pub mod strings;
 pub mod sync;
+pub mod sysctl;
 pub mod tail;
 pub mod tar;
 pub mod tee;

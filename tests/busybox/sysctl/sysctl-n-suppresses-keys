@@ -1,0 +1,3 @@
+busybox sysctl -n kern.ostype hw.ncpu > actual
+/usr/sbin/sysctl -n kern.ostype hw.ncpu > expected
+cmp expected actual

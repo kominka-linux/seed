@@ -1,0 +1,6 @@
+printf 'x\n' > file
+uid=$(id -u)
+gid=$(id -g)
+busybox chown "$uid:$gid" file
+test "$(stat -f %u file)" = "$uid"
+test "$(stat -f %g file)" = "$gid"

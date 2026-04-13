@@ -79,7 +79,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [x] touch
 - [x] tr
 - [ ] chgrp
-- [ ] chown
+- [x] chown
 - [ ] chroot
 - [ ] dd
 - [x] df

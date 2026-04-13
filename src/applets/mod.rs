@@ -3,6 +3,7 @@ pub mod basename;
 pub mod bzip2;
 pub mod cat;
 pub mod chmod;
+pub mod chown;
 pub mod cmp;
 pub(crate) mod compression;
 pub mod cp;

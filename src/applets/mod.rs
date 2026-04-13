@@ -48,6 +48,7 @@ pub mod seq;
 pub mod shuf;
 pub mod sleep;
 pub mod sort;
+pub mod split;
 pub mod stat;
 pub mod strings;
 pub mod sync;

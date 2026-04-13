@@ -264,6 +264,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::sort::main,
     },
     AppletEntry {
+        name: "split",
+        main: applets::split::main,
+    },
+    AppletEntry {
         name: "strings",
         main: applets::strings::main,
     },

@@ -1,0 +1,8 @@
+printf '1\n2\n3\n4\n5\n' > input
+busybox split -l 2 input
+printf '1\n2\n' > expected-aa
+printf '3\n4\n' > expected-ab
+printf '5\n' > expected-ac
+cmp expected-aa xaa
+cmp expected-ab xab
+cmp expected-ac xac

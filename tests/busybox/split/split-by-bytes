@@ -1,0 +1,8 @@
+printf 'abcdef' > input
+busybox split -b 2 input out
+printf 'ab' > expected-aa
+printf 'cd' > expected-ab
+printf 'ef' > expected-ac
+cmp expected-aa outaa
+cmp expected-ab outab
+cmp expected-ac outac

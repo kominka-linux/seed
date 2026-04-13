@@ -1,0 +1,3 @@
+busybox install -d one two/three
+test -d one
+test -d two/three

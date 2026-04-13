@@ -148,6 +148,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::id::main,
     },
     AppletEntry {
+        name: "install",
+        main: applets::install::main,
+    },
+    AppletEntry {
         name: "kill",
         main: applets::kill::main,
     },

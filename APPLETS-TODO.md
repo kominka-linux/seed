@@ -85,7 +85,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] df
 - [x] du
 - [x] expr
-- [ ] install
+- [x] install
 - [x] mkfifo
 - [ ] split
 - [x] stat

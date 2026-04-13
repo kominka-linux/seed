@@ -1,0 +1,3 @@
+printf 'hello\n' > src
+busybox install -m 600 src dst
+test "$(stat -f %Lp dst)" = "600"

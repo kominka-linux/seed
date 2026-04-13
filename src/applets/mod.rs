@@ -21,6 +21,7 @@ pub mod hashsum;
 pub mod head;
 pub mod hostname;
 pub mod id;
+pub mod install;
 pub mod kill;
 pub mod link;
 pub mod ln;

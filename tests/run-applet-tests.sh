@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod cmp cp date diff du egrep env expr find grep gunzip gzip ln ls lzcat lzma mkdir mkfifo mv od paste printf readlink realpath rm rmdir sleep sort stat tar tee test time touch timeout tr tree uname unlzma unxz wc wget xz xzcat zcat '[' '[['; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod cmp cp date diff du egrep env expr find grep gunzip gzip install ln ls lzcat lzma mkdir mkfifo mv od paste printf readlink realpath rm rmdir sleep sort stat tar tee test time touch timeout tr tree uname unlzma unxz wc wget xz xzcat zcat '[' '[['; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -255,6 +255,11 @@ run_old_style tests/busybox/gzip/gzip-accepts-single-minus
 run_old_style tests/busybox/gzip/gzip-accepts-multiple-files
 run_old_style tests/busybox/gzip/gzip-compression-levels
 run_old_style tests/busybox/gzip/gzip-removes-original-file
+
+run_old_style tests/busybox/install/install-copies-file
+run_old_style tests/busybox/install/install-D-creates-parent-directories
+run_old_style tests/busybox/install/install-d-creates-directories
+run_old_style tests/busybox/install/install-m-sets-mode
 
 run_old_style tests/busybox/ln/ln-creates-hard-link
 run_old_style tests/busybox/ln/ln-creates-link-in-directory

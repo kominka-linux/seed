@@ -1,0 +1,3 @@
+printf 'same data\n' > left
+cp left right
+busybox cmp left right

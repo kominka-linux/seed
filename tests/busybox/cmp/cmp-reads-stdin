@@ -1,0 +1,2 @@
+printf 'stdin data\n' > expected
+cat expected | busybox cmp expected -

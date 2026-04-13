@@ -1,0 +1,5 @@
+printf 'foo\n' > foo
+printf 'bar\n' > bar
+output=$(busybox cmp -s foo bar)
+test -z "$output"
+! busybox cmp -s foo bar

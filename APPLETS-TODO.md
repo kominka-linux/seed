@@ -97,7 +97,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 
 - [x] diff
 - [ ] awk
-- [ ] cmp
+- [x] cmp
 - [ ] hexdump
 - [ ] patch
 - [ ] sed

@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod cp date diff egrep env find grep gunzip gzip ln ls lzcat lzma mkdir mkfifo mv od paste printf readlink realpath rm rmdir sleep sort tar tee touch timeout tr uname unlzma unxz wc wget xz xzcat zcat; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod cmp cp date diff egrep env find grep gunzip gzip ln ls lzcat lzma mkdir mkfifo mv od paste printf readlink realpath rm rmdir sleep sort tar tee touch timeout tr uname unlzma unxz wc wget xz xzcat zcat; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -183,6 +183,11 @@ run_old_style tests/busybox/basename/basename-multiple-names
 run_old_style tests/busybox/basename/dirname-basic
 
 run_old_style tests/busybox/chmod/chmod-R-descends-before-changing-directory
+
+run_old_style tests/busybox/cmp/cmp-identical-files
+run_old_style tests/busybox/cmp/cmp-different-files-exit-one
+run_old_style tests/busybox/cmp/cmp-reads-stdin
+run_old_style tests/busybox/cmp/cmp-s-detects-difference
 
 run_old_style tests/busybox/cut/cut-selects-bytes
 run_old_style tests/busybox/cut/cut-selects-fields

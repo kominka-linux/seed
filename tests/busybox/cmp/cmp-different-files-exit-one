@@ -1,0 +1,4 @@
+printf 'left\n' > left
+printf 'right\n' > right
+! busybox cmp left right >/dev/null 2>&1
+test "$?" = 0

@@ -115,9 +115,7 @@ fn make_agent(options: &Options) -> Result<Agent, AppletError> {
         let certs = load_ca_certs(path)?;
         tls_builder.root_certs(RootCerts::new_with_certs(&certs))
     } else {
-        // Default: Mozilla's root CAs compiled in via webpki-roots. Consistent
-        // across platforms and works in minimal environments like scratch containers.
-        tls_builder.root_certs(RootCerts::WebPki)
+        tls_builder.root_certs(RootCerts::PlatformVerifier)
     };
 
     Ok(Agent::config_builder()

@@ -2,19 +2,22 @@
 #
 # Usage:
 #   docker build -t seed .
-#   docker run --rm seed wget -qO- https://example.com/
+#   docker run --rm seed wget -q -O - https://example.com/
 #
 # The binary is linked against musl so it has no shared library dependencies.
-# Mozilla's root CAs are compiled into the binary via webpki-roots, so no
-# CA bundle needs to be mounted at runtime. You can still override with
-# --ca-certificate or SSL_CERT_FILE if you need custom/private CAs.
+# The CA bundle from Alpine is copied in so rustls-platform-verifier can find
+# it at /etc/ssl/certs/ca-certificates.crt on Linux.
 
 FROM rust:alpine AS builder
 RUN apk add --no-cache musl-dev
 WORKDIR /build
 COPY . .
-RUN cargo build --target x86_64-unknown-linux-musl
+RUN cargo build
+
+FROM alpine AS certs
+RUN apk add --no-cache ca-certificates
 
 FROM scratch
-COPY --from=builder /build/target/x86_64-unknown-linux-musl/debug/seed /seed
+COPY --from=builder /build/target/debug/seed /seed
+COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 ENTRYPOINT ["/seed"]

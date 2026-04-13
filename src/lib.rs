@@ -244,6 +244,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::pgrep::main,
     },
     AppletEntry {
+        name: "pkill",
+        main: applets::pkill::main,
+    },
+    AppletEntry {
         name: "printenv",
         main: applets::printenv::main,
     },

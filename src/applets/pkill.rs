@@ -1,10 +1,7 @@
-use std::io::Write;
-
 use crate::common::error::AppletError;
-use crate::common::io::stdout;
 use crate::common::process::list_processes;
 
-const APPLET: &str = "pgrep";
+const APPLET: &str = "pkill";
 
 pub fn main(args: &[String]) -> i32 {
     match run(args) {
@@ -23,19 +20,28 @@ fn run(args: &[String]) -> Result<bool, Vec<AppletError>> {
     let pattern = parse_args(args)?;
     let processes = list_processes().map_err(|message| vec![AppletError::new(APPLET, message)])?;
     let self_pid = std::process::id() as i32;
-    let mut out = stdout();
     let mut matched = false;
 
     for process in processes {
-        if process.pid != self_pid && process.matches_pattern(&pattern) {
-            writeln!(out, "{}", process.pid)
-                .map_err(|err| vec![AppletError::from_io(APPLET, "writing stdout", None, err)])?;
-            matched = true;
+        if process.pid == self_pid || !process.matches_pattern(&pattern) {
+            continue;
         }
+
+        // SAFETY: `process.pid` came from the kernel process table, and the
+        // signal constant is valid.
+        let rc = unsafe { libc::kill(process.pid, libc::SIGTERM) };
+        if rc == 0 {
+            matched = true;
+            continue;
+        }
+
+        let error = std::io::Error::last_os_error();
+        if error.raw_os_error() == Some(libc::ESRCH) {
+            continue;
+        }
+        return Err(vec![AppletError::from_io(APPLET, "signaling", None, error)]);
     }
 
-    out.flush()
-        .map_err(|err| vec![AppletError::from_io(APPLET, "writing stdout", None, err)])?;
     Ok(matched)
 }
 
@@ -49,8 +55,6 @@ fn parse_args(args: &[String]) -> Result<String, Vec<AppletError>> {
 
 #[cfg(test)]
 mod tests {
-    use crate::common::process::ProcessInfo;
-
     use super::parse_args;
 
     fn args(values: &[&str]) -> Vec<String> {
@@ -59,20 +63,14 @@ mod tests {
 
     #[test]
     fn parses_pattern() {
-        assert_eq!(parse_args(&args(&["sleep"])).expect("parse pgrep"), "sleep");
+        assert_eq!(
+            parse_args(&args(&["target"])).expect("parse pkill"),
+            "target"
+        );
     }
 
     #[test]
-    fn matches_name_or_command() {
-        let process = ProcessInfo {
-            pid: 1,
-            tty: String::from("??"),
-            cpu_time_ns: 0,
-            name: String::from("seed"),
-            command: String::from("./match-pkill-target"),
-        };
-        assert!(process.matches_pattern("seed"));
-        assert!(process.matches_pattern("pkill-target"));
-        assert!(!process.matches_pattern("sleep"));
+    fn rejects_extra_operands() {
+        assert!(parse_args(&args(&["one", "two"])).is_err());
     }
 }

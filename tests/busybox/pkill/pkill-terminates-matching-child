@@ -1,0 +1,18 @@
+cat > match-pkill-target <<'EOF'
+#!/bin/sh
+sleep 30
+EOF
+chmod +x match-pkill-target
+./match-pkill-target &
+child=$!
+if ! busybox pkill match-pkill-target; then
+	kill "$child" 2>/dev/null || true
+	wait "$child" 2>/dev/null || true
+	exit 1
+fi
+if wait "$child"; then
+	exit 1
+else
+	status=$?
+fi
+test "$status" -eq 143 || exit 1

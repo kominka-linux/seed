@@ -1,11 +1,12 @@
 use std::ffi::OsString;
-use std::fs::{self, File, OpenOptions};
+use std::fs;
 use std::io::{self, BufWriter, Write};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 
 use crate::common::applet::AppletResult;
 use crate::common::error::AppletError;
+use crate::common::fs::AtomicFile;
 use crate::common::io::{BUFFER_SIZE, Input, open_input, stdout};
 
 #[derive(Clone, Copy, Debug)]
@@ -226,23 +227,17 @@ where
     let input =
         open_input(path).map_err(|err| AppletError::from_io(applet, "opening", Some(path), err))?;
     let size_hint = compression_input_size(path, options, &input_size_hint);
-    let (temp_path, temp_file) = create_temp_output(applet, &destination)?;
-    let mut writer = BufWriter::with_capacity(BUFFER_SIZE, temp_file);
-
-    if let Err(err) = process(input, &mut writer, options, Some(path), size_hint) {
-        let _ = fs::remove_file(&temp_path);
-        return Err(err);
-    }
-
-    if options.force && destination.exists() {
-        fs::remove_file(&destination).map_err(|err| {
-            let _ = fs::remove_file(&temp_path);
-            AppletError::from_io(applet, "removing", Some(path_for_error(&destination)), err)
+    let mut output = AtomicFile::new(&destination).map_err(|err| {
+        AppletError::from_io(applet, "creating", Some(path_for_error(&destination)), err)
+    })?;
+    {
+        let mut writer = BufWriter::with_capacity(BUFFER_SIZE, output.file_mut());
+        process(input, &mut writer, options, Some(path), size_hint)?;
+        writer.flush().map_err(|err| {
+            AppletError::from_io(applet, "writing", Some(path_for_error(&destination)), err)
         })?;
     }
-
-    fs::rename(&temp_path, &destination).map_err(|err| {
-        let _ = fs::remove_file(&temp_path);
+    output.commit().map_err(|err| {
         AppletError::from_io(applet, "renaming", Some(path_for_error(&destination)), err)
     })?;
 
@@ -343,48 +338,6 @@ where
     } else {
         input_size_hint(path)
     }
-}
-
-fn create_temp_output(
-    applet: &'static str,
-    destination: &Path,
-) -> Result<(PathBuf, File), AppletError> {
-    let parent = destination.parent().unwrap_or_else(|| Path::new("."));
-    let base = destination
-        .file_name()
-        .unwrap_or(destination.as_os_str())
-        .as_bytes()
-        .to_vec();
-
-    for attempt in 0..1024_u32 {
-        let mut name = base.clone();
-        name.extend_from_slice(format!(".seed-tmp-{}-{attempt}", std::process::id()).as_bytes());
-        let candidate = parent.join(OsString::from_vec(name));
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&candidate)
-        {
-            Ok(file) => return Ok((candidate, file)),
-            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(err) => {
-                return Err(AppletError::from_io(
-                    applet,
-                    "creating",
-                    Some(path_for_error(&candidate)),
-                    err,
-                ));
-            }
-        }
-    }
-
-    Err(AppletError::new(
-        applet,
-        format!(
-            "failed to create temporary output for {}",
-            destination.display()
-        ),
-    ))
 }
 
 fn path_for_error(path: &Path) -> &str {

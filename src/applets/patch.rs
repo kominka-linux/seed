@@ -1,5 +1,5 @@
 use std::ffi::OsStr;
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io::{Read, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
@@ -9,7 +9,7 @@ use diffy::{Patch, apply_bytes};
 use crate::common::applet::{AppletResult, finish};
 use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
-use crate::common::fs::remove_path;
+use crate::common::fs::{AtomicFile, remove_path};
 use crate::common::io::stdin;
 
 const APPLET: &str = "patch";
@@ -209,48 +209,10 @@ fn apply_chunk(chunk: &[u8], options: &Options) -> AppletResult {
 }
 
 fn write_target(path: &Path, contents: &[u8]) -> std::io::Result<()> {
-    let (temp_path, mut file) = create_temp_output(path)?;
-    if let Err(err) = file.write_all(contents) {
-        let _ = fs::remove_file(&temp_path);
-        return Err(err);
-    }
-    if let Err(err) = file.flush() {
-        let _ = fs::remove_file(&temp_path);
-        return Err(err);
-    }
-    drop(file);
-    if let Err(err) = fs::rename(&temp_path, path) {
-        let _ = fs::remove_file(&temp_path);
-        return Err(err);
-    }
-    Ok(())
-}
-
-fn create_temp_output(path: &Path) -> std::io::Result<(PathBuf, std::fs::File)> {
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let base = path.file_name().unwrap_or(path.as_os_str());
-
-    for attempt in 0..1024_u32 {
-        let candidate = parent.join(format!(
-            "{}.seed-tmp-{}-{attempt}",
-            base.to_string_lossy(),
-            std::process::id()
-        ));
-        match OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&candidate)
-        {
-            Ok(file) => return Ok((candidate, file)),
-            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(err) => return Err(err),
-        }
-    }
-
-    Err(std::io::Error::new(
-        std::io::ErrorKind::AlreadyExists,
-        format!("failed to create temporary output for {}", path.display()),
-    ))
+    let mut output = AtomicFile::new(path)?;
+    output.file_mut().write_all(contents)?;
+    output.file_mut().flush()?;
+    output.commit()
 }
 
 fn target_path(patch: &Patch<'_, [u8]>, options: &Options) -> Result<PathBuf, Vec<AppletError>> {

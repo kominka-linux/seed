@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::error::Error;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
@@ -17,6 +17,7 @@ use tar::{Archive, Builder, EntryType, Header};
 
 use crate::common::applet::{AppletResult, finish};
 use crate::common::error::AppletError;
+use crate::common::fs::AtomicFile;
 use crate::common::io::{BUFFER_SIZE, Input, open_input, stdout};
 use crate::common::unix::{self, FileKind};
 
@@ -623,13 +624,11 @@ fn extract_regular_file<R: Read>(
         Err(err) => return Err(extract_io_error(path_text, err)),
     }
 
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&output_path)
+    let mut output = AtomicFile::new(&output_path).map_err(|err| extract_io_error(path_text, err))?;
+    io::copy(entry, output.file_mut()).map_err(|err| extract_io_error(path_text, err))?;
+    output
+        .commit()
         .map_err(|err| extract_io_error(path_text, err))?;
-    io::copy(entry, &mut file).map_err(|err| extract_io_error(path_text, err))?;
 
     let mode = entry
         .header()
@@ -731,13 +730,11 @@ fn extract_regular_file_overwrite<R: Read>(
         }
     }
 
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&output_path)
+    let mut output = AtomicFile::new(&output_path).map_err(|err| extract_io_error(path_text, err))?;
+    io::copy(entry, output.file_mut()).map_err(|err| extract_io_error(path_text, err))?;
+    output
+        .commit()
         .map_err(|err| extract_io_error(path_text, err))?;
-    io::copy(entry, &mut file).map_err(|err| extract_io_error(path_text, err))?;
 
     let mode = entry
         .header()

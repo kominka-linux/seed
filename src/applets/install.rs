@@ -1,10 +1,13 @@
 use std::fs;
+use std::io::{BufReader, BufWriter, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use crate::common::applet::{AppletResult, finish};
 use crate::common::args::{ArgCursor, ArgToken};
 use crate::common::error::AppletError;
+use crate::common::fs::AtomicFile;
+use crate::common::io::{BUFFER_SIZE, copy_stream};
 
 const APPLET: &str = "install";
 
@@ -120,8 +123,39 @@ fn install_file(source: &str, destination: &str, options: Options) -> AppletResu
         })?;
     }
 
-    fs::copy(source_path, &target)
-        .map_err(|err| vec![AppletError::from_io(APPLET, "copying", Some(source), err)])?;
+    let source_file = fs::File::open(source_path)
+        .map_err(|err| vec![AppletError::from_io(APPLET, "opening", Some(source), err)])?;
+    let mut output = AtomicFile::new(&target).map_err(|err| {
+        vec![AppletError::from_io(
+            APPLET,
+            "creating",
+            Some(&target.display().to_string()),
+            err,
+        )]
+    })?;
+    {
+        let mut reader = BufReader::with_capacity(BUFFER_SIZE, source_file);
+        let mut writer = BufWriter::with_capacity(BUFFER_SIZE, output.file_mut());
+        copy_stream(&mut reader, &mut writer).map_err(|err| {
+            vec![AppletError::from_io(APPLET, "copying", Some(source), err)]
+        })?;
+        writer.flush().map_err(|err| {
+            vec![AppletError::from_io(
+                APPLET,
+                "writing",
+                Some(&target.display().to_string()),
+                err,
+            )]
+        })?;
+    }
+    output.commit().map_err(|err| {
+        vec![AppletError::from_io(
+            APPLET,
+            "renaming",
+            Some(&target.display().to_string()),
+            err,
+        )]
+    })?;
 
     if let Some(mode) = options.mode {
         fs::set_permissions(&target, fs::Permissions::from_mode(mode)).map_err(|err| {

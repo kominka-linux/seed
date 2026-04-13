@@ -1,8 +1,8 @@
 use std::collections::HashMap;
-use std::ffi::CString;
+use std::ffi::{CString, OsString};
 use std::fs::{self, File, Metadata, OpenOptions};
 use std::io::{self, BufReader, BufWriter, Write};
-use std::os::unix::ffi::OsStrExt;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 
@@ -34,6 +34,12 @@ pub struct CopyContext {
     hard_links: HashMap<(u64, u64), PathBuf>,
 }
 
+pub struct AtomicFile {
+    path: PathBuf,
+    temp_path: Option<PathBuf>,
+    file: Option<File>,
+}
+
 impl CopyContext {
     pub fn new() -> Self {
         Self {
@@ -45,6 +51,41 @@ impl CopyContext {
 impl Default for CopyContext {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl AtomicFile {
+    pub fn new(path: &Path) -> io::Result<Self> {
+        let (temp_path, file) = create_temp_output(path)?;
+        Ok(Self {
+            path: path.to_path_buf(),
+            temp_path: Some(temp_path),
+            file: Some(file),
+        })
+    }
+
+    pub fn file_mut(&mut self) -> &mut File {
+        self.file.as_mut().expect("atomic file is open")
+    }
+
+    pub fn commit(mut self) -> io::Result<()> {
+        self.file_mut().sync_all()?;
+        let file = self.file.take();
+        drop(file);
+        let temp_path = self.temp_path.as_ref().expect("atomic temp path exists");
+        fs::rename(temp_path, &self.path)?;
+        self.temp_path.take();
+        Ok(())
+    }
+}
+
+impl Drop for AtomicFile {
+    fn drop(&mut self) {
+        let file = self.file.take();
+        drop(file);
+        if let Some(temp_path) = self.temp_path.take() {
+            let _ = fs::remove_file(temp_path);
+        }
     }
 }
 
@@ -255,4 +296,29 @@ fn set_timestamps(path: &Path, metadata: &Metadata) -> io::Result<()> {
     } else {
         Err(io::Error::last_os_error())
     }
+}
+
+fn create_temp_output(path: &Path) -> io::Result<(PathBuf, File)> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let base = path.file_name().unwrap_or(path.as_os_str()).as_bytes();
+
+    for attempt in 0..1024_u32 {
+        let mut name = base.to_vec();
+        name.extend_from_slice(format!(".seed-tmp-{}-{attempt}", std::process::id()).as_bytes());
+        let candidate = parent.join(OsString::from_vec(name));
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(file) => return Ok((candidate, file)),
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(err),
+        }
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        format!("failed to create temporary output for {}", path.display()),
+    ))
 }

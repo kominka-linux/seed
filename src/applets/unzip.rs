@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{BufWriter, ErrorKind, Write};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -10,6 +10,7 @@ use zip::read::{ZipArchive, ZipFile};
 use crate::common::applet::{AppletResult, finish};
 use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
+use crate::common::fs::AtomicFile;
 use crate::common::io::{copy_stream, stdout};
 
 const APPLET: &str = "unzip";
@@ -286,26 +287,20 @@ fn extract_entry(entry: &mut ZipFile<'_>, base: &Path, overwrite: bool) -> Resul
         }
     }
 
-    let file = if overwrite {
-        OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .open(&output)
-    } else {
-        OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&output)
+    let mut output_file = AtomicFile::new(&output)
+        .map_err(|err| AppletError::from_io(APPLET, "creating", Some(path_for_error(&output)), err))?;
+    {
+        let mut writer = BufWriter::new(output_file.file_mut());
+        copy_stream(entry, &mut writer).map_err(|err| {
+            AppletError::from_io(APPLET, "extracting", Some(path_for_error(&output)), err)
+        })?;
+        writer.flush().map_err(|err| {
+            AppletError::from_io(APPLET, "flushing", Some(path_for_error(&output)), err)
+        })?;
     }
-    .map_err(|err| AppletError::from_io(APPLET, "creating", Some(path_for_error(&output)), err))?;
-    let mut writer = BufWriter::new(file);
-    copy_stream(entry, &mut writer).map_err(|err| {
-        AppletError::from_io(APPLET, "extracting", Some(path_for_error(&output)), err)
-    })?;
-    writer.flush().map_err(|err| {
-        AppletError::from_io(APPLET, "flushing", Some(path_for_error(&output)), err)
-    })?;
+    output_file
+        .commit()
+        .map_err(|err| AppletError::from_io(APPLET, "renaming", Some(path_for_error(&output)), err))?;
     set_permissions(&output, entry);
     Ok(())
 }

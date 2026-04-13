@@ -1,0 +1,3 @@
+busybox flock lockfile sh -c 'printf locked > actual'
+printf 'locked' > expected
+cmp expected actual

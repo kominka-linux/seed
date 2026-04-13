@@ -1,0 +1,11 @@
+busybox flock lockfile sh -c 'printf ready > ready; sleep 1' &
+holder=$!
+while [ ! -f ready ]; do
+	busybox sleep 0.02
+done
+if busybox flock -n lockfile sh -c 'exit 0'; then
+	kill "$holder" 2>/dev/null || true
+	wait "$holder" 2>/dev/null || true
+	exit 1
+fi
+wait "$holder"

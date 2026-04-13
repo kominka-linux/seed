@@ -1,0 +1,3 @@
+busybox flock lockfile -c 'printf command > actual'
+printf 'command' > expected
+cmp expected actual

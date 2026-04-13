@@ -149,7 +149,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] blkid
 - [ ] dmesg
 - [ ] fdisk
-- [ ] flock
+- [x] flock
 - [ ] getopt
 - [ ] hwclock
 - [ ] mdev

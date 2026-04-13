@@ -221,13 +221,52 @@ fn hash_file(path: &str, algo: &Algo) -> io::Result<String> {
 }
 
 fn hash_reader(r: &mut dyn Read, algo: &Algo) -> io::Result<String> {
-    let mut data = Vec::new();
-    r.read_to_end(&mut data)?;
+    let mut buffer = [0_u8; crate::common::io::BUFFER_SIZE];
     Ok(match algo {
-        Algo::Md5 => hex(&md5::Md5::digest(&data)),
-        Algo::Sha1 => hex(&sha1::Sha1::digest(&data)),
-        Algo::Sha256 => hex(&sha2::Sha256::digest(&data)),
-        Algo::Sha512 => hex(&sha2::Sha512::digest(&data)),
+        Algo::Md5 => {
+            let mut digest = md5::Md5::new();
+            loop {
+                let read = r.read(&mut buffer)?;
+                if read == 0 {
+                    break;
+                }
+                digest.update(&buffer[..read]);
+            }
+            hex(&digest.finalize())
+        }
+        Algo::Sha1 => {
+            let mut digest = sha1::Sha1::new();
+            loop {
+                let read = r.read(&mut buffer)?;
+                if read == 0 {
+                    break;
+                }
+                digest.update(&buffer[..read]);
+            }
+            hex(&digest.finalize())
+        }
+        Algo::Sha256 => {
+            let mut digest = sha2::Sha256::new();
+            loop {
+                let read = r.read(&mut buffer)?;
+                if read == 0 {
+                    break;
+                }
+                digest.update(&buffer[..read]);
+            }
+            hex(&digest.finalize())
+        }
+        Algo::Sha512 => {
+            let mut digest = sha2::Sha512::new();
+            loop {
+                let read = r.read(&mut buffer)?;
+                if read == 0 {
+                    break;
+                }
+                digest.update(&buffer[..read]);
+            }
+            hex(&digest.finalize())
+        }
     })
 }
 

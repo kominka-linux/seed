@@ -68,6 +68,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::date::main,
     },
     AppletEntry {
+        name: "dd",
+        main: applets::dd::main,
+    },
+    AppletEntry {
         name: "df",
         main: applets::df::main,
     },

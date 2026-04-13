@@ -10,6 +10,7 @@ pub(crate) mod compression;
 pub mod cp;
 pub mod cut;
 pub mod date;
+pub mod dd;
 pub mod df;
 pub mod diff;
 pub mod du;

@@ -1,0 +1,3 @@
+printf 'hello' | busybox dd bs=1 count=5 2>/dev/null > actual
+printf 'hello' > expected
+cmp expected actual

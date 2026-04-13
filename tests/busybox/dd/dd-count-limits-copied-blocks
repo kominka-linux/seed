@@ -1,0 +1,4 @@
+printf 'abcdef' > input
+busybox dd if=input of=output bs=2 count=2 >/dev/null 2>/dev/null
+printf 'abcd' > expected
+cmp expected output

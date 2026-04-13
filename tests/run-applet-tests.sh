@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown cmp cp date df diff du egrep env expr find grep gunzip gzip install ln ls lzcat lzma mkdir mkfifo mv od paste printf readlink realpath rm rmdir sleep sort split stat tar tee test time touch timeout tr tree uname unlzma unxz wc wget xz xzcat zcat '[' '[['; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown cmp cp date dd df diff du egrep env expr find grep gunzip gzip install ln ls lzcat lzma mkdir mkfifo mv od paste printf readlink realpath rm rmdir sleep sort split stat tar tee test time touch timeout tr tree uname unlzma unxz wc wget xz xzcat zcat '[' '[['; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -205,6 +205,11 @@ run_old_style tests/busybox/date/date-timezone
 run_old_style tests/busybox/date/date-u-works
 run_old_style tests/busybox/date/date-works
 run_old_style tests/busybox/date/date-works-1
+
+run_old_style tests/busybox/dd/dd-copies-file
+run_old_style tests/busybox/dd/dd-count-limits-copied-blocks
+run_old_style tests/busybox/dd/dd-skip-and-seek
+run_old_style tests/busybox/dd/dd-uses-stdin-and-stdout
 
 run_old_style tests/busybox/df/df-kP-matches-host
 run_old_style tests/busybox/df/df-default-matches-host-kP

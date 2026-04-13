@@ -81,7 +81,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [x] chgrp
 - [x] chown
 - [ ] chroot
-- [ ] dd
+- [x] dd
 - [x] df
 - [x] du
 - [x] expr

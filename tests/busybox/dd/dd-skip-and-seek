@@ -1,0 +1,5 @@
+printf 'abcdef' > input
+printf 'XXXXXX' > output
+busybox dd if=input of=output bs=1 skip=2 seek=1 count=3 >/dev/null 2>/dev/null
+printf 'XcdeXX' > expected
+cmp expected output

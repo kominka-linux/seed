@@ -1,0 +1,3 @@
+printf 'abcdef' > input
+busybox dd if=input of=output bs=1 >/dev/null 2>/dev/null
+cmp input output

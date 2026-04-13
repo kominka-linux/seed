@@ -34,6 +34,9 @@ fn basename(path: &str) -> &str {
 
 #[cfg(target_os = "macos")]
 pub(crate) fn list_processes() -> Result<Vec<ProcessInfo>, String> {
+    // TODO: Replace this temporary Darwin libproc walker with Linux /proc
+    // process enumeration. The project target is Linux; this exists only so
+    // process applets can be exercised on macOS for now.
     // SAFETY: null buffer with size 0 asks libproc for the current pid count.
     let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
     if count <= 0 {

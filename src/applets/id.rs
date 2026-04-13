@@ -251,6 +251,8 @@ fn get_groups_for_user(c_name: &CString, primary_gid: u32) -> Vec<u32> {
     }
     #[cfg(target_os = "macos")]
     {
+        // TODO: Keep only the Linux path once Linux hardware is available.
+        // This macOS signature shim is temporary local scaffolding.
         let mut ngroups: libc::c_int = 64;
         let mut groups: Vec<libc::c_int> = vec![0; 64];
         let result = unsafe {

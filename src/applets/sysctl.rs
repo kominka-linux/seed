@@ -5,6 +5,8 @@ use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET: &str = "sysctl";
+// TODO: Replace this temporary BSD sysctl-by-name implementation with the
+// Linux /proc/sys-backed behavior this project actually targets.
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct Options {

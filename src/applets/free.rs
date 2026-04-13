@@ -99,6 +99,8 @@ fn scale(value: u64, unit: Unit) -> u64 {
 
 #[cfg(target_os = "macos")]
 fn read_stats() -> Result<Stats, Vec<AppletError>> {
+    // TODO: Replace this temporary Darwin memory collection with Linux-native
+    // sources such as /proc/meminfo or sysinfo(2).
     let mem_total = read_sysctl_u64("hw.memsize")?;
     let page_size = read_sysctl_u64("hw.pagesize")?;
 

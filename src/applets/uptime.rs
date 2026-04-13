@@ -111,6 +111,8 @@ fn format_clock(seconds: i64) -> Result<String, AppletError> {
 
 #[cfg(target_os = "macos")]
 fn collect_snapshot() -> Result<Snapshot, Vec<AppletError>> {
+    // TODO: Replace this temporary Darwin uptime implementation with Linux
+    // sources such as /proc/uptime, /proc/loadavg, and utmp handling.
     let now = current_time()?;
     let boot = boot_time()?;
     let users = user_count()?;

@@ -10,7 +10,7 @@ libc = "0.2.184"
 lzma-rust2 = { version = "0.16.2", default-features = false, features = ["std", "encoder", "xz"] }
 rustls = { version = "0.23.37", default-features = false, features = ["std", "tls12", "logging", "ring"] }
 tar = { version = "0.4.44", default-features = false }
-ureq = { version = "3.3.0", default-features = false, features = ["rustls-no-provider", "platform-verifier"] }
+ureq = { version = "3.3.0", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots"] }
 
 [profile.dev]
 debug = "line-tables-only"

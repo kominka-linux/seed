@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ureq::Agent;
-use ureq::tls::{RootCerts, TlsConfig};
+use ureq::tls::{PemItem, RootCerts, TlsConfig, parse_pem};
 
 use crate::common::applet::{AppletResult, finish};
 use crate::common::args::ArgCursor;
@@ -18,6 +18,8 @@ struct Options {
     quiet: bool,
     output_document: Option<String>,
     output_dir: Option<String>,
+    no_check_certificate: bool,
+    ca_certificate: Option<String>,
 }
 
 pub fn main(args: &[String]) -> i32 {
@@ -26,7 +28,7 @@ pub fn main(args: &[String]) -> i32 {
 
 fn run(args: &[String]) -> AppletResult {
     let (options, urls) = parse_args(args)?;
-    let agent = make_agent();
+    let agent = make_agent(&options).map_err(|e| vec![e])?;
     let mut errors = Vec::new();
 
     for url in &urls {
@@ -48,27 +50,46 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
     let mut cursor = ArgCursor::new(args);
 
     while let Some(arg) = cursor.next_token() {
-        if cursor.parsing_flags() && arg == "-O" {
-            options.output_document = Some(cursor.next_value(APPLET, "O")?.to_owned());
+        if !cursor.parsing_flags() || !arg.starts_with('-') || arg.len() == 1 {
+            urls.push(arg.to_owned());
             continue;
         }
 
-        if cursor.parsing_flags() && arg == "-P" {
-            options.output_dir = Some(cursor.next_value(APPLET, "P")?.to_owned());
+        if let Some(val) = arg.strip_prefix("--ca-certificate=") {
+            options.ca_certificate = Some(val.to_owned());
             continue;
         }
 
-        if cursor.parsing_flags() && arg.starts_with('-') && arg.len() > 1 {
-            for flag in arg[1..].chars() {
-                match flag {
-                    'q' => options.quiet = true,
-                    _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
+        match arg {
+            "-O" => {
+                options.output_document = Some(cursor.next_value(APPLET, "O")?.to_owned());
+            }
+            "-P" => {
+                options.output_dir = Some(cursor.next_value(APPLET, "P")?.to_owned());
+            }
+            "--ca-certificate" => {
+                options.ca_certificate =
+                    Some(cursor.next_value(APPLET, "ca-certificate")?.to_owned());
+            }
+            "--no-check-certificate" => {
+                options.no_check_certificate = true;
+            }
+            _ if !arg.starts_with("--") => {
+                for flag in arg[1..].chars() {
+                    match flag {
+                        'q' => options.quiet = true,
+                        'k' => options.no_check_certificate = true,
+                        _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
+                    }
                 }
             }
-            continue;
+            _ => {
+                return Err(vec![AppletError::new(
+                    APPLET,
+                    format!("unrecognized option: '{arg}'"),
+                )]);
+            }
         }
-
-        urls.push(arg.to_owned());
     }
 
     if urls.is_empty() {
@@ -78,18 +99,53 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
     Ok((options, urls))
 }
 
-fn make_agent() -> Agent {
-    Agent::config_builder()
-        .tls_config(
-            TlsConfig::builder()
-                .root_certs(RootCerts::PlatformVerifier)
-                .unversioned_rustls_crypto_provider(Arc::new(
-                    rustls::crypto::ring::default_provider(),
-                ))
-                .build(),
-        )
+fn make_agent(options: &Options) -> Result<Agent, AppletError> {
+    let ssl_cert_file = std::env::var("SSL_CERT_FILE").ok();
+    let ca_file = options
+        .ca_certificate
+        .as_deref()
+        .or_else(|| ssl_cert_file.as_deref());
+
+    let tls_builder = TlsConfig::builder()
+        .unversioned_rustls_crypto_provider(Arc::new(rustls::crypto::ring::default_provider()));
+
+    let tls = if options.no_check_certificate {
+        tls_builder.disable_verification(true)
+    } else if let Some(path) = ca_file {
+        let certs = load_ca_certs(path)?;
+        tls_builder.root_certs(RootCerts::new_with_certs(&certs))
+    } else {
+        // Default: Mozilla's root CAs compiled in via webpki-roots. Consistent
+        // across platforms and works in minimal environments like scratch containers.
+        tls_builder.root_certs(RootCerts::WebPki)
+    };
+
+    Ok(Agent::config_builder()
+        .tls_config(tls.build())
         .build()
-        .new_agent()
+        .new_agent())
+}
+
+fn load_ca_certs(path: &str) -> Result<Vec<ureq::tls::Certificate<'static>>, AppletError> {
+    let pem = std::fs::read(path)
+        .map_err(|e| AppletError::from_io(APPLET, "reading", Some(path), e))?;
+    let certs = parse_pem(&pem)
+        .filter_map(|item| match item {
+            Ok(PemItem::Certificate(c)) => Some(Ok(c)),
+            Ok(_) => None,
+            Err(e) => Some(Err(AppletError::new(
+                APPLET,
+                format!("parsing {path}: {e}"),
+            ))),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if certs.is_empty() {
+        return Err(AppletError::new(
+            APPLET,
+            format!("no certificates found in {path}"),
+        ));
+    }
+    Ok(certs)
 }
 
 fn fetch_url(agent: &Agent, url: &str, options: &Options) -> Result<(), AppletError> {
@@ -171,6 +227,10 @@ mod tests {
     use std::net::TcpListener;
     use std::thread;
 
+    fn args(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
     #[test]
     fn parse_supports_quiet_output_document_and_directory() {
         let (options, urls) = parse_args(&[
@@ -187,6 +247,42 @@ mod tests {
         assert_eq!(options.output_document.as_deref(), Some("out"));
         assert_eq!(options.output_dir.as_deref(), Some("dir"));
         assert_eq!(urls, vec![String::from("http://example.com")]);
+    }
+
+    #[test]
+    fn parse_no_check_certificate_short() {
+        let (options, _) =
+            parse_args(&args(&["-k", "http://example.com"])).expect("parse");
+        assert!(options.no_check_certificate);
+    }
+
+    #[test]
+    fn parse_no_check_certificate_long() {
+        let (options, _) =
+            parse_args(&args(&["--no-check-certificate", "http://example.com"])).expect("parse");
+        assert!(options.no_check_certificate);
+    }
+
+    #[test]
+    fn parse_ca_certificate_separate_arg() {
+        let (options, _) =
+            parse_args(&args(&["--ca-certificate", "/etc/ssl/certs/ca-certificates.crt", "http://example.com"]))
+                .expect("parse");
+        assert_eq!(
+            options.ca_certificate.as_deref(),
+            Some("/etc/ssl/certs/ca-certificates.crt")
+        );
+    }
+
+    #[test]
+    fn parse_ca_certificate_equals_form() {
+        let (options, _) =
+            parse_args(&args(&["--ca-certificate=/etc/ssl/certs/ca-certificates.crt", "http://example.com"]))
+                .expect("parse");
+        assert_eq!(
+            options.ca_certificate.as_deref(),
+            Some("/etc/ssl/certs/ca-certificates.crt")
+        );
     }
 
     #[test]
@@ -275,6 +371,118 @@ mod tests {
         TestServer {
             url: format!("http://{addr}/"),
             handle,
+        }
+    }
+
+    // ── badssl.com network tests ────────────────────────────────────────────
+    // Run with: cargo test -- --ignored
+
+    #[test]
+    #[ignore = "requires network access"]
+    fn badssl_tls12_cert_expired_fails() {
+        // tls12.badssl.com has a certificate that expired in 2018 and was never renewed.
+        assert_ne!(super::main(&args(&["-q", "-O", "-", "https://tls12.badssl.com/"])), 0);
+    }
+
+    #[test]
+    #[ignore = "requires network access"]
+    fn badssl_tls13_cert_expired_fails() {
+        // tls13.badssl.com has a certificate that expired in 2018 and was never renewed.
+        assert_ne!(super::main(&args(&["-q", "-O", "-", "https://tls13.badssl.com/"])), 0);
+    }
+
+    #[test]
+    #[ignore = "requires network access"]
+    fn badssl_sha256_succeeds() {
+        assert_eq!(super::main(&args(&["-q", "-O", "-", "https://sha256.badssl.com/"])), 0);
+    }
+
+    #[test]
+    #[ignore = "requires network access"]
+    fn badssl_ecc256_succeeds() {
+        assert_eq!(super::main(&args(&["-q", "-O", "-", "https://ecc256.badssl.com/"])), 0);
+    }
+
+    #[test]
+    #[ignore = "requires network access"]
+    fn badssl_rsa2048_succeeds() {
+        assert_eq!(super::main(&args(&["-q", "-O", "-", "https://rsa2048.badssl.com/"])), 0);
+    }
+
+    #[test]
+    #[ignore = "requires network access"]
+    fn badssl_expired_fails() {
+        assert_ne!(super::main(&args(&["-q", "-O", "-", "https://expired.badssl.com/"])), 0);
+    }
+
+    #[test]
+    #[ignore = "requires network access"]
+    fn badssl_wrong_host_fails() {
+        assert_ne!(
+            super::main(&args(&["-q", "-O", "-", "https://wrong.host.badssl.com/"])),
+            0
+        );
+    }
+
+    #[test]
+    #[ignore = "requires network access"]
+    fn badssl_self_signed_fails() {
+        assert_ne!(
+            super::main(&args(&["-q", "-O", "-", "https://self-signed.badssl.com/"])),
+            0
+        );
+    }
+
+    #[test]
+    #[ignore = "requires network access"]
+    fn badssl_untrusted_root_fails() {
+        assert_ne!(
+            super::main(&args(&["-q", "-O", "-", "https://untrusted-root.badssl.com/"])),
+            0
+        );
+    }
+
+    #[test]
+    #[ignore = "requires network access"]
+    fn badssl_expired_succeeds_with_no_check() {
+        assert_eq!(
+            super::main(&args(&["-kq", "-O", "-", "https://expired.badssl.com/"])),
+            0
+        );
+    }
+
+    #[test]
+    #[ignore = "requires network access"]
+    fn target_kominka_succeeds() {
+        assert_eq!(
+            super::main(&args(&["-q", "-O", "-", "https://kominka.17166969.xyz/"])),
+            0
+        );
+    }
+
+    #[test]
+    #[ignore = "requires network access"]
+    fn target_r2_tls_connects() {
+        // The R2 bucket root returns 404, but the TLS handshake and connection succeed.
+        // wget exits non-zero because of the HTTP error, not a TLS failure.
+        // We verify the error message doesn't mention a TLS/cert problem.
+        let result = super::run(&args(&[
+            "-q",
+            "-O",
+            "-",
+            "https://pub-15b3a4c25627476493c0e1a68993f4d8.r2.dev/",
+        ]));
+        match result {
+            Ok(()) => {} // if it somehow succeeds, fine
+            Err(errors) => {
+                for e in &errors {
+                    let msg = e.to_string();
+                    assert!(
+                        !msg.contains("certificate") && !msg.contains("tls") && !msg.contains("TLS"),
+                        "unexpected TLS error: {msg}"
+                    );
+                }
+            }
         }
     }
 }

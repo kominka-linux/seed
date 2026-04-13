@@ -1,4 +1,5 @@
 use std::fs;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use crate::common::applet::{AppletResult, finish};
@@ -49,6 +50,17 @@ fn run(args: &[String]) -> AppletResult {
         let src_path = Path::new(source);
         let target =
             destination_for_source(src_path, destination_path, dest_is_dir, options.parents);
+        if same_file(src_path, &target, options.dereference) {
+            errors.push(AppletError::new(
+                APPLET,
+                format!(
+                    "'{}' and '{}' are the same file",
+                    src_path.display(),
+                    target.display()
+                ),
+            ));
+            continue;
+        }
         match copy_path(src_path, &target, &copy_options, &mut context, true) {
             Ok(()) => {}
             Err(CopyError::OmitDirectory) => {
@@ -181,9 +193,30 @@ fn file_name(path: &Path) -> &std::ffi::OsStr {
     path.file_name().unwrap_or(path.as_os_str())
 }
 
+fn same_file(source: &Path, target: &Path, dereference: Dereference) -> bool {
+    let source_metadata = metadata_for_compare(source, dereference);
+    let target_metadata = metadata_for_compare(target, dereference);
+    match (source_metadata, target_metadata) {
+        (Ok(source), Ok(target)) => source.dev() == target.dev() && source.ino() == target.ino(),
+        _ => false,
+    }
+}
+
+fn metadata_for_compare(path: &Path, dereference: Dereference) -> std::io::Result<fs::Metadata> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() && dereference != Dereference::Never {
+        fs::metadata(path)
+    } else {
+        Ok(metadata)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Options, parse_args};
+    use std::fs;
+    use std::os::unix::fs::symlink;
+
+    use super::{Options, metadata_for_compare, parse_args, same_file};
     use crate::common::fs::Dereference;
 
     fn parse(input: &[&str]) -> (Options, Vec<String>, String) {
@@ -202,5 +235,29 @@ mod tests {
     fn l_overrides_h_and_p() {
         let (options, _, _) = parse(&["-RHP", "-L", "src", "dest"]);
         assert_eq!(options.dereference, Dereference::Always);
+    }
+
+    #[test]
+    fn detects_same_regular_file() {
+        let dir = crate::common::unix::temp_dir("cp-same-file");
+        let path = dir.join("file");
+        fs::write(&path, b"hello").expect("write file");
+        assert!(same_file(&path, &path, Dereference::Always));
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn dereference_mode_controls_symlink_comparison() {
+        let dir = crate::common::unix::temp_dir("cp-same-symlink");
+        let path = dir.join("file");
+        let link = dir.join("link");
+        fs::write(&path, b"hello").expect("write file");
+        symlink(&path, &link).expect("create symlink");
+
+        assert!(!same_file(&link, &path, Dereference::Never));
+        assert!(same_file(&link, &path, Dereference::Always));
+        assert!(metadata_for_compare(&link, Dereference::Always).is_ok());
+
+        let _ = fs::remove_dir_all(dir);
     }
 }

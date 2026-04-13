@@ -354,6 +354,7 @@ run_old_style tests/busybox/cp/cp-parents
 run_old_style tests/busybox/cp/cp-preserves-hard-links
 run_old_style tests/busybox/cp/cp-preserves-links
 run_old_style tests/busybox/cp/cp-preserves-source-file
+run_old_style tests/busybox/cp/cp-refuses-same-file
 run_old_style tests/busybox/find/find-supports-minus-xdev
 
 run_old_style tests/busybox/gzip/gzip-accepts-single-minus

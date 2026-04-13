@@ -1,0 +1,10 @@
+set -eu
+
+printf 'hello\n' > file
+
+if busybox cp file file >/dev/null 2>&1; then
+	exit 1
+fi
+
+test "$(cat file)" = "hello"
+

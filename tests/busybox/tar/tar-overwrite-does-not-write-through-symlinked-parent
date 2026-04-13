@@ -1,0 +1,20 @@
+# FEATURE: CONFIG_FEATURE_TAR_CREATE
+# FEATURE: CONFIG_FEATURE_TAR_LONG_OPTIONS
+
+set -eu
+
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT HUP INT TERM
+
+mkdir -p "$tmpdir/src/dir/sub" "$tmpdir/outside/sub" "$tmpdir/dest"
+printf 'data\n' >"$tmpdir/src/dir/sub/file"
+printf 'keep\n' >"$tmpdir/outside/sub/file"
+(cd "$tmpdir/src" && tar cf "$tmpdir/archive.tar" dir/sub/file)
+ln -s "$tmpdir/outside" "$tmpdir/dest/dir"
+
+if busybox tar x --overwrite -f "$tmpdir/archive.tar" -C "$tmpdir/dest" >/dev/null 2>&1; then
+	exit 1
+fi
+
+test "$(cat "$tmpdir/outside/sub/file")" = "keep"
+

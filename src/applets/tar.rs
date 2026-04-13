@@ -542,12 +542,10 @@ fn extract_entry<R: Read>(
 ) -> Result<(), AppletError> {
     let entry_type = entry.header().entry_type();
     if entry_type.is_dir() {
-        let output_path = archive_path_in(destination, path, path_text)?;
+        let output_path = prepare_archive_path(destination, path, path_text, true)?;
         if options.keep_old && output_path.exists() {
             return Ok(());
         }
-        fs::create_dir_all(&output_path)
-            .map_err(|err| AppletError::from_io(APPLET, "extracting", Some(path_text), err))?;
         let mode = entry
             .header()
             .mode()
@@ -595,9 +593,10 @@ fn extract_regular_file<R: Read>(
     path_text: &str,
     options: &Options,
 ) -> Result<(), AppletError> {
-    let Some(output_path) = regular_output_path_in(destination, path) else {
+    let output_path = archive_path_in(destination, path, path_text)?;
+    if output_path == destination {
         return drain_entry(entry, path_text);
-    };
+    }
 
     if options.keep_old && path_exists(&output_path)? {
         return drain_entry(entry, path_text);
@@ -607,8 +606,7 @@ fn extract_regular_file<R: Read>(
         return extract_regular_file_overwrite(entry, destination, path, path_text);
     }
 
-    ensure_parent_dir(&output_path, path_text)?;
-    validate_parent_inside_destination(destination, &output_path, path_text)?;
+    prepare_archive_parents(destination, path, path_text)?;
 
     match fs::symlink_metadata(&output_path) {
         Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
@@ -648,11 +646,10 @@ fn extract_symlink<R: Read>(
     path_text: &str,
     options: &Options,
 ) -> Result<(), AppletError> {
-    let output_path = archive_path_in(destination, path, path_text)?;
+    let output_path = prepare_archive_path(destination, path, path_text, false)?;
     if options.keep_old && path_exists(&output_path)? {
         return drain_entry(entry, path_text);
     }
-    ensure_parent_dir(&output_path, path_text)?;
     remove_existing_path(&output_path, path_text)?;
     let Some(target) = entry
         .link_name()
@@ -673,11 +670,10 @@ fn extract_hardlink<R: Read>(
     path_text: &str,
     options: &Options,
 ) -> Result<(), AppletError> {
-    let output_path = archive_path_in(destination, path, path_text)?;
+    let output_path = prepare_archive_path(destination, path, path_text, false)?;
     if options.keep_old && path_exists(&output_path)? {
         return drain_entry(entry, path_text);
     }
-    ensure_parent_dir(&output_path, path_text)?;
     let Some(target) = entry
         .link_name()
         .map_err(|err| read_error(Some(path_text), err))?
@@ -688,6 +684,7 @@ fn extract_hardlink<R: Read>(
         ));
     };
     let target_path = archive_path_in(destination, &target, path_text)?;
+    validate_archive_ancestors(destination, &target, path_text, false)?;
     if output_path == target_path {
         if output_path.exists() {
             return Ok(());
@@ -715,8 +712,7 @@ fn extract_regular_file_overwrite<R: Read>(
     path: &Path,
     path_text: &str,
 ) -> Result<(), AppletError> {
-    let output_path = archive_path_in(destination, path, path_text)?;
-    ensure_parent_dir(&output_path, path_text)?;
+    let output_path = prepare_archive_path(destination, path, path_text, false)?;
 
     match fs::symlink_metadata(&output_path) {
         Ok(metadata) if metadata.is_dir() => {
@@ -772,50 +768,83 @@ fn archive_path_in(
     Ok(output)
 }
 
-fn regular_output_path_in(destination: &Path, archive_path: &Path) -> Option<PathBuf> {
-    let mut output = destination.to_path_buf();
-    for component in archive_path.components() {
-        match component {
-            Component::CurDir | Component::RootDir | Component::Prefix(_) => {}
-            Component::ParentDir => return None,
-            Component::Normal(part) => output.push(part),
-        }
-    }
-    (output != destination).then_some(output)
-}
-
-fn ensure_parent_dir(path: &Path, display: &str) -> Result<(), AppletError> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|err| extract_io_error(display, err))?;
-    }
-    Ok(())
-}
-
-fn validate_parent_inside_destination(
+fn prepare_archive_path(
     destination: &Path,
-    output_path: &Path,
+    archive_path: &Path,
+    display: &str,
+    create_leaf_dir: bool,
+) -> Result<PathBuf, AppletError> {
+    let output_path = archive_path_in(destination, archive_path, display)?;
+    validate_archive_ancestors(destination, archive_path, display, create_leaf_dir)?;
+    Ok(output_path)
+}
+
+fn prepare_archive_parents(
+    destination: &Path,
+    archive_path: &Path,
     display: &str,
 ) -> Result<(), AppletError> {
-    let Some(parent) = output_path.parent() else {
-        return Ok(());
-    };
-    let canon_parent = parent
-        .canonicalize()
-        .map_err(|err| extract_io_error(display, err))?;
-    let canon_destination = destination
-        .canonicalize()
-        .map_err(|err| extract_io_error(display, err))?;
-    if canon_parent.starts_with(&canon_destination) {
-        Ok(())
-    } else {
-        Err(AppletError::new(
-            APPLET,
-            format!(
-                "extracting {display}: trying to unpack outside of destination path: {}",
-                canon_destination.display()
-            ),
-        ))
+    validate_archive_ancestors(destination, archive_path, display, false)
+}
+
+fn validate_archive_ancestors(
+    destination: &Path,
+    archive_path: &Path,
+    display: &str,
+    create_leaf_dir: bool,
+) -> Result<(), AppletError> {
+    let mut current = destination.to_path_buf();
+    let mut components = archive_path.components().peekable();
+
+    while let Some(component) = components.next() {
+        match component {
+            Component::CurDir => continue,
+            Component::Normal(part) => {
+                current.push(part);
+                let is_last = components.peek().is_none();
+                if is_last && !create_leaf_dir {
+                    continue;
+                }
+
+                match fs::symlink_metadata(&current) {
+                    Ok(metadata) if metadata.file_type().is_symlink() => {
+                        return Err(AppletError::new(
+                            APPLET,
+                            format!(
+                                "extracting {display}: trying to unpack outside of destination path"
+                            ),
+                        ));
+                    }
+                    Ok(metadata) if metadata.is_dir() => {}
+                    Ok(_) => {
+                        return Err(AppletError::new(
+                            APPLET,
+                            format!("extracting {display}: Not a directory"),
+                        ));
+                    }
+                    Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                        fs::create_dir(&current).map_err(|create_err| {
+                            AppletError::from_io(
+                                APPLET,
+                                "extracting",
+                                Some(display),
+                                create_err,
+                            )
+                        })?;
+                    }
+                    Err(err) => return Err(extract_io_error(display, err)),
+                }
+            }
+            Component::RootDir | Component::ParentDir | Component::Prefix(_) => {
+                return Err(AppletError::new(
+                    APPLET,
+                    format!("extracting {display}: invalid path"),
+                ));
+            }
+        }
     }
+
+    Ok(())
 }
 
 fn path_exists(path: &Path) -> Result<bool, AppletError> {
@@ -1567,6 +1596,15 @@ mod tests {
         result
     }
 
+    fn extract_into(bytes: Vec<u8>, destination: &std::path::Path, overwrite: bool) -> Result<(), super::AppletError> {
+        let options = if overwrite {
+            parse(&["x", "--overwrite", "-f", "-"])
+        } else {
+            parse(&["xf", "-"])
+        };
+        super::extract_from_reader(Cursor::new(bytes), destination, &options, None)
+    }
+
     fn raw_header(entry_type: tar::EntryType, size: u64) -> Header {
         let mut header = Header::new_ustar();
         header.set_entry_type(entry_type);
@@ -1802,6 +1840,67 @@ mod tests {
 
         let err = extract_result(Cursor::new(bytes)).expect_err("expected short read");
         assert_eq!(err.to_string(), "tar: short read");
+    }
+
+    #[test]
+    fn symlinked_parent_is_rejected_before_creating_subdirs() {
+        let dir = crate::common::unix::temp_dir("tar-symlink-parent");
+        let src_dir = dir.join("src");
+        let outside = dir.join("outside");
+        let destination = dir.join("dest");
+        fs::create_dir_all(src_dir.join("dir/sub")).expect("create source tree");
+        fs::create_dir_all(&outside).expect("create outside dir");
+        fs::create_dir_all(&destination).expect("create destination dir");
+        fs::write(src_dir.join("dir/sub/file"), b"data").expect("write file");
+        std::os::unix::fs::symlink(&outside, destination.join("dir")).expect("create symlink");
+
+        let mut bytes = Vec::new();
+        let mut builder = Builder::new(&mut bytes);
+        builder
+            .append_path_with_name(src_dir.join("dir/sub/file"), "dir/sub/file")
+            .expect("append archive entry");
+        builder.finish().expect("finish archive");
+        drop(builder);
+
+        let err = extract_into(bytes, &destination, false).expect_err("expected escape rejection");
+        assert_eq!(
+            err.to_string(),
+            "tar: extracting dir/sub/file: trying to unpack outside of destination path"
+        );
+        assert!(!outside.join("sub").exists());
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn overwrite_mode_still_rejects_symlinked_parent() {
+        let dir = crate::common::unix::temp_dir("tar-overwrite-symlink-parent");
+        let src_dir = dir.join("src");
+        let outside = dir.join("outside");
+        let destination = dir.join("dest");
+        fs::create_dir_all(src_dir.join("dir/sub")).expect("create source tree");
+        fs::create_dir_all(outside.join("sub")).expect("create outside dir");
+        fs::create_dir_all(&destination).expect("create destination dir");
+        fs::write(src_dir.join("dir/sub/file"), b"data").expect("write file");
+        fs::write(outside.join("sub/file"), b"keep").expect("write outside file");
+        std::os::unix::fs::symlink(&outside, destination.join("dir")).expect("create symlink");
+
+        let mut bytes = Vec::new();
+        let mut builder = Builder::new(&mut bytes);
+        builder
+            .append_path_with_name(src_dir.join("dir/sub/file"), "dir/sub/file")
+            .expect("append archive entry");
+        builder.finish().expect("finish archive");
+        drop(builder);
+
+        let err = extract_into(bytes, &destination, true).expect_err("expected escape rejection");
+        assert_eq!(
+            err.to_string(),
+            "tar: extracting dir/sub/file: trying to unpack outside of destination path"
+        );
+        assert_eq!(fs::read(outside.join("sub/file")).expect("read outside file"), b"keep");
+
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

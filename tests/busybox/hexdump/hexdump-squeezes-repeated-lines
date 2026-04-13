@@ -1,0 +1,7 @@
+python3 - <<'PY' > input
+import sys
+sys.stdout.buffer.write(b'\0' * 32)
+PY
+busybox hexdump -C input > actual
+printf '00000000  00 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  |................|\n*\n00000020\n' > expected
+cmp expected actual

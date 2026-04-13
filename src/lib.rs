@@ -140,6 +140,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::head::main,
     },
     AppletEntry {
+        name: "hexdump",
+        main: applets::hexdump::main,
+    },
+    AppletEntry {
         name: "md5sum",
         main: applets::hashsum::main_md5sum,
     },

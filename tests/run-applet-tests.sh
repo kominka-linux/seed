@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown cmp cp date dd df diff du egrep env expr find grep gunzip gzip install ln ls lzcat lzma mkdir mkfifo mv od paste printf readlink realpath rm rmdir sleep sort split stat tar tee test time touch timeout tr tree uname unlzma unxz wc wget xz xzcat zcat '[' '[['; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown cmp cp date dd df diff du egrep env expr find grep gunzip gzip hexdump install ln ls lzcat lzma mkdir mkfifo mv od paste printf readlink realpath rm rmdir sleep sort split stat tar tee test time touch timeout tr tree uname unlzma unxz wc wget xz xzcat zcat '[' '[['; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -227,6 +227,11 @@ run_old_style tests/busybox/expr/expr-arithmetic
 run_old_style tests/busybox/expr/expr-logical-ops
 run_old_style tests/busybox/expr/expr-comparisons
 run_old_style tests/busybox/expr/expr-big-integers
+
+run_old_style tests/busybox/hexdump/hexdump-C-reads-stdin
+run_old_style tests/busybox/hexdump/hexdump-C-renders-file
+run_old_style tests/busybox/hexdump/hexdump-squeezes-repeated-lines
+run_old_style tests/busybox/hexdump/hexdump-v-disables-squeezing
 
 run_old_style tests/busybox/stat/stat-c-prints-size-mode-and-name
 run_old_style tests/busybox/stat/stat-c-reports-hard-links

@@ -23,6 +23,7 @@ pub mod grep;
 pub mod gzip;
 pub mod hashsum;
 pub mod head;
+pub mod hexdump;
 pub mod hostname;
 pub mod id;
 pub mod install;

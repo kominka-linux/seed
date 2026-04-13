@@ -6,6 +6,39 @@ Target platform note: this project targets Linux. Non-Linux hosts are only
 editor/build hosts; applet behavior and implementation should be treated as
 Linux-native.
 
+## Scrutiny Guide
+
+Use this to decide how much design and test effort an applet deserves.
+
+- Critical: package/data integrity, destructive filesystem changes, boot/auth,
+  mounts, block devices, or system state. These need adversarial tests,
+  malformed-input coverage, failure-path checks, and Linux integration tests.
+  Examples: `tar`, `patch`, `cpio`, `unzip`, compression applets, checksum
+  applets, `cp`, `mv`, `rm`, `ln`, `install`, `dd`, `chmod`, `chown`,
+  `chgrp`, `mount`, `umount`, `losetup`, `fsck`, `mkswap`, `swapon`,
+  `swapoff`, `pivot_root`, `switch_root`, `chroot`, `init`, `halt`,
+  `poweroff`, `reboot`, `login`, `passwd`, `su`, `sulogin`, `getty`, `mdev`.
+- High: script foundation and text-processing behavior where subtle drift
+  breaks builds, installers, or shell scripts. These need broad flag coverage
+  and host-oracle tests where behavior is stable. Examples: `awk`, `sed`,
+  `grep`, `egrep`, `fgrep`, `xargs`, `find`, `test`, `[`, `[[`, `expr`,
+  `sort`, `cut`, `tee`, `head`, `tail`, `stat`, `df`, `du`, `ls`, `date`,
+  `env`, `readlink`, `realpath`, `nohup`, `timeout`.
+- Routine: useful but failures are usually localized and obvious. These still
+  need solid tests, but not the same adversarial depth. Examples: `ps`,
+  `pgrep`, `pkill`, `kill`, `killall`, `free`, `uptime`, `watch`,
+  `hostname`, `nslookup`, `wget`, `which`, `run-parts`, `sysctl`, `flock`,
+  `setsid`, `less`, `man`, `tree`.
+- Low: trivial behavior or low consequence. Keep these simple and avoid
+  over-engineering. A few focused tests are enough. Examples: `yes`, `true`,
+  `false`, `whoami`, `pwd`, `printenv`, `basename`, `dirname`, `nproc`,
+  `tty`, `seq`, `rev`, `sleep`, `echo`.
+
+When in doubt: default to `Critical` for anything that can destroy data,
+mutate system state, or sits in the package/install path; default to `High`
+for parser-heavy or script-facing tools; default to `Low` only for pure,
+obvious output utilities.
+
 ## Archival Utilities
 
 - [x] bunzip2

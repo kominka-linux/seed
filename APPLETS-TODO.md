@@ -101,7 +101,6 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 
 ## Console Utilities
 
-- [ ] clear
 - [ ] reset
 - [ ] resize
 
@@ -110,12 +109,9 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [x] diff
 - [ ] awk
 - [ ] cmp
-- [ ] ed
 - [ ] hexdump
-- [ ] hexedit
 - [ ] patch
 - [ ] sed
-- [ ] vi
 
 ## Finding Utilities
 
@@ -143,6 +139,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] getty
 - [ ] login
 - [ ] mkpasswd
+- [ ] nologin
 - [ ] passwd
 - [ ] remove-shell
 - [ ] su
@@ -181,7 +178,6 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] mount
 - [ ] mountpoint
 - [ ] nsenter
-- [ ] nologin
 - [ ] pivot_root
 - [ ] setsid
 - [ ] swapoff
@@ -197,9 +193,9 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] lspci
 - [ ] lsscsi
 - [ ] lsusb
-- [ ] man
 - [ ] renice
 - [ ] rfkill
+- [ ] man
 - [ ] run-parts
 - [ ] script
 - [ ] scriptreplay
@@ -246,7 +242,6 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] ps
 - [ ] pstree
 - [ ] taskset
-- [ ] top
 - [ ] uptime
 - [ ] watch
 
@@ -268,3 +263,4 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - Runit utilities (runsv, runsvdir, sv, svc, svlogd, svok, chpst,
   envdir, envuidgid, setuidgid, softlimit) — provided by the separate
   runit package; implementing in seed would conflict
+- Interactive/TUI: top

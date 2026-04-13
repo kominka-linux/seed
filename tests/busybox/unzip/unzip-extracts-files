@@ -1,0 +1,16 @@
+python3 - <<'PY'
+import zipfile
+
+with zipfile.ZipFile('archive.zip', 'w', compression=zipfile.ZIP_DEFLATED) as z:
+    z.writestr('hello.txt', 'hello from zip\n')
+    z.writestr('nested/world.txt', 'nested\n')
+PY
+
+busybox unzip archive.zip >/dev/null
+
+test -f hello.txt
+test -f nested/world.txt
+printf 'hello from zip\n' > expected-hello
+printf 'nested\n' > expected-world
+cmp expected-hello hello.txt
+cmp expected-world nested/world.txt

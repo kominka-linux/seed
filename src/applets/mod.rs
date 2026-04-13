@@ -86,6 +86,7 @@ pub mod truncate;
 pub mod tty;
 pub mod uname;
 pub mod uniq;
+pub mod unzip;
 pub mod uptime;
 pub mod watch;
 pub mod wc;

@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown chroot cmp cp date dd df diff du egrep env expr find flock free getopt grep gunzip gzip hexdump install killall less ln ls lzcat lzma man mkdir mkfifo mountpoint mv nslookup od paste pgrep pkill printf ps readlink realpath rm rmdir run-parts setsid sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown chroot cmp cp date dd df diff du egrep env expr find flock free getopt grep gunzip gzip hexdump install killall less ln ls lzcat lzma man mkdir mkfifo mountpoint mv nslookup od paste pgrep pkill printf ps readlink realpath rm rmdir run-parts setsid sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz unzip uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -248,6 +248,12 @@ run_old_style tests/busybox/test/test-bracket-forms
 
 run_old_style tests/busybox/time/time-runs-command-and-prints-timings
 run_old_style tests/busybox/time/time-propagates-exit-status
+
+run_old_style tests/busybox/unzip/unzip-extracts-files
+run_old_style tests/busybox/unzip/unzip-d-extracts-into-directory
+run_old_style tests/busybox/unzip/unzip-l-lists-entries
+run_old_style tests/busybox/unzip/unzip-p-prints-selected-file
+run_old_style tests/busybox/unzip/unzip-rejects-path-traversal
 
 run_old_style tests/busybox/uptime/uptime-prints-linux-style-output
 run_old_style tests/busybox/uptime/uptime-matches-host-uptime-and-loads

@@ -436,6 +436,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::xz::main_unxz,
     },
     AppletEntry {
+        name: "unzip",
+        main: applets::unzip::main,
+    },
+    AppletEntry {
         name: "uptime",
         main: applets::uptime::main,
     },

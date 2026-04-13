@@ -22,7 +22,7 @@ Linux-native.
 - [x] xzcat
 - [x] tar
 - [ ] cpio
-- [ ] unzip
+- [x] unzip
 
 ## Coreutils
 

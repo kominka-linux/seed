@@ -1,0 +1,13 @@
+python3 - <<'PY'
+import zipfile
+
+with zipfile.ZipFile('archive.zip', 'w', compression=zipfile.ZIP_DEFLATED) as z:
+    z.writestr('../escape.txt', 'blocked\n')
+PY
+
+if busybox unzip archive.zip >/dev/null 2>stderr; then
+    exit 1
+fi
+
+test ! -e escape.txt
+grep "unsafe path" stderr

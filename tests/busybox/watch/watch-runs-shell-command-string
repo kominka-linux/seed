@@ -1,0 +1,10 @@
+rm -f ticks
+if busybox timeout 0.18 busybox watch -n 0.05 'printf x >> ticks' >/dev/null 2>&1; then
+	exit 1
+else
+	status=$?
+fi
+test "$status" -eq 124 || exit 1
+test -f ticks || exit 1
+count=$(wc -c < ticks)
+test "$count" -ge 2

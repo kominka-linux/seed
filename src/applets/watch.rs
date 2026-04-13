@@ -12,8 +12,7 @@ const APPLET: &str = "watch";
 #[derive(Clone, Debug, PartialEq)]
 struct Options {
     interval: f64,
-    command: String,
-    args: Vec<String>,
+    command: Vec<String>,
 }
 
 pub fn main(args: &[String]) -> i32 {
@@ -24,19 +23,17 @@ fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
     let options = parse_args(args)?;
 
     loop {
-        let status = Command::new(&options.command)
-            .args(&options.args)
+        let status = Command::new("sh")
+            .arg("-c")
+            .arg(render_command(&options.command))
             .status()
             .map_err(|err| {
                 vec![AppletError::new(
                     APPLET,
-                    format!("failed to execute '{}': {err}", options.command),
+                    format!("failed to execute watch command: {err}"),
                 )]
             })?;
-        let code = exit_code(status);
-        if code == 127 {
-            return Ok(code);
-        }
+        let _ = exit_code(status);
         thread::sleep(Duration::from_secs_f64(options.interval));
     }
 }
@@ -64,14 +61,40 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
             ArgToken::Operand(command) => {
                 return Ok(Options {
                     interval,
-                    command: command.to_owned(),
-                    args: cursor.remaining().to_vec(),
+                    command: std::iter::once(command.to_owned())
+                        .chain(cursor.remaining().iter().cloned())
+                        .collect(),
                 });
             }
         }
     }
 
     Err(vec![AppletError::new(APPLET, "missing operand")])
+}
+
+fn render_command(command: &[String]) -> String {
+    if command.len() == 1 {
+        return command[0].clone();
+    }
+
+    command
+        .iter()
+        .map(|arg| shell_escape(arg))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn shell_escape(arg: &str) -> String {
+    if arg.is_empty() {
+        return String::from("''");
+    }
+    if arg
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || b"-_./:".contains(&byte))
+    {
+        return arg.to_owned();
+    }
+    format!("'{}'", arg.replace('\'', r"'\''"))
 }
 
 fn parse_interval(value: &str) -> Result<f64, Vec<AppletError>> {
@@ -93,7 +116,7 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{Options, parse_args};
+    use super::{Options, parse_args, render_command};
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
@@ -106,8 +129,7 @@ mod tests {
             options,
             Options {
                 interval: 0.5,
-                command: String::from("echo"),
-                args: vec![String::from("hi")],
+                command: vec![String::from("echo"), String::from("hi")],
             }
         );
     }
@@ -116,12 +138,20 @@ mod tests {
     fn parses_attached_interval() {
         let options = parse_args(&args(&["-n0.5", "echo"])).expect("parse watch");
         assert_eq!(options.interval, 0.5);
-        assert_eq!(options.command, "echo");
-        assert!(options.args.is_empty());
+        assert_eq!(options.command, vec![String::from("echo")]);
     }
 
     #[test]
     fn rejects_missing_command() {
         assert!(parse_args(&args(&["-n", "1"])).is_err());
+    }
+
+    #[test]
+    fn renders_multi_argument_command_for_shell() {
+        assert_eq!(
+            render_command(&args(&["echo", "hello world"])),
+            "echo 'hello world'"
+        );
+        assert_eq!(render_command(&args(&["echo hi"])), "echo hi");
     }
 }

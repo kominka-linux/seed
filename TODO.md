@@ -9,6 +9,9 @@ Keep this short and current. Prefer discrete items with tests.
 - [x] High-app review: make `timeout` terminate the whole process group and escalate from `SIGTERM` to `SIGKILL`.
 - [x] High-app review: make `readlink -f` normalize `..` across canceled missing components.
 - [x] High-app review: accept `+HH:MM` and `-HH:MM` timezone offsets in `date -d`.
+- [x] Routine-app review: narrow `pgrep` / `pkill` / `killall` matching to the process name and `argv[0]`.
+- [x] Routine-app review: make `watch` execute command strings through `sh -c`.
+- [x] Routine-app review: make `hostname -s` real and reject extra operands.
 
 ## Coverage
 

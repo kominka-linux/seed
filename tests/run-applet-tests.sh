@@ -277,14 +277,17 @@ run_old_style tests/busybox/ps/ps-lists-child-process
 run_old_style tests/busybox/ps/ps-rejects-extra-operand
 
 run_old_style tests/busybox/pgrep/pgrep-finds-child-process
+run_old_style tests/busybox/pgrep/pgrep-does-not-match-script-name-in-wrapper-argv
 run_old_style tests/busybox/pgrep/pgrep-exits-one-when-no-match
 run_old_style tests/busybox/pgrep/pgrep-rejects-missing-pattern
 
 run_old_style tests/busybox/pkill/pkill-terminates-matching-child
+run_old_style tests/busybox/pkill/pkill-does-not-kill-wrapper-shell-by-script-argv
 run_old_style tests/busybox/pkill/pkill-exits-one-when-no-match
 run_old_style tests/busybox/pkill/pkill-rejects-missing-pattern
 
 run_old_style tests/busybox/killall/killall-terminates-exact-name-match
+run_old_style tests/busybox/killall/killall-does-not-kill-wrapper-shell-by-script-argv
 run_old_style tests/busybox/killall/killall-exits-one-when-no-match
 run_old_style tests/busybox/killall/killall-rejects-missing-name
 
@@ -301,6 +304,9 @@ run_old_style tests/busybox/flock/flock-c-runs-command-string
 run_old_style tests/busybox/nslookup/nslookup-resolves-localhost
 run_old_style tests/busybox/nslookup/nslookup-fails-unknown-host
 run_old_style tests/busybox/nslookup/nslookup-rejects-missing-host
+
+run_old_style tests/busybox/hostname/hostname-s-prints-short-hostname
+run_old_style tests/busybox/hostname/hostname-rejects-extra-operands
 
 run_old_style tests/busybox/patch/patch-applies-stdin-unified-diff
 run_old_style tests/busybox/patch/patch-uses-new-path-when-old-missing
@@ -334,6 +340,7 @@ run_old_style tests/busybox/man/man-fails-missing-page
 run_old_style tests/busybox/man/man-rejects-missing-operand
 
 run_old_style tests/busybox/watch/watch-runs-command-repeatedly
+run_old_style tests/busybox/watch/watch-runs-shell-command-string
 run_old_style tests/busybox/watch/watch-rejects-invalid-interval
 
 run_old_style tests/busybox/run-parts/run-parts-runs-executable-scripts-in-order

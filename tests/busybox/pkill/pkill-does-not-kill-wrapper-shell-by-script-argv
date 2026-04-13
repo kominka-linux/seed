@@ -1,0 +1,13 @@
+cat > wrapper-pkill-target <<'EOF'
+#!/bin/sh
+sleep 30
+EOF
+chmod +x wrapper-pkill-target
+sh ./wrapper-pkill-target &
+child=$!
+sleep 0.1
+busybox pkill wrapper-pkill-target >/dev/null 2>&1
+test $? -eq 1 || exit 1
+kill -0 "$child" 2>/dev/null || exit 1
+kill "$child" 2>/dev/null || true
+wait "$child" 2>/dev/null || true

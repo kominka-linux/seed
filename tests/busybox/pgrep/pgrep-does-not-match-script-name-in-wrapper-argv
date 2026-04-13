@@ -1,0 +1,15 @@
+cat > wrapper-pgrep-target <<'EOF'
+#!/bin/sh
+sleep 30
+EOF
+chmod +x wrapper-pgrep-target
+sh ./wrapper-pgrep-target &
+child=$!
+sleep 0.1
+if busybox pgrep wrapper-pgrep-target >/dev/null 2>&1; then
+	kill "$child" 2>/dev/null || true
+	wait "$child" 2>/dev/null || true
+	exit 1
+fi
+kill "$child" 2>/dev/null || true
+wait "$child" 2>/dev/null || true

@@ -14,7 +14,12 @@ pub(crate) struct ProcessInfo {
 
 impl ProcessInfo {
     pub(crate) fn matches_pattern(&self, pattern: &str) -> bool {
-        self.name.contains(pattern) || self.command.contains(pattern)
+        self.name.contains(pattern)
+            || self
+                .command
+                .split_whitespace()
+                .next()
+                .is_some_and(|part| basename(part).contains(pattern))
     }
 
     pub(crate) fn matches_exact_name(&self, target: &str) -> bool {
@@ -22,7 +27,8 @@ impl ProcessInfo {
             || self
                 .command
                 .split_whitespace()
-                .any(|part| basename(part) == target)
+                .next()
+                .is_some_and(|part| basename(part) == target)
     }
 }
 
@@ -153,6 +159,7 @@ fn tty_for_pid_linux(pid: i32) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::ProcessInfo;
     #[cfg(target_os = "linux")]
     use super::{list_processes, parse_linux_stat_text};
 
@@ -171,5 +178,19 @@ mod tests {
             .expect("parse stat");
         assert_eq!(stat.name, "seed worker");
         assert!(stat.cpu_time_ns > 0);
+    }
+
+    #[test]
+    fn pattern_matching_uses_name_and_argv0_only() {
+        let process = ProcessInfo {
+            pid: 1,
+            tty: String::from("??"),
+            cpu_time_ns: 0,
+            name: String::from("match-proc"),
+            command: String::from("/bin/sh ./wrapper-target --flag"),
+        };
+        assert!(process.matches_pattern("match-proc"));
+        assert!(!process.matches_pattern("wrapper-target"));
+        assert!(!process.matches_exact_name("wrapper-target"));
     }
 }

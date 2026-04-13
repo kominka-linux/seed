@@ -1,0 +1,2 @@
+busybox hostname one two >/dev/null 2>&1
+test $? -eq 1

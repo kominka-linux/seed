@@ -14,6 +14,7 @@ pub fn main(args: &[String]) -> i32 {
 fn run(args: &[String]) -> AppletResult {
     let mut file: Option<&str> = None;
     let mut new_name: Option<&str> = None;
+    let mut short = false;
     let mut i = 0;
 
     while i < args.len() {
@@ -21,9 +22,13 @@ fn run(args: &[String]) -> AppletResult {
         match arg.as_str() {
             "--" => {
                 i += 1;
-                if i < args.len() {
-                    new_name = Some(&args[i]);
+                if i >= args.len() {
+                    break;
                 }
+                if new_name.is_some() || i + 1 != args.len() {
+                    return Err(vec![AppletError::new(APPLET, "extra operand")]);
+                }
+                new_name = Some(&args[i]);
                 break;
             }
             "-F" | "--file" => {
@@ -33,15 +38,19 @@ fn run(args: &[String]) -> AppletResult {
                 }
                 file = Some(&args[i]);
             }
-            // -s: print short hostname (strip domain suffix) - treated as a no-op modifier
-            "-s" => {}
+            "-s" => short = true,
             a if a.starts_with('-') && a.len() > 1 => {
                 return Err(vec![AppletError::invalid_option(
                     APPLET,
                     a.chars().nth(1).unwrap_or('-'),
                 )]);
             }
-            _ => new_name = Some(arg),
+            _ => {
+                if new_name.is_some() {
+                    return Err(vec![AppletError::new(APPLET, "extra operand")]);
+                }
+                new_name = Some(arg);
+            }
         }
         i += 1;
     }
@@ -58,9 +67,18 @@ fn run(args: &[String]) -> AppletResult {
     }
 
     let name = get_hostname()?;
+    let name = if short {
+        shorten_hostname(&name)
+    } else {
+        name
+    };
     let mut out = stdout();
     writeln!(out, "{name}").map_err(|e| vec![AppletError::from_io(APPLET, "writing", None, e)])?;
     Ok(())
+}
+
+fn shorten_hostname(name: &str) -> String {
+    name.split('.').next().unwrap_or(name).to_owned()
 }
 
 fn get_hostname() -> Result<String, Vec<AppletError>> {
@@ -103,7 +121,7 @@ fn set_hostname(name: &str) -> AppletResult {
 
 #[cfg(test)]
 mod tests {
-    use super::{get_hostname, run, set_hostname};
+    use super::{get_hostname, run, set_hostname, shorten_hostname};
 
     fn args(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
@@ -122,5 +140,16 @@ mod tests {
     #[test]
     fn hostname_rejects_nul_bytes() {
         assert!(set_hostname("bad\0name").is_err());
+    }
+
+    #[test]
+    fn shortens_domain_name() {
+        assert_eq!(shorten_hostname("host.example.com"), "host");
+        assert_eq!(shorten_hostname("host"), "host");
+    }
+
+    #[test]
+    fn rejects_extra_operands() {
+        assert!(run(&args(&["one", "two"])).is_err());
     }
 }

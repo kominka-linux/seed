@@ -67,7 +67,7 @@ mod tests {
     }
 
     #[test]
-    fn matches_exact_name_against_command_tokens() {
+    fn does_not_match_later_command_tokens() {
         let process = ProcessInfo {
             pid: 1,
             tty: String::from("??"),
@@ -75,7 +75,7 @@ mod tests {
             name: String::from("sh"),
             command: String::from("/bin/sh ./match-killall-target"),
         };
-        assert!(process.matches_exact_name("match-killall-target"));
+        assert!(!process.matches_exact_name("match-killall-target"));
         assert!(!process.matches_exact_name("killall-target"));
     }
 }

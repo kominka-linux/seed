@@ -1,0 +1,13 @@
+cat > wrapper-killall-target <<'EOF'
+#!/bin/sh
+sleep 30
+EOF
+chmod +x wrapper-killall-target
+sh ./wrapper-killall-target &
+child=$!
+sleep 0.1
+busybox killall wrapper-killall-target >/dev/null 2>&1
+test $? -eq 1 || exit 1
+kill -0 "$child" 2>/dev/null || exit 1
+kill "$child" 2>/dev/null || true
+wait "$child" 2>/dev/null || true

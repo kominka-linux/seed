@@ -9,8 +9,6 @@ use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET: &str = "sysctl";
-// TODO: Replace this temporary BSD sysctl-by-name implementation with the
-// Linux /proc/sys-backed behavior this project actually targets.
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct Options {
@@ -192,6 +190,9 @@ fn format_value(bytes: &[u8]) -> String {
 mod tests {
     use super::{Options, format_value, parse_args};
 
+    #[cfg(target_os = "linux")]
+    use super::linux_sysctl_path;
+
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
     }
@@ -199,11 +200,14 @@ mod tests {
     #[test]
     fn parses_n_and_names() {
         let (options, names) =
-            parse_args(&args(&["-n", "kern.ostype", "hw.ncpu"])).expect("parse sysctl");
+            parse_args(&args(&["-n", "kernel.ostype", "kernel.pid_max"])).expect("parse sysctl");
         assert_eq!(options, Options { values_only: true });
         assert_eq!(
             names,
-            vec![String::from("kern.ostype"), String::from("hw.ncpu")]
+            vec![
+                String::from("kernel.ostype"),
+                String::from("kernel.pid_max")
+            ]
         );
     }
 
@@ -211,5 +215,15 @@ mod tests {
     fn formats_strings_and_integers() {
         assert_eq!(format_value(b"Darwin\0"), "Darwin");
         assert_eq!(format_value(&10_i32.to_ne_bytes()), "10");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn maps_linux_keys_to_proc_sys_paths() {
+        assert_eq!(
+            linux_sysctl_path("kernel.ostype").expect("linux key"),
+            "/proc/sys/kernel/ostype"
+        );
+        assert!(linux_sysctl_path("kernel/ostype").is_err());
     }
 }

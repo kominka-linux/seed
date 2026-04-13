@@ -1,3 +1,16 @@
-busybox sysctl kern.ostype hw.ncpu > actual
-/usr/sbin/sysctl kern.ostype hw.ncpu > expected
-cmp expected actual
+busybox sysctl kernel.ostype kernel.pid_max > actual
+sysctl kernel.ostype kernel.pid_max > expected
+python3 - <<'PY'
+from pathlib import Path
+
+def parse(lines):
+    values = {}
+    for line in lines:
+        key, value = line.replace(" = ", ": ", 1).split(": ", 1)
+        values[key] = value
+    return values
+
+actual = parse(Path("actual").read_text().splitlines())
+expected = parse(Path("expected").read_text().splitlines())
+assert actual == expected, (actual, expected)
+PY

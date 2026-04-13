@@ -303,6 +303,7 @@ run_old_style tests/busybox/patch/patch-file-operand-overrides-header
 run_old_style tests/busybox/patch/patch-creates-new-file
 run_old_style tests/busybox/patch/patch-p1-strips-leading-component
 run_old_style tests/busybox/patch/patch-fails-without-partial-write
+run_old_style tests/busybox/patch/patch-refuses-symlink-target
 
 run_old_style tests/busybox/sysctl/sysctl-prints-keyed-values
 run_old_style tests/busybox/sysctl/sysctl-n-suppresses-keys

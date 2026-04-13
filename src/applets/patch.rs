@@ -128,7 +128,25 @@ fn apply_chunk(chunk: &[u8], options: &Options) -> AppletResult {
     let display = target.display().to_string();
     let creates_file = patch_creates_file(&patch);
     let deletes_file = patch_deletes_file(&patch);
-    let file_exists = target.exists();
+    let target_metadata = match fs::symlink_metadata(&target) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            return Err(vec![AppletError::new(
+                APPLET,
+                format!("refusing to patch symlink {display}"),
+            )]);
+        }
+        Ok(metadata) => Some(metadata),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+        Err(err) => {
+            return Err(vec![AppletError::from_io(
+                APPLET,
+                "reading",
+                Some(&display),
+                err,
+            )]);
+        }
+    };
+    let file_exists = target_metadata.is_some();
 
     if creates_file && !file_exists {
         eprintln!("creating {display}");
@@ -191,13 +209,48 @@ fn apply_chunk(chunk: &[u8], options: &Options) -> AppletResult {
 }
 
 fn write_target(path: &Path, contents: &[u8]) -> std::io::Result<()> {
-    let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .open(path)?;
-    file.write_all(contents)?;
-    file.flush()
+    let (temp_path, mut file) = create_temp_output(path)?;
+    if let Err(err) = file.write_all(contents) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(err);
+    }
+    if let Err(err) = file.flush() {
+        let _ = fs::remove_file(&temp_path);
+        return Err(err);
+    }
+    drop(file);
+    if let Err(err) = fs::rename(&temp_path, path) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(err);
+    }
+    Ok(())
+}
+
+fn create_temp_output(path: &Path) -> std::io::Result<(PathBuf, std::fs::File)> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let base = path.file_name().unwrap_or(path.as_os_str());
+
+    for attempt in 0..1024_u32 {
+        let candidate = parent.join(format!(
+            "{}.seed-tmp-{}-{attempt}",
+            base.to_string_lossy(),
+            std::process::id()
+        ));
+        match OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&candidate)
+        {
+            Ok(file) => return Ok((candidate, file)),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(err),
+        }
+    }
+
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        format!("failed to create temporary output for {}", path.display()),
+    ))
 }
 
 fn target_path(patch: &Patch<'_, [u8]>, options: &Options) -> Result<PathBuf, Vec<AppletError>> {
@@ -371,6 +424,25 @@ mod tests {
             fs::read(dir.join("testfile")).expect("read file"),
             b"qwerty\n"
         );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn apply_chunk_refuses_symlink_target() {
+        let dir = crate::common::unix::temp_dir("patch-symlink");
+        fs::write(dir.join("real"), b"old\n").expect("write target");
+        std::os::unix::fs::symlink("real", dir.join("link")).expect("create symlink");
+        let patch = b"--- link\n+++ link\n@@ -1 +1 @@\n-old\n+new\n";
+
+        let previous = std::env::current_dir().expect("cwd");
+        std::env::set_current_dir(&dir).expect("chdir");
+
+        let result = apply_chunk(patch, &Options::default());
+
+        std::env::set_current_dir(previous).expect("restore cwd");
+        let err = result.expect_err("expected symlink refusal");
+        assert_eq!(err[0].to_string(), "patch: refusing to patch symlink link");
+        assert_eq!(fs::read(dir.join("real")).expect("read target"), b"old\n");
         let _ = fs::remove_dir_all(dir);
     }
 }

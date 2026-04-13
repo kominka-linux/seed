@@ -320,6 +320,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::split::main,
     },
     AppletEntry {
+        name: "setsid",
+        main: applets::setsid::main,
+    },
+    AppletEntry {
         name: "strings",
         main: applets::strings::main,
     },

@@ -157,7 +157,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [ ] mount
 - [ ] mountpoint
 - [ ] pivot_root
-- [ ] setsid
+- [x] setsid
 - [ ] swapoff
 - [ ] swapon
 - [ ] switch_root

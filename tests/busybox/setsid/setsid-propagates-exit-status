@@ -1,0 +1,2 @@
+busybox setsid sh -c 'exit 7'
+test "$?" -eq 7

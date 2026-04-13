@@ -58,6 +58,7 @@ pub mod rm;
 pub mod rmdir;
 pub mod run_parts;
 pub mod seq;
+pub mod setsid;
 pub mod shuf;
 pub mod sleep;
 pub mod sort;

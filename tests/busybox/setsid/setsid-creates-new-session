@@ -1,0 +1,6 @@
+busybox setsid python3 - <<'PY'
+import os
+import sys
+
+sys.exit(0 if os.getsid(0) == os.getpid() else 1)
+PY

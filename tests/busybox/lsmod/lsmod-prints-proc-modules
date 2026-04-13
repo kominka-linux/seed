@@ -1,0 +1,12 @@
+test -r /proc/modules || exit 0
+
+busybox lsmod >actual
+
+sed -n '1p' actual | grep '^Module[[:space:]][[:space:]]*Size[[:space:]][[:space:]]*Used by'
+test "$(wc -l < actual)" -eq $(( $(wc -l < /proc/modules) + 1 ))
+
+if [ -s /proc/modules ]; then
+	expected=$(awk 'NR == 1 { deps=$4; sub(/,$/, "", deps); if (deps == "-") { print $1, $2, $3 } else { print $1, $2, $3, deps } }' /proc/modules)
+	actual_first=$(awk 'NR == 2 { if (NF >= 4) { print $1, $2, $3, $4 } else { print $1, $2, $3 } }' actual)
+	test "$actual_first" = "$expected"
+fi

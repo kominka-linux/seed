@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown chroot cmp cp date dd df diff du egrep env expr find flock free getopt grep gunzip gzip hexdump install killall less ln ls lzcat lzma man mkdir mkfifo mountpoint mv nologin nslookup od paste patch pgrep pkill printf ps readlink realpath rm rmdir run-parts setsid sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz unzip uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown chroot cmp cp date dd df diff du egrep env expr find flock free getopt grep gunzip gzip hexdump install killall less ln ls lsmod lzcat lzma man mkdir mkfifo mountpoint mv nologin nslookup od paste patch pgrep pkill printf ps readlink realpath rm rmdir run-parts setsid sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz unzip uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -271,6 +271,9 @@ run_old_style tests/busybox/xargs/xargs-p2-runs-jobs-in-parallel
 run_old_style tests/busybox/less/less-prints-file
 run_old_style tests/busybox/less/less-reads-stdin
 run_old_style tests/busybox/less/less-concatenates-multiple-inputs
+
+run_old_style tests/busybox/lsmod/lsmod-prints-proc-modules
+run_old_style tests/busybox/lsmod/lsmod-rejects-extra-operand
 
 run_old_style tests/busybox/ps/ps-prints-header-and-self
 run_old_style tests/busybox/ps/ps-lists-child-process

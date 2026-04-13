@@ -174,7 +174,7 @@ obvious output utilities.
 
 - [ ] depmod
 - [ ] insmod
-- [ ] lsmod
+- [x] lsmod
 - [ ] modinfo
 - [ ] modprobe
 - [ ] rmmod

@@ -201,53 +201,41 @@ fn create_archive(options: &Options) -> Result<(), AppletError> {
         return Err(AppletError::new(APPLET, "no files to archive"));
     }
 
-    match options.archive.as_deref() {
-        Some("-") | None => {
-            let writer = stdout();
-            match options.compression {
-                Some(CompressionMode::Gzip) => {
-                    let encoder = GzEncoder::new(writer, Compression::new(6));
-                    write_archive(encoder, options)
-                }
-                Some(CompressionMode::Bzip2) => {
-                    let encoder = BzEncoder::new(writer, Bzip2Compression::new(6));
-                    write_archive(encoder, options)
-                }
-                Some(CompressionMode::Xz) => {
-                    let encoder = XzWriter::new(writer, XzOptions::with_preset(6))
-                        .map(|writer| writer.auto_finish())
-                        .map_err(|err| AppletError::from_io(APPLET, "creating", None, err))?;
-                    write_archive(encoder, options)
-                }
-                None => write_archive(writer, options),
-            }
-        }
+    let writer = open_archive_output(options)?;
+    write_archive(writer, options)
+}
+
+fn open_archive_output(options: &Options) -> Result<Box<dyn Write>, AppletError> {
+    let destination = options.archive.as_deref().filter(|path| *path != "-");
+    let writer: Box<dyn Write> = match destination {
         Some(path) => {
             let file = File::create(path)
                 .map_err(|err| AppletError::from_io(APPLET, "creating", Some(path), err))?;
-            let writer = BufWriter::with_capacity(BUFFER_SIZE, file);
-            match options.compression {
-                Some(CompressionMode::Gzip) => {
-                    let encoder = GzEncoder::new(writer, Compression::new(6));
-                    write_archive(encoder, options)
-                }
-                Some(CompressionMode::Bzip2) => {
-                    let encoder = BzEncoder::new(writer, Bzip2Compression::new(6));
-                    write_archive(encoder, options)
-                }
-                Some(CompressionMode::Xz) => {
-                    let encoder = XzWriter::new(writer, XzOptions::with_preset(6))
-                        .map(|writer| writer.auto_finish())
-                        .map_err(|err| AppletError::from_io(APPLET, "creating", Some(path), err))?;
-                    write_archive(encoder, options)
-                }
-                None => write_archive(writer, options),
-            }
+            Box::new(BufWriter::with_capacity(BUFFER_SIZE, file))
         }
+        None => Box::new(stdout()),
+    };
+    wrap_archive_output(writer, options.compression, destination)
+}
+
+fn wrap_archive_output(
+    writer: Box<dyn Write>,
+    compression: Option<CompressionMode>,
+    destination: Option<&str>,
+) -> Result<Box<dyn Write>, AppletError> {
+    match compression {
+        Some(CompressionMode::Gzip) => Ok(Box::new(GzEncoder::new(writer, Compression::new(6)))),
+        Some(CompressionMode::Bzip2) => {
+            Ok(Box::new(BzEncoder::new(writer, Bzip2Compression::new(6))))
+        }
+        Some(CompressionMode::Xz) => XzWriter::new(writer, XzOptions::with_preset(6))
+            .map(|writer| Box::new(writer.auto_finish()) as Box<dyn Write>)
+            .map_err(|err| AppletError::from_io(APPLET, "creating", destination, err)),
+        None => Ok(writer),
     }
 }
 
-fn write_archive<W: Write>(writer: W, options: &Options) -> Result<(), AppletError> {
+fn write_archive(writer: Box<dyn Write>, options: &Options) -> Result<(), AppletError> {
     let mut builder = Builder::new(writer);
     builder.follow_symlinks(false);
     let mut seen_hardlinks = HashMap::new();
@@ -407,30 +395,12 @@ fn extract_archive(options: &Options) -> Result<(), AppletError> {
         None
     };
 
-    match input {
-        ArchiveInput::Plain(reader) => {
-            extract_from_reader(reader, &destination, options, output.as_mut())
-        }
-        ArchiveInput::Gzip(reader) => {
-            extract_from_reader(reader, &destination, options, output.as_mut())
-        }
-        ArchiveInput::Bzip2(reader) => {
-            extract_from_reader(reader, &destination, options, output.as_mut())
-        }
-        ArchiveInput::Xz(reader) => {
-            extract_from_reader(reader, &destination, options, output.as_mut())
-        }
-    }
+    extract_from_reader(input, &destination, options, output.as_mut())
 }
 
 fn list_archive(options: &Options) -> Result<(), AppletError> {
     let input = open_archive_input(options)?;
-    match input {
-        ArchiveInput::Plain(reader) => list_from_reader(reader, options),
-        ArchiveInput::Gzip(reader) => list_from_reader(reader, options),
-        ArchiveInput::Bzip2(reader) => list_from_reader(reader, options),
-        ArchiveInput::Xz(reader) => list_from_reader(reader, options),
-    }
+    list_from_reader(input, options)
 }
 
 enum ArchiveInput {
@@ -438,6 +408,17 @@ enum ArchiveInput {
     Gzip(MultiGzDecoder<BufReader<Input>>),
     Bzip2(MultiBzDecoder<BufReader<Input>>),
     Xz(Box<XzReader<BufReader<Input>>>),
+}
+
+impl Read for ArchiveInput {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Self::Plain(reader) => reader.read(buf),
+            Self::Gzip(reader) => reader.read(buf),
+            Self::Bzip2(reader) => reader.read(buf),
+            Self::Xz(reader) => reader.read(buf),
+        }
+    }
 }
 
 fn open_archive_input(options: &Options) -> Result<ArchiveInput, AppletError> {
@@ -451,12 +432,16 @@ fn open_archive_input(options: &Options) -> Result<ArchiveInput, AppletError> {
             .map_err(|err| AppletError::from_io(APPLET, "reading", Some(archive), err))?,
     };
 
-    Ok(match compression {
+    Ok(wrap_archive_input(reader, compression))
+}
+
+fn wrap_archive_input(reader: BufReader<Input>, compression: Option<CompressionMode>) -> ArchiveInput {
+    match compression {
         Some(CompressionMode::Gzip) => ArchiveInput::Gzip(MultiGzDecoder::new(reader)),
         Some(CompressionMode::Bzip2) => ArchiveInput::Bzip2(MultiBzDecoder::new(reader)),
         Some(CompressionMode::Xz) => ArchiveInput::Xz(Box::new(XzReader::new(reader, true))),
         None => ArchiveInput::Plain(reader),
-    })
+    }
 }
 
 fn detect_compression<R: BufRead>(reader: &mut R) -> io::Result<Option<CompressionMode>> {

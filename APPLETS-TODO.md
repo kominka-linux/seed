@@ -91,7 +91,7 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [x] stat
 - [ ] stty
 - [x] test / [ / [[
-- [ ] tree
+- [x] tree
 
 ## Editors
 

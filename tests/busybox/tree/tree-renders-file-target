@@ -1,0 +1,4 @@
+printf 'x\n' > file
+busybox tree file > actual
+printf 'file\n' > expected
+cmp expected actual

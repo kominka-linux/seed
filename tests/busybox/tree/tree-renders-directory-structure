@@ -1,0 +1,16 @@
+mkdir fixture
+mkdir fixture/dir
+mkdir fixture/dir/sub
+printf 'a\n' > fixture/alpha
+printf 'b\n' > fixture/dir/sub/beta
+ln -s alpha fixture/link
+busybox tree fixture > actual
+cat > expected <<'EOF'
+fixture
+|-- alpha
+|-- dir
+|   `-- sub
+|       `-- beta
+`-- link -> alpha
+EOF
+cmp expected actual

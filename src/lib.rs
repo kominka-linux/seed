@@ -308,6 +308,10 @@ const APPLETS: &[AppletEntry] = &[
         main: applets::tr::main,
     },
     AppletEntry {
+        name: "tree",
+        main: applets::tree::main,
+    },
+    AppletEntry {
         name: "true",
         main: applets::true_false::main_true,
     },

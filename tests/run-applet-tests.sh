@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod cmp cp date diff du egrep env expr find grep gunzip gzip ln ls lzcat lzma mkdir mkfifo mv od paste printf readlink realpath rm rmdir sleep sort stat tar tee test touch timeout tr uname unlzma unxz wc wget xz xzcat zcat '[' '[['; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod cmp cp date diff du egrep env expr find grep gunzip gzip ln ls lzcat lzma mkdir mkfifo mv od paste printf readlink realpath rm rmdir sleep sort stat tar tee test touch timeout tr tree uname unlzma unxz wc wget xz xzcat zcat '[' '[['; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -225,6 +225,9 @@ run_old_style tests/busybox/test/test-no-args-false
 run_old_style tests/busybox/test/test-string-and-file-predicates
 run_old_style tests/busybox/test/test-bang-and-boolean-ops
 run_old_style tests/busybox/test/test-bracket-forms
+
+run_old_style tests/busybox/tree/tree-renders-directory-structure
+run_old_style tests/busybox/tree/tree-renders-file-target
 
 run_old_style tests/busybox/cp/cp-RHL-does_not_preserve-links
 run_old_style tests/busybox/cp/cp-a-files-to-dir

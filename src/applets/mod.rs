@@ -57,6 +57,7 @@ pub mod test;
 pub mod timeout;
 pub mod touch;
 pub mod tr;
+pub mod tree;
 pub mod true_false;
 pub mod truncate;
 pub mod tty;

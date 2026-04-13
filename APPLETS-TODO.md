@@ -1,6 +1,5 @@
 # Applets TODO
 
-Applets enabled in `busybox-config` that remain to be implemented.
 Implemented applets (registered in `src/lib.rs`) are checked off.
 
 ## Archival Utilities
@@ -65,44 +64,34 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [x] yes
 - [x] base32
 - [x] base64
-- [ ] chgrp
-- [ ] chown
-- [ ] chroot
-- [ ] cksum
-- [ ] crc32
-- [ ] dd
-- [ ] df
-- [ ] du
-- [ ] expr
-- [ ] groups
 - [x] id
-- [ ] install
 - [x] link
 - [x] ln
 - [x] md5sum / sha1sum / sha256sum / sha512sum
-- [ ] mkfifo
-- [ ] nice
 - [x] paste
 - [x] readlink
 - [x] realpath
 - [x] rev
 - [x] shuf
-- [ ] split
-- [ ] stat
 - [x] strings
-- [ ] stty
 - [x] sync / fsync
-- [ ] test / [ / [[
 - [x] timeout
 - [x] touch
 - [x] tr
+- [ ] chgrp
+- [ ] chown
+- [ ] chroot
+- [ ] dd
+- [ ] df
+- [ ] du
+- [ ] expr
+- [ ] install
+- [ ] mkfifo
+- [ ] split
+- [ ] stat
+- [ ] stty
+- [ ] test / [ / [[
 - [ ] tree
-- [ ] usleep
-
-## Console Utilities
-
-- [ ] reset
-- [ ] resize
 
 ## Editors
 
@@ -129,19 +118,14 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 
 ## Login / Password Management
 
-- [ ] add-shell
 - [ ] addgroup
 - [ ] adduser
-- [ ] chpasswd
-- [ ] cryptpw
 - [ ] delgroup
 - [ ] deluser
 - [ ] getty
 - [ ] login
-- [ ] mkpasswd
 - [ ] nologin
 - [ ] passwd
-- [ ] remove-shell
 - [ ] su
 - [ ] sulogin
 
@@ -163,21 +147,15 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 - [x] losetup
 - [ ] acpid
 - [ ] blkid
-- [ ] crond
-- [ ] crontab
 - [ ] dmesg
-- [ ] fallocate
 - [ ] fdisk
 - [ ] flock
-- [ ] fstrim
 - [ ] getopt
 - [ ] hwclock
-- [ ] logger
 - [ ] mdev
 - [ ] mkswap
 - [ ] mount
 - [ ] mountpoint
-- [ ] nsenter
 - [ ] pivot_root
 - [ ] setsid
 - [ ] swapoff
@@ -190,77 +168,127 @@ Implemented applets (registered in `src/lib.rs`) are checked off.
 
 - [ ] less
 - [ ] lsattr / chattr
-- [ ] lspci
-- [ ] lsscsi
-- [ ] lsusb
-- [ ] renice
-- [ ] rfkill
 - [ ] man
 - [ ] run-parts
-- [ ] script
-- [ ] scriptreplay
-- [ ] seedrng
-- [ ] setpriv
-- [ ] shred
 - [ ] time
-- [ ] ts
-- [ ] tsort
-- [ ] unshare
 - [x] which
 
 ## Networking Utilities
 
 - [x] wget
 - [x] hostname
-- [ ] arp
-- [ ] brctl
 - [ ] ifconfig
 - [ ] ip
 - [ ] netstat
 - [ ] nslookup
 - [ ] ntpd
 - [ ] ping / ping6
-- [ ] route
-- [ ] tc
-- [ ] traceroute / traceroute6
+- [ ] rfkill
 - [ ] udhcpc
 - [ ] udhcpd
 
 ## Process Utilities
 
-- [ ] chrt
-- [ ] free
-- [ ] fuser
-- [ ] ionice
 - [x] kill
+- [ ] free
 - [ ] killall
 - [ ] killall5
 - [ ] lsof
 - [ ] pgrep
-- [ ] pidof
 - [ ] pkill
 - [ ] ps
-- [ ] pstree
-- [ ] taskset
 - [ ] uptime
 - [ ] watch
-
-## Shells
-
-- [ ] cttyhack
 
 ## System Logging Utilities
 
 - [ ] klogd
-- [ ] logread
 - [ ] syslogd
+
+---
+
+## Tier 2
+
+Useful for specific but not unusual tasks — implement after Tier 1.
+
+### Coreutils
+
+- [ ] cksum
+- [ ] groups
+- [ ] nice
+
+### Console Utilities
+
+- [ ] reset
+
+### Login / Password Management
+
+- [ ] chpasswd
+- [ ] mkpasswd
+
+### Linux System Utilities
+
+- [ ] fallocate
+- [ ] nsenter
+
+### Miscellaneous Utilities
+
+- [ ] lspci
+- [ ] lsusb
+- [ ] renice
+- [ ] script
+- [ ] shred
+- [ ] unshare
+
+### Networking Utilities
+
+- [ ] arp
+- [ ] brctl
+- [ ] route
+- [ ] tc
+- [ ] traceroute / traceroute6
+
+### Process Utilities
+
+- [ ] chrt
+- [ ] fuser
+- [ ] ionice
+- [ ] pidof
+- [ ] pstree
+- [ ] taskset
+
+### System Logging Utilities
+
+- [ ] logread
+
+---
+
+## Tier 3
+
+Niche, hardware-specific, or very rarely needed.
+
+### Console Utilities
+
+- [ ] resize
+
+### Linux System Utilities
+
+- [ ] fstrim
+
+---
 
 ## Won't Do
 
 - ash — ysh is the system shell
 - ssl_client — curl handles TLS
 - uevent — disabled from busybox; mdev covers device events
+- top — interactive TUI process viewer
+- crond / crontab — cron provided by dedicated packages
+- add-shell / remove-shell — too niche; /etc/shells rarely managed this way
+- crc32 / cryptpw / scriptreplay / seedrng / setpriv / ts / tsort — too obscure or covered by other tools
+- lsscsi — legacy SCSI hardware
+- cttyhack — too specific to old busybox init TTY hacks
+- usleep — sleep handles fractional seconds on modern systems
 - Runit utilities (runsv, runsvdir, sv, svc, svlogd, svok, chpst,
   envdir, envuidgid, setuidgid, softlimit) — provided by the separate
   runit package; implementing in seed would conflict
-- Interactive/TUI: top

@@ -1,11 +1,11 @@
-use std::ffi::CString;
+use std::fs;
 use std::io::Write;
-use std::mem::MaybeUninit;
 
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET: &str = "free";
+const PROC_MEMINFO: &str = "/proc/meminfo";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Unit {
@@ -20,7 +20,7 @@ struct Options {
     unit: Unit,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Stats {
     mem_total: u64,
     mem_used: u64,
@@ -97,107 +97,82 @@ fn scale(value: u64, unit: Unit) -> u64 {
     }
 }
 
-#[cfg(target_os = "macos")]
 fn read_stats() -> Result<Stats, Vec<AppletError>> {
-    // TODO: Replace this temporary Darwin memory collection with Linux-native
-    // sources such as /proc/meminfo or sysinfo(2).
-    let mem_total = read_sysctl_u64("hw.memsize")?;
-    let page_size = read_sysctl_u64("hw.pagesize")?;
-
-    let mut vm = MaybeUninit::<libc::vm_statistics64>::uninit();
-    let mut count = libc::HOST_VM_INFO64_COUNT;
-    // SAFETY: `vm` points to writable storage for `host_statistics64`, and
-    // `count` is initialized to the documented structure count.
-    #[allow(deprecated)]
-    let rc = unsafe {
-        libc::host_statistics64(
-            libc::mach_host_self(),
-            libc::HOST_VM_INFO64,
-            vm.as_mut_ptr().cast(),
-            &mut count,
-        )
-    };
-    if rc != libc::KERN_SUCCESS {
-        return Err(vec![AppletError::new(
+    let meminfo = fs::read_to_string(PROC_MEMINFO).map_err(|err| {
+        vec![AppletError::from_io(
             APPLET,
-            "reading virtual memory statistics failed",
-        )]);
-    }
-    // SAFETY: `host_statistics64` initialized `vm` on success.
-    let vm = unsafe { vm.assume_init() };
-    let mem_free = (u64::from(vm.free_count) + u64::from(vm.speculative_count)) * page_size;
-    let mem_used = mem_total.saturating_sub(mem_free);
+            "reading",
+            Some(PROC_MEMINFO),
+            err,
+        )]
+    })?;
+    parse_meminfo(&meminfo).map_err(|err| vec![err])
+}
 
-    let swap = read_swap_usage()?;
+fn parse_meminfo(meminfo: &str) -> Result<Stats, AppletError> {
+    let mut mem_total_kib = None;
+    let mut mem_free_kib = None;
+    let mut swap_total_kib = None;
+    let mut swap_free_kib = None;
+
+    for line in meminfo.lines() {
+        let Some((key, value_kib)) = parse_meminfo_line(line)? else {
+            continue;
+        };
+        match key {
+            "MemTotal" => mem_total_kib = Some(value_kib),
+            "MemFree" => mem_free_kib = Some(value_kib),
+            "SwapTotal" => swap_total_kib = Some(value_kib),
+            "SwapFree" => swap_free_kib = Some(value_kib),
+            _ => {}
+        }
+    }
+
+    let mem_total = required_meminfo_value("MemTotal", mem_total_kib)?;
+    let mem_free = required_meminfo_value("MemFree", mem_free_kib)?;
+    let swap_total = required_meminfo_value("SwapTotal", swap_total_kib)?;
+    let swap_free = required_meminfo_value("SwapFree", swap_free_kib)?;
+
     Ok(Stats {
-        mem_total,
-        mem_used,
-        mem_free,
-        swap_total: swap.xsu_total,
-        swap_used: swap.xsu_used,
-        swap_free: swap.xsu_avail,
+        mem_total: mem_total * 1024,
+        mem_used: mem_total.saturating_sub(mem_free) * 1024,
+        mem_free: mem_free * 1024,
+        swap_total: swap_total * 1024,
+        swap_used: swap_total.saturating_sub(swap_free) * 1024,
+        swap_free: swap_free * 1024,
     })
 }
 
-#[cfg(not(target_os = "macos"))]
-fn read_stats() -> Result<Stats, Vec<AppletError>> {
-    Err(vec![AppletError::new(
-        APPLET,
-        "unsupported on this platform",
-    )])
-}
-
-#[cfg(target_os = "macos")]
-fn read_sysctl_u64(name: &str) -> Result<u64, Vec<AppletError>> {
-    let c_name = CString::new(name)
-        .map_err(|_| vec![AppletError::new(APPLET, format!("invalid key '{name}'"))])?;
-    let mut value = 0_u64;
-    let mut size = std::mem::size_of::<u64>();
-    // SAFETY: `c_name` is NUL-terminated and `value` points to writable memory.
-    let rc = unsafe {
-        libc::sysctlbyname(
-            c_name.as_ptr(),
-            (&mut value as *mut u64).cast(),
-            &mut size,
-            std::ptr::null_mut(),
-            0,
-        )
+fn parse_meminfo_line(line: &str) -> Result<Option<(&str, u64)>, AppletError> {
+    let Some((key, rest)) = line.split_once(':') else {
+        return Ok(None);
     };
-    if rc != 0 || size != std::mem::size_of::<u64>() {
-        Err(vec![AppletError::new(
+    let mut parts = rest.split_whitespace();
+    let Some(value) = parts.next() else {
+        return Ok(None);
+    };
+    let Some(unit) = parts.next() else {
+        return Ok(None);
+    };
+    if unit != "kB" {
+        return Ok(None);
+    }
+    let value = value.parse::<u64>().map_err(|_| {
+        AppletError::new(
             APPLET,
-            format!("reading sysctl '{name}' failed"),
-        )])
-    } else {
-        Ok(value)
-    }
+            format!("invalid numeric value for '{key}' in {PROC_MEMINFO}"),
+        )
+    })?;
+    Ok(Some((key, value)))
 }
 
-#[cfg(target_os = "macos")]
-fn read_swap_usage() -> Result<libc::xsw_usage, Vec<AppletError>> {
-    let name = CString::new("vm.swapusage").expect("static string is NUL-free");
-    let mut usage = MaybeUninit::<libc::xsw_usage>::uninit();
-    let mut size = std::mem::size_of::<libc::xsw_usage>();
-    // SAFETY: `usage` points to writable memory for the kernel to initialize.
-    let rc = unsafe {
-        libc::sysctlbyname(
-            name.as_ptr(),
-            usage.as_mut_ptr().cast(),
-            &mut size,
-            std::ptr::null_mut(),
-            0,
-        )
-    };
-    if rc != 0 || size != std::mem::size_of::<libc::xsw_usage>() {
-        return Err(vec![AppletError::new(APPLET, "reading swap usage failed")]);
-    }
-    // SAFETY: `sysctlbyname` initialized `usage` on success.
-    Ok(unsafe { usage.assume_init() })
+fn required_meminfo_value(name: &str, value: Option<u64>) -> Result<u64, AppletError> {
+    value.ok_or_else(|| AppletError::new(APPLET, format!("missing '{name}' in {PROC_MEMINFO}")))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Options, Unit, parse_args, scale};
+    use super::{Options, Stats, Unit, parse_args, parse_meminfo, scale};
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
@@ -210,8 +185,43 @@ mod tests {
             Options { unit: Unit::MiB }
         );
         assert_eq!(
-            parse_args(&[]).expect("parse free"),
+            parse_args(&args(&[])).expect("parse free"),
             Options { unit: Unit::KiB }
+        );
+    }
+
+    #[test]
+    fn parses_linux_meminfo() {
+        let stats = parse_meminfo(
+            "\
+MemTotal:        4096 kB
+MemFree:         1024 kB
+SwapTotal:       2048 kB
+SwapFree:         512 kB
+",
+        )
+        .expect("parse meminfo");
+
+        assert_eq!(
+            stats,
+            Stats {
+                mem_total: 4096 * 1024,
+                mem_used: 3072 * 1024,
+                mem_free: 1024 * 1024,
+                swap_total: 2048 * 1024,
+                swap_used: 1536 * 1024,
+                swap_free: 512 * 1024,
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_missing_meminfo_fields() {
+        let error = parse_meminfo("MemTotal: 4096 kB\nMemFree: 1024 kB\n")
+            .expect_err("missing swap fields should fail");
+        assert_eq!(
+            error.to_string(),
+            "free: missing 'SwapTotal' in /proc/meminfo"
         );
     }
 

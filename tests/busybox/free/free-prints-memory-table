@@ -10,6 +10,8 @@ mem = re.split(r"\s+", lines[1].strip())
 swap = re.split(r"\s+", lines[2].strip())
 assert mem[0] == "Mem:", mem
 assert swap[0] == "Swap:", swap
+assert len(mem) == 4, mem
+assert len(swap) == 4, swap
 for value in mem[1:] + swap[1:]:
     assert value.isdigit(), value
 PY

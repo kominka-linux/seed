@@ -1,0 +1,26 @@
+busybox free -k > actual
+ACTUAL_PATH=actual python3 - <<'PY'
+import re
+from pathlib import Path
+
+def read_meminfo() -> dict[str, int]:
+    values = {}
+    for line in Path("/proc/meminfo").read_text().splitlines():
+        key, rest = line.split(":", 1)
+        values[key] = int(rest.strip().split()[0])
+    return values
+
+lines = Path("actual").read_text().splitlines()
+assert len(lines) >= 3, lines
+mem = re.split(r"\s+", lines[1].strip())
+swap = re.split(r"\s+", lines[2].strip())
+info = read_meminfo()
+
+assert mem[0] == "Mem:", mem
+assert mem[1] == str(info["MemTotal"]), mem
+assert int(mem[1]) == int(mem[2]) + int(mem[3]), mem
+
+assert swap[0] == "Swap:", swap
+assert swap[1] == str(info["SwapTotal"]), swap
+assert int(swap[1]) == int(swap[2]) + int(swap[3]), swap
+PY

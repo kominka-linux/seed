@@ -290,7 +290,7 @@ run_old_style tests/busybox/getopt/getopt-fails-invalid-option
 run_old_style tests/busybox/getopt/getopt-fails-missing-option-argument
 
 run_old_style tests/busybox/free/free-prints-memory-table
-run_old_style tests/busybox/free/free-m-total-matches-hw-memsize
+run_old_style tests/busybox/free/free-k-values-match-proc-meminfo
 run_old_style tests/busybox/free/free-rejects-invalid-option
 
 run_old_style tests/busybox/man/man-displays-manpage

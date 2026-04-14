@@ -1,0 +1,21 @@
+tmpdir="${TMPDIR:-/tmp}/seed-deluser-files-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir/etc"
+
+cat >"$tmpdir/etc/passwd" <<'EOF'
+alice:x:1000:1000::/home/alice:/bin/sh
+EOF
+
+cat >"$tmpdir/etc/group" <<'EOF'
+alice:x:1000:
+staff:x:1005:alice
+EOF
+
+cat >"$tmpdir/etc/shadow" <<'EOF'
+alice:!:20557:0:99999:7:::
+EOF
+
+SEED_ETC_DIR="$tmpdir/etc" busybox deluser alice
+test ! -s "$tmpdir/etc/passwd"
+grep '^staff:x:1005:$' "$tmpdir/etc/group"
+test ! -s "$tmpdir/etc/shadow"

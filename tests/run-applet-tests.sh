@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown chroot cmp cp date dd df diff dmesg du egrep env expr find flock free getopt grep gunzip gzip halt hexdump insmod install killall killall5 less ln ls lsmod lsof lzcat lzma man mkdir mkfifo mountpoint mv nologin nslookup od paste patch pgrep pkill poweroff printf ps readlink realpath reboot rfkill rm rmdir rmmod run-parts setsid sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz unzip uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
+for applet in addgroup adduser busybox bunzip2 bzip2 bzcat cat chmod chgrp chown chroot cmp cp date dd delgroup deluser df diff dmesg du egrep env expr find flock free getopt grep gunzip gzip halt hexdump insmod install killall killall5 less ln ls lsmod lsof lzcat lzma man mkdir mkfifo mountpoint mv nologin nslookup od paste patch pgrep pkill poweroff printf ps readlink realpath reboot rfkill rm rmdir rmmod run-parts setsid sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz unzip uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -177,6 +177,17 @@ run_new_style tar.tests ':FEATURE_SEAMLESS_GZ:GUNZIP:'
 
 run_old_style tests/busybox/cat/cat-prints-a-file
 run_old_style tests/busybox/cat/cat-prints-a-file-and-standard-input
+
+run_old_style tests/busybox/addgroup/addgroup-creates-group
+run_old_style tests/busybox/addgroup/addgroup-adds-user-to-existing-group
+run_old_style tests/busybox/adduser/adduser-creates-user-group-shadow-and-home
+run_old_style tests/busybox/adduser/adduser-supports-existing-primary-group
+run_old_style tests/busybox/adduser/adduser-adds-existing-user-to-group
+run_old_style tests/busybox/delgroup/delgroup-removes-user-from-group
+run_old_style tests/busybox/delgroup/delgroup-deletes-unused-group
+run_old_style tests/busybox/delgroup/delgroup-refuses-primary-group
+run_old_style tests/busybox/deluser/deluser-removes-user-from-account-files
+run_old_style tests/busybox/deluser/deluser-remove-home
 
 run_old_style tests/busybox/basename/basename-strips-suffix
 run_old_style tests/busybox/basename/basename-multiple-names

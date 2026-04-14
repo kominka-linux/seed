@@ -154,10 +154,10 @@ obvious output utilities.
 
 ## Login / Password Management
 
-- [ ] addgroup
-- [ ] adduser
-- [ ] delgroup
-- [ ] deluser
+- [x] addgroup
+- [x] adduser
+- [x] delgroup
+- [x] deluser
 - [ ] getty
 - [ ] login
 - [x] nologin

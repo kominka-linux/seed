@@ -1,5 +1,7 @@
 macro_rules! define_applet_modules {
     () => {
+        pub mod addgroup;
+        pub mod adduser;
         pub mod base64;
         pub mod basename;
         pub mod bzip2;
@@ -13,6 +15,8 @@ macro_rules! define_applet_modules {
         pub mod cut;
         pub mod date;
         pub mod dd;
+        pub mod delgroup;
+        pub mod deluser;
         pub mod df;
         pub mod diff;
         pub mod dmesg;
@@ -114,6 +118,14 @@ macro_rules! define_applet_entries {
     ($entry:ident) => {
         &[
             $entry {
+                name: "addgroup",
+                main: applets::addgroup::main,
+            },
+            $entry {
+                name: "adduser",
+                main: applets::adduser::main,
+            },
+            $entry {
                 name: "base32",
                 main: applets::base64::main_base32,
             },
@@ -176,6 +188,14 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "dd",
                 main: applets::dd::main,
+            },
+            $entry {
+                name: "delgroup",
+                main: applets::delgroup::main,
+            },
+            $entry {
+                name: "deluser",
+                main: applets::deluser::main,
             },
             $entry {
                 name: "df",

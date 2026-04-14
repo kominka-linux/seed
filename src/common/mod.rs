@@ -1,3 +1,4 @@
+pub mod account;
 pub mod applet;
 pub mod args;
 pub mod error;

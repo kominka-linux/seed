@@ -1,0 +1,12 @@
+tmpdir="${TMPDIR:-/tmp}/seed-adduser-primary-group-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir/etc"
+
+cat >"$tmpdir/etc/group" <<'EOF'
+staff:x:1005:
+EOF
+
+SEED_ETC_DIR="$tmpdir/etc" busybox adduser -D -H -G staff alice
+
+grep '^alice:x:1000:1005::/home/alice:/bin/sh$' "$tmpdir/etc/passwd"
+grep '^staff:x:1005:alice$' "$tmpdir/etc/group"

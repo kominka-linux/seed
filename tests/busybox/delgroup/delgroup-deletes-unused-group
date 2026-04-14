@@ -1,0 +1,10 @@
+tmpdir="${TMPDIR:-/tmp}/seed-delgroup-delete-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir/etc"
+
+cat >"$tmpdir/etc/group" <<'EOF'
+devs:x:1005:
+EOF
+
+SEED_ETC_DIR="$tmpdir/etc" busybox delgroup devs
+test ! -s "$tmpdir/etc/group"

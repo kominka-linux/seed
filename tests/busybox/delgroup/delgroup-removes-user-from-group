@@ -1,0 +1,10 @@
+tmpdir="${TMPDIR:-/tmp}/seed-delgroup-member-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir/etc"
+
+cat >"$tmpdir/etc/group" <<'EOF'
+staff:x:1005:alice,bob
+EOF
+
+SEED_ETC_DIR="$tmpdir/etc" busybox delgroup alice staff
+grep '^staff:x:1005:bob$' "$tmpdir/etc/group"

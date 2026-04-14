@@ -1,0 +1,12 @@
+tmpdir="${TMPDIR:-/tmp}/seed-adduser-create-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir/etc" "$tmpdir/skel"
+
+printf 'from skel\n' >"$tmpdir/skel/welcome.txt"
+
+SEED_ETC_DIR="$tmpdir/etc" busybox adduser -D -h "$tmpdir/home/alice" -k "$tmpdir/skel" alice
+
+grep '^alice:x:1000:1000::'"$tmpdir"'/home/alice:/bin/sh$' "$tmpdir/etc/passwd"
+grep '^alice:x:1000:$' "$tmpdir/etc/group"
+grep '^alice:!:' "$tmpdir/etc/shadow"
+test -f "$tmpdir/home/alice/welcome.txt"

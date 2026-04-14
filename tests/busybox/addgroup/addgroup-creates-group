@@ -1,0 +1,10 @@
+tmpdir="${TMPDIR:-/tmp}/seed-addgroup-create-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir/etc"
+
+cat >"$tmpdir/etc/group" <<'EOF'
+root:x:0:
+EOF
+
+SEED_ETC_DIR="$tmpdir/etc" busybox addgroup -g 123 devs
+grep '^devs:x:123:$' "$tmpdir/etc/group"

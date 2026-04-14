@@ -1,8 +1,11 @@
 use std::collections::HashSet;
+use std::process::Command;
 
 use crate::common::applet::{AppletResult, finish};
 use crate::common::error::AppletError;
-use crate::common::modules::{ModuleEntry, ModuleIndex, delete_module, finit_module, module_tree_dir};
+use crate::common::modules::{
+    ModprobeConfig, ModuleEntry, ModuleIndex, delete_module, finit_module, module_tree_dir,
+};
 
 const APPLET: &str = "modprobe";
 
@@ -15,6 +18,12 @@ struct Options {
     params: Vec<String>,
 }
 
+#[derive(Clone, Copy)]
+enum RequestKind {
+    Explicit,
+    Alias,
+}
+
 pub fn main(args: &[String]) -> i32 {
     finish(run(args))
 }
@@ -24,12 +33,13 @@ fn run(args: &[String]) -> AppletResult {
     let root = module_tree_dir(None).map_err(|err| vec![map_module_error(err)])?;
     let index = ModuleIndex::scan(&root)
         .map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some(&root.to_string_lossy()), err)])?;
+    let config = ModprobeConfig::load().map_err(|err| vec![AppletError::new(APPLET, err.to_string())])?;
     let module = options.module.as_deref().unwrap_or_default();
 
     if options.remove {
-        remove_module(&index, module, options.quiet, options.dry_run)
+        remove_request(&index, &config, module, options.quiet, options.dry_run)
     } else {
-        insert_module_request(&index, module, &options.params, options.quiet, options.dry_run)
+        insert_request(&index, &config, module, &options.params, options.quiet, options.dry_run)
     }
 }
 
@@ -66,17 +76,15 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     Ok(options)
 }
 
-fn insert_module_request(
+fn insert_request(
     index: &ModuleIndex,
+    config: &ModprobeConfig,
     request: &str,
     params: &[String],
     quiet: bool,
     dry_run: bool,
 ) -> AppletResult {
-    if index.is_builtin(request) {
-        return Ok(());
-    }
-    let Some(entry) = index.resolve_alias(request) else {
+    let Some(entry) = resolve_request(index, config, request, RequestKind::Explicit, &mut HashSet::new())? else {
         return if quiet {
             Ok(())
         } else {
@@ -89,23 +97,33 @@ fn insert_module_request(
 
     let mut order = Vec::new();
     let mut seen = HashSet::new();
-    dependency_order(index, entry, &mut seen, &mut order)?;
+    dependency_order(index, config, entry, &mut seen, &mut order)?;
 
     for module in order {
         if dry_run {
             continue;
         }
-        let module_params = if module.name == entry.name { params } else { &[] };
-        finit_module(&module.path, module_params).map_err(wrap_module_error)?;
+        let mut module_params = config.module_options(&module.name);
+        if module.name == entry.name {
+            module_params.extend(params.iter().cloned());
+        }
+        if let Some(command) = config.install_command(&module.name) {
+            run_module_command(command, &module.name, &module_params)?;
+        } else {
+            finit_module(&module.path, &module_params).map_err(wrap_module_error)?;
+        }
     }
     Ok(())
 }
 
-fn remove_module(index: &ModuleIndex, request: &str, quiet: bool, dry_run: bool) -> AppletResult {
-    if index.is_builtin(request) {
-        return Ok(());
-    }
-    let Some(entry) = index.get(request) else {
+fn remove_request(
+    index: &ModuleIndex,
+    config: &ModprobeConfig,
+    request: &str,
+    quiet: bool,
+    dry_run: bool,
+) -> AppletResult {
+    let Some(entry) = resolve_request(index, config, request, RequestKind::Explicit, &mut HashSet::new())? else {
         return if quiet {
             Ok(())
         } else {
@@ -118,20 +136,66 @@ fn remove_module(index: &ModuleIndex, request: &str, quiet: bool, dry_run: bool)
 
     let mut order = Vec::new();
     let mut seen = HashSet::new();
-    dependency_order(index, entry, &mut seen, &mut order)?;
+    dependency_order(index, config, entry, &mut seen, &mut order)?;
     order.reverse();
 
     for module in order {
         if dry_run {
             continue;
         }
-        delete_module(&module.name, libc::O_NONBLOCK).map_err(wrap_module_error)?;
+        if let Some(command) = config.remove_command(&module.name) {
+            run_module_command(command, &module.name, &[])?;
+        } else {
+            delete_module(&module.name, libc::O_NONBLOCK).map_err(wrap_module_error)?;
+        }
     }
     Ok(())
 }
 
+fn resolve_request<'a>(
+    index: &'a ModuleIndex,
+    config: &ModprobeConfig,
+    request: &str,
+    kind: RequestKind,
+    resolving_aliases: &mut HashSet<String>,
+) -> Result<Option<&'a ModuleEntry>, Vec<AppletError>> {
+    if index.is_builtin(request) {
+        return Ok(None);
+    }
+    if let Some(entry) = index.get(request) {
+        if matches!(kind, RequestKind::Alias) && config.is_blacklisted(&entry.name) {
+            return Err(vec![AppletError::new(
+                APPLET,
+                format!("module '{}' is blacklisted", entry.name),
+            )]);
+        }
+        return Ok(Some(entry));
+    }
+
+    if let Some(target) = config.resolve_config_alias(request) {
+        let key = format!("cfg:{request}");
+        if !resolving_aliases.insert(key) {
+            return Err(vec![AppletError::new(
+                APPLET,
+                format!("alias loop detected for '{request}'"),
+            )]);
+        }
+        return resolve_request(index, config, target, RequestKind::Alias, resolving_aliases);
+    }
+
+    let resolved = index.resolve_alias(request);
+    if matches!(kind, RequestKind::Alias) && let Some(entry) = resolved && config.is_blacklisted(&entry.name) {
+        return Err(vec![AppletError::new(
+            APPLET,
+            format!("module '{}' is blacklisted", entry.name),
+        )]);
+    }
+    Ok(resolved)
+}
+
 fn dependency_order<'a>(
     index: &'a ModuleIndex,
+    config: &ModprobeConfig,
     entry: &'a ModuleEntry,
     seen: &mut HashSet<String>,
     order: &mut Vec<&'a ModuleEntry>,
@@ -139,20 +203,50 @@ fn dependency_order<'a>(
     if !seen.insert(entry.name.clone()) {
         return Ok(());
     }
+
+    let softdep = config.softdep(&entry.name);
+    for dependency in &softdep.pre {
+        dependency_visit(index, config, dependency, seen, order)?;
+    }
     for dependency in entry.metadata.depends() {
-        if index.is_builtin(&dependency) {
-            continue;
-        }
-        let dep_entry = index.get(&dependency).ok_or_else(|| {
-            vec![AppletError::new(
-                APPLET,
-                format!("dependency '{dependency}' for '{}' not found", entry.name),
-            )]
-        })?;
-        dependency_order(index, dep_entry, seen, order)?;
+        dependency_visit(index, config, &dependency, seen, order)?;
     }
     order.push(entry);
+    for dependency in &softdep.post {
+        dependency_visit(index, config, dependency, seen, order)?;
+    }
     Ok(())
+}
+
+fn dependency_visit<'a>(
+    index: &'a ModuleIndex,
+    config: &ModprobeConfig,
+    request: &str,
+    seen: &mut HashSet<String>,
+    order: &mut Vec<&'a ModuleEntry>,
+) -> AppletResult {
+    let Some(entry) = resolve_request(index, config, request, RequestKind::Alias, &mut HashSet::new())? else {
+        return Ok(());
+    };
+    dependency_order(index, config, entry, seen, order)
+}
+
+fn run_module_command(command: &str, module: &str, params: &[String]) -> AppletResult {
+    let status = Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .env("MODPROBE_MODULE", module)
+        .env("CMDLINE_OPTS", params.join(" "))
+        .status()
+        .map_err(|err| vec![AppletError::from_io(APPLET, "running", None, err)])?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(vec![AppletError::new(
+            APPLET,
+            format!("command failed: {command}"),
+        )])
+    }
 }
 
 fn wrap_module_error(error: AppletError) -> Vec<AppletError> {
@@ -170,11 +264,11 @@ mod tests {
     #[test]
     fn parses_load_and_remove_flags() {
         assert_eq!(
-            parse_args(&["-rq".into(), "loop".into()]).expect("modprobe args"),
+            parse_args(&["-rqn".into(), "loop".into()]).expect("modprobe args"),
             Options {
                 remove: true,
                 quiet: true,
-                dry_run: false,
+                dry_run: true,
                 module: Some(String::from("loop")),
                 params: Vec::new(),
             }

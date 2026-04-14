@@ -1,0 +1,26 @@
+modules="$PWD/lib/modules/1.0"
+conf="$PWD/modprobe.d"
+mkdir -p "$modules/kernel/net" "$conf"
+
+printf '\0license=GPL\0' > "$modules/kernel/net/pre.ko"
+printf '\0license=GPL\0' > "$modules/kernel/net/hard.ko"
+printf '\0license=GPL\0' > "$modules/kernel/net/post.ko"
+printf '\0depends=hard\0license=GPL\0' > "$modules/kernel/net/driver.ko"
+
+cat > "$conf/driver.conf" <<'EOF'
+softdep driver pre: pre post: post
+options driver debug=1 mode=fast
+install driver printf 'install:%s:%s\n' "$MODPROBE_MODULE" "$CMDLINE_OPTS" >> "$PWD/cmd.log"
+EOF
+
+log="$PWD/actions.log"
+SEED_MODULES_DIR="$modules" \
+SEED_MODPROBE_DIRS="$conf" \
+SEED_MODULE_ACTION_LOG="$log" \
+	busybox modprobe driver color=blue
+
+sed -n '1p' "$log" | grep "insmod $modules/kernel/net/pre.ko\$"
+sed -n '2p' "$log" | grep "insmod $modules/kernel/net/hard.ko\$"
+sed -n '3p' "$log" | grep "insmod $modules/kernel/net/post.ko\$"
+grep '^install:driver:debug=1 mode=fast color=blue$' "$PWD/cmd.log"
+

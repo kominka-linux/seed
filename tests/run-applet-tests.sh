@@ -230,6 +230,9 @@ if [ "$is_linux" -eq 1 ]; then
 	run_old_style tests/busybox/modinfo/modinfo-reads-module-fields
 	run_old_style tests/busybox/modprobe/modprobe-loads-alias-and-dependencies
 	run_old_style tests/busybox/modprobe/modprobe-r-unloads-reverse-order
+	run_old_style tests/busybox/modprobe/modprobe-honors-softdep-options-and-install-command
+	run_old_style tests/busybox/modprobe/modprobe-honors-remove-directive
+	run_old_style tests/busybox/modprobe/modprobe-blacklist-blocks-alias-but-not-explicit-module
 	run_old_style tests/busybox/acpid/acpid-runs-direct-handler-from-proc-events
 	run_old_style tests/busybox/acpid/acpid-directory-handler-uses-run-parts
 	run_old_style tests/busybox/blkid/blkid-lists-cache-backed-devices

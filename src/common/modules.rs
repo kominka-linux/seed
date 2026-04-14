@@ -12,6 +12,13 @@ use lzma_rust2::XzReader;
 use crate::common::error::AppletError;
 
 const MODULE_EXTENSIONS: &[&str] = &[".ko", ".ko.gz", ".ko.xz", ".ko.bz2"];
+const MODPROBE_CONFIG_DIRS: &[&str] = &[
+    "/etc/modprobe.d",
+    "/run/modprobe.d",
+    "/usr/local/lib/modprobe.d",
+    "/usr/lib/modprobe.d",
+    "/lib/modprobe.d",
+];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ModuleEntry {
@@ -31,6 +38,28 @@ pub(crate) struct ModuleIndex {
     pub entries: Vec<ModuleEntry>,
     pub(crate) by_name: HashMap<String, usize>,
     pub(crate) builtins: HashSet<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct ModprobeConfig {
+    pub aliases: Vec<ConfigAlias>,
+    pub blacklists: HashSet<String>,
+    pub install_commands: HashMap<String, String>,
+    pub remove_commands: HashMap<String, String>,
+    pub options: HashMap<String, Vec<String>>,
+    pub softdeps: HashMap<String, Softdep>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ConfigAlias {
+    pub pattern: String,
+    pub target: String,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct Softdep {
+    pub pre: Vec<String>,
+    pub post: Vec<String>,
 }
 
 impl ModuleMetadata {
@@ -158,6 +187,60 @@ impl ModuleIndex {
     }
 }
 
+impl ModprobeConfig {
+    pub(crate) fn load() -> Result<Self, AppletError> {
+        let mut config = Self::default();
+        for file in modprobe_config_files()
+            .map_err(|err| AppletError::from_io("modules", "reading", None, err))?
+        {
+            let text = fs::read_to_string(&file).map_err(|err| {
+                AppletError::from_io("modules", "reading", Some(&file.to_string_lossy()), err)
+            })?;
+            parse_modprobe_config_file(&mut config, &text);
+        }
+        Ok(config)
+    }
+
+    pub(crate) fn resolve_config_alias<'a>(&'a self, request: &str) -> Option<&'a str> {
+        self.aliases.iter().find_map(|alias| {
+            fnmatch(&alias.pattern, request)
+                .ok()
+                .filter(|matches| *matches)
+                .map(|_| alias.target.as_str())
+        })
+    }
+
+    pub(crate) fn is_blacklisted(&self, module: &str) -> bool {
+        self.blacklists.contains(&normalize_module_name(module))
+    }
+
+    pub(crate) fn module_options(&self, module: &str) -> Vec<String> {
+        self.options
+            .get(&normalize_module_name(module))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn install_command(&self, module: &str) -> Option<&str> {
+        self.install_commands
+            .get(&normalize_module_name(module))
+            .map(String::as_str)
+    }
+
+    pub(crate) fn remove_command(&self, module: &str) -> Option<&str> {
+        self.remove_commands
+            .get(&normalize_module_name(module))
+            .map(String::as_str)
+    }
+
+    pub(crate) fn softdep(&self, module: &str) -> Softdep {
+        self.softdeps
+            .get(&normalize_module_name(module))
+            .cloned()
+            .unwrap_or_default()
+    }
+}
+
 pub(crate) fn module_tree_dir(release_override: Option<&str>) -> Result<PathBuf, AppletError> {
     if let Some(path) = std::env::var_os("SEED_MODULES_DIR") {
         return Ok(PathBuf::from(path));
@@ -235,6 +318,139 @@ pub(crate) fn normalize_module_name(name: &str) -> String {
         .and_then(|value| value.to_str())
         .unwrap_or(name)
         .replace('-', "_")
+}
+
+fn modprobe_config_files() -> io::Result<Vec<PathBuf>> {
+    let dirs = std::env::var_os("SEED_MODPROBE_DIRS")
+        .map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
+        .unwrap_or_else(|| MODPROBE_CONFIG_DIRS.iter().map(PathBuf::from).collect());
+    let mut files = Vec::new();
+    let mut seen = HashSet::new();
+    for dir in dirs {
+        let read_dir = match fs::read_dir(&dir) {
+            Ok(read_dir) => read_dir,
+            Err(err) if err.kind() == io::ErrorKind::NotFound => continue,
+            Err(err) => return Err(err),
+        };
+        let mut dir_files = read_dir
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("conf"))
+            .collect::<Vec<_>>();
+        dir_files.sort();
+        for file in dir_files {
+            let Some(name) = file.file_name().map(|name| name.to_os_string()) else {
+                continue;
+            };
+            if seen.insert(name) {
+                files.push(file);
+            }
+        }
+    }
+    Ok(files)
+}
+
+fn parse_modprobe_config_file(config: &mut ModprobeConfig, text: &str) {
+    let mut pending = String::new();
+    for raw_line in text.lines() {
+        let trimmed = raw_line.trim_end();
+        if let Some(prefix) = trimmed.strip_suffix('\\') {
+            pending.push_str(prefix);
+            pending.push(' ');
+            continue;
+        }
+        pending.push_str(trimmed);
+        parse_modprobe_config_line(config, &pending);
+        pending.clear();
+    }
+    if !pending.trim().is_empty() {
+        parse_modprobe_config_line(config, &pending);
+    }
+}
+
+fn parse_modprobe_config_line(config: &mut ModprobeConfig, line: &str) {
+    let line = line.split('#').next().unwrap_or("").trim();
+    if line.is_empty() {
+        return;
+    }
+    let mut parts = line.split_whitespace();
+    let Some(keyword) = parts.next() else {
+        return;
+    };
+    match keyword {
+        "alias" => {
+            let (Some(pattern), Some(target)) = (parts.next(), parts.next()) else {
+                return;
+            };
+            config.aliases.push(ConfigAlias {
+                pattern: pattern.to_string(),
+                target: target.to_string(),
+            });
+        }
+        "blacklist" => {
+            let Some(module) = parts.next() else {
+                return;
+            };
+            config.blacklists.insert(normalize_module_name(module));
+        }
+        "install" => {
+            let Some(module) = parts.next() else {
+                return;
+            };
+            let command = parts.collect::<Vec<_>>().join(" ");
+            if !command.is_empty() {
+                config
+                    .install_commands
+                    .insert(normalize_module_name(module), command);
+            }
+        }
+        "remove" => {
+            let Some(module) = parts.next() else {
+                return;
+            };
+            let command = parts.collect::<Vec<_>>().join(" ");
+            if !command.is_empty() {
+                config
+                    .remove_commands
+                    .insert(normalize_module_name(module), command);
+            }
+        }
+        "options" => {
+            let Some(module) = parts.next() else {
+                return;
+            };
+            let values = parts.map(str::to_string).collect::<Vec<_>>();
+            if !values.is_empty() {
+                config
+                    .options
+                    .entry(normalize_module_name(module))
+                    .or_default()
+                    .extend(values);
+            }
+        }
+        "softdep" => {
+            let Some(module) = parts.next() else {
+                return;
+            };
+            let mut softdep = Softdep::default();
+            let mut current = None::<bool>;
+            for token in parts {
+                match token {
+                    "pre:" => current = Some(true),
+                    "post:" => current = Some(false),
+                    _ => match current {
+                        Some(true) => softdep.pre.push(normalize_module_name(token)),
+                        Some(false) => softdep.post.push(normalize_module_name(token)),
+                        None => {}
+                    },
+                }
+            }
+            config
+                .softdeps
+                .insert(normalize_module_name(module), softdep);
+        }
+        _ => {}
+    }
 }
 
 pub(crate) fn finit_module(path: &Path, params: &[String]) -> Result<(), AppletError> {

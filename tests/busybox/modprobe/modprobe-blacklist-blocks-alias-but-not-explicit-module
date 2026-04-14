@@ -1,0 +1,28 @@
+modules="$PWD/lib/modules/1.0"
+conf="$PWD/modprobe.d"
+mkdir -p "$modules/kernel/net" "$conf"
+
+printf '\0license=GPL\0' > "$modules/kernel/net/driver.ko"
+
+cat > "$conf/blacklist.conf" <<'EOF'
+alias netdev driver
+blacklist driver
+EOF
+
+log="$PWD/actions.log"
+if SEED_MODULES_DIR="$modules" \
+	SEED_MODPROBE_DIRS="$conf" \
+	SEED_MODULE_ACTION_LOG="$log" \
+	busybox modprobe netdev >/dev/null 2>stderr; then
+	exit 1
+fi
+grep "blacklisted" stderr
+test ! -e "$log"
+
+SEED_MODULES_DIR="$modules" \
+SEED_MODPROBE_DIRS="$conf" \
+SEED_MODULE_ACTION_LOG="$log" \
+	busybox modprobe driver
+
+grep "insmod $modules/kernel/net/driver.ko\$" "$log"
+

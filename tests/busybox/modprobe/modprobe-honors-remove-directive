@@ -1,0 +1,23 @@
+modules="$PWD/lib/modules/1.0"
+conf="$PWD/modprobe.d"
+mkdir -p "$modules/kernel/net" "$conf"
+
+printf '\0license=GPL\0' > "$modules/kernel/net/pre.ko"
+printf '\0license=GPL\0' > "$modules/kernel/net/post.ko"
+printf '\0license=GPL\0' > "$modules/kernel/net/driver.ko"
+
+cat > "$conf/remove.conf" <<'EOF'
+softdep driver pre: pre post: post
+remove driver printf 'remove:%s\n' "$MODPROBE_MODULE" >> "$PWD/cmd.log"
+EOF
+
+log="$PWD/actions.log"
+SEED_MODULES_DIR="$modules" \
+SEED_MODPROBE_DIRS="$conf" \
+SEED_MODULE_ACTION_LOG="$log" \
+	busybox modprobe -r driver
+
+sed -n '1p' "$log" | grep '^rmmod post$'
+grep '^remove:driver$' "$PWD/cmd.log"
+sed -n '2p' "$log" | grep '^rmmod pre$'
+

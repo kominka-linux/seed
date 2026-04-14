@@ -1,0 +1,5 @@
+busybox ping -c 1 -W 1 127.0.0.1 >out
+
+grep '^PING 127.0.0.1 (127.0.0.1): 56 data bytes$' out
+grep 'bytes from 127.0.0.1: icmp_seq=0 time=' out
+grep '^1 packets transmitted, 1 packets received, 0% packet loss$' out

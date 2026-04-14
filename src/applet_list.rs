@@ -96,6 +96,8 @@ macro_rules! define_applet_modules {
         pub mod pgrep;
         pub mod pidof;
         #[cfg(target_os = "linux")]
+        pub mod ping;
+        #[cfg(target_os = "linux")]
         pub mod pivot_root;
         pub mod pkill;
         pub mod printenv;
@@ -562,6 +564,16 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "patch",
                 main: applets::patch::main,
+            },
+            #[cfg(target_os = "linux")]
+            $entry {
+                name: "ping",
+                main: applets::ping::main,
+            },
+            #[cfg(target_os = "linux")]
+            $entry {
+                name: "ping6",
+                main: applets::ping::main_ping6,
             },
             $entry {
                 name: "pgrep",

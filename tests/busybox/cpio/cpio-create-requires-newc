@@ -1,0 +1,12 @@
+tmpdir="${TMPDIR:-/tmp}/seed-cpio-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+printf 'missing\n' >"$tmpdir/list"
+
+if busybox cpio -o <"$tmpdir/list" >"$tmpdir/archive.cpio" 2>"$tmpdir/stderr"; then
+	echo "cpio unexpectedly created an archive without -H newc" >&2
+	exit 1
+fi
+
+grep "archive format must be specified as -H newc" "$tmpdir/stderr"

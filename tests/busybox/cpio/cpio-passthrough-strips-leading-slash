@@ -1,0 +1,6 @@
+tmpdir="${TMPDIR:-/tmp}/seed-cpio-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir/out"
+
+printf '/usr/bin\n' | busybox cpio -pd "$tmpdir/out"
+test -d "$tmpdir/out/usr/bin"

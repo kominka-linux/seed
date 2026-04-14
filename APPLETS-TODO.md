@@ -54,7 +54,7 @@ obvious output utilities.
 - [x] unxz
 - [x] xzcat
 - [x] tar
-- [ ] cpio
+- [x] cpio
 - [x] unzip
 
 ## Coreutils
@@ -126,7 +126,7 @@ obvious output utilities.
 - [x] mkfifo
 - [x] split
 - [x] stat
-- [ ] stty
+- [x] stty
 - [x] test / [ / [[
 - [x] tree
 
@@ -167,7 +167,7 @@ obvious output utilities.
 
 ## Linux Ext2 FS Progs
 
-- [ ] fsck
+- [x] fsck
 
 ## Linux Module Utilities
 
@@ -187,18 +187,18 @@ obvious output utilities.
 - [ ] fdisk
 - [x] flock
 - [x] getopt
-- [ ] hwclock
+- [x] hwclock
 - [ ] mdev
-- [ ] mkswap
-- [ ] mount
+- [x] mkswap
+- [x] mount
 - [x] mountpoint
 - [ ] pivot_root
 - [x] setsid
-- [ ] swapoff
-- [ ] swapon
+- [x] swapoff
+- [x] swapon
 - [ ] switch_root
 - [x] sysctl
-- [ ] umount
+- [x] umount
 
 ## Miscellaneous Utilities
 

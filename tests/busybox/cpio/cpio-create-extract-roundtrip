@@ -1,0 +1,18 @@
+tmpdir="${TMPDIR:-/tmp}/seed-cpio-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir/src/dir" "$tmpdir/dst"
+
+printf 'hello\n' >"$tmpdir/src/dir/file"
+ln "$tmpdir/src/dir/file" "$tmpdir/src/dir/file.hard"
+ln -s file "$tmpdir/src/dir/link"
+
+find "$tmpdir/src" -print | busybox cpio -o -H newc >"$tmpdir/archive.cpio"
+(cd "$tmpdir/dst" && busybox cpio -id <"$tmpdir/archive.cpio")
+
+canonical_src=$(printf '%s\n' "$tmpdir/src" | sed 's://*:/:g')
+stripped_src=${canonical_src#/}
+test "$(cat "$tmpdir/dst/$stripped_src/dir/file")" = "hello"
+test "$(readlink "$tmpdir/dst/$stripped_src/dir/link")" = "file"
+inode_a=$(ls -i "$tmpdir/dst/$stripped_src/dir/file" | awk '{print $1}')
+inode_b=$(ls -i "$tmpdir/dst/$stripped_src/dir/file.hard" | awk '{print $1}')
+test "$inode_a" = "$inode_b"

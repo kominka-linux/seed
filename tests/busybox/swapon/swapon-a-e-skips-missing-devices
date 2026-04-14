@@ -1,0 +1,9 @@
+tmpdir="${TMPDIR:-/tmp}/seed-swapon-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+cat >"$tmpdir/fstab" <<'EOF'
+/no/such/swap none swap defaults 0 0
+EOF
+
+SEED_FSTAB="$tmpdir/fstab" busybox swapon -a -e

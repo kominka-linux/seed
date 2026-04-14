@@ -5,8 +5,10 @@ use std::fs;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct MountInfo {
+    pub(crate) source: String,
     pub(crate) filesystem: String,
     pub(crate) mounted_on: String,
+    pub(crate) options: Vec<String>,
 }
 
 pub(crate) fn mount_for_path(path: &Path) -> io::Result<Option<MountInfo>> {
@@ -31,8 +33,11 @@ pub(crate) fn format_device_number(dev: u64) -> String {
     format!("{}:{}", libc::major(dev), libc::minor(dev))
 }
 
-fn read_mountinfo() -> io::Result<Vec<MountInfo>> {
-    let mountinfo = fs::read_to_string("/proc/self/mountinfo")?;
+pub(crate) fn read_mountinfo() -> io::Result<Vec<MountInfo>> {
+    let path = std::env::var_os("SEED_MOUNTINFO")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/proc/self/mountinfo"));
+    let mountinfo = fs::read_to_string(path)?;
     Ok(mountinfo.lines().filter_map(parse_mountinfo_line).collect())
 }
 
@@ -45,8 +50,14 @@ fn parse_mountinfo_line(line: &str) -> Option<MountInfo> {
     }
 
     Some(MountInfo {
-        filesystem: unescape_mount_field(right_fields[1]),
+        source: unescape_mount_field(right_fields[1]),
+        filesystem: unescape_mount_field(right_fields[0]),
         mounted_on: unescape_mount_field(left_fields[4]),
+        options: left_fields[5]
+            .split(',')
+            .filter(|option| !option.is_empty())
+            .map(str::to_string)
+            .collect(),
     })
 }
 
@@ -113,8 +124,10 @@ mod tests {
             "26 20 0:21 / /proc rw,nosuid,nodev,noexec,relatime - proc proc rw",
         )
         .expect("parse mountinfo");
+        assert_eq!(mount.source, "proc");
         assert_eq!(mount.filesystem, "proc");
         assert_eq!(mount.mounted_on, "/proc");
+        assert!(mount.options.iter().any(|option| option == "rw"));
     }
 
     #[cfg(target_os = "linux")]

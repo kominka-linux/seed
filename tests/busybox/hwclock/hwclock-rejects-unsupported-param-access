@@ -1,0 +1,10 @@
+tmpdir="${TMPDIR:-/tmp}"
+stderr="$tmpdir/seed-hwclock-$$"
+trap 'rm -f "$stderr"' EXIT
+
+if busybox hwclock --param-get foo >/dev/null 2>"$stderr"; then
+	echo "hwclock unexpectedly accepted --param-get" >&2
+	exit 1
+fi
+
+grep "RTC parameter access is not supported" "$stderr"

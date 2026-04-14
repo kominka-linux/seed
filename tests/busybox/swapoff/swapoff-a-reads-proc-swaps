@@ -1,0 +1,9 @@
+tmpdir="${TMPDIR:-/tmp}/seed-swapoff-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+cat >"$tmpdir/proc_swaps" <<'EOF'
+Filename				Type		Size	Used	Priority
+EOF
+
+SEED_PROC_SWAPS="$tmpdir/proc_swaps" busybox swapoff -a

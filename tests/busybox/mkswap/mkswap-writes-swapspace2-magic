@@ -1,0 +1,18 @@
+tmpdir="${TMPDIR:-/tmp}/seed-mkswap-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+dd if=/dev/zero of="$tmpdir/swapfile" bs=1 count=0 seek=65536 >/dev/null 2>&1
+busybox mkswap -L swap0 "$tmpdir/swapfile"
+
+python3 - <<'PY' "$tmpdir/swapfile"
+import os
+import sys
+
+path = sys.argv[1]
+page = os.sysconf("SC_PAGESIZE")
+with open(path, "rb") as fh:
+    fh.seek(page - 10)
+    magic = fh.read(10)
+assert magic == b"SWAPSPACE2", magic
+PY

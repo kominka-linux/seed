@@ -12,6 +12,7 @@ macro_rules! define_applet_modules {
         pub mod chroot;
         pub mod cmp;
         pub mod cp;
+        pub mod cpio;
         pub mod cut;
         pub mod date;
         pub mod dd;
@@ -28,6 +29,7 @@ macro_rules! define_applet_modules {
         pub mod flock;
         pub mod fold;
         pub mod free;
+        pub mod fsck;
         pub mod getopt;
         pub mod getty;
         pub mod grep;
@@ -36,6 +38,7 @@ macro_rules! define_applet_modules {
         pub mod head;
         pub mod hexdump;
         pub mod hostname;
+        pub mod hwclock;
         pub mod id;
         pub mod insmod;
         pub mod install;
@@ -54,7 +57,9 @@ macro_rules! define_applet_modules {
         pub mod mkdir;
         pub mod mkfifo;
         pub mod mknod;
+        pub mod mkswap;
         pub mod mktemp;
+        pub mod mount;
         pub mod mountpoint;
         pub mod mv;
         pub mod nohup;
@@ -89,8 +94,11 @@ macro_rules! define_applet_modules {
         pub mod split;
         pub mod stat;
         pub mod strings;
+        pub mod stty;
         pub mod su;
         pub mod sulogin;
+        pub mod swapoff;
+        pub mod swapon;
         pub mod sync;
         pub mod sysctl;
         pub mod tail;
@@ -107,6 +115,7 @@ macro_rules! define_applet_modules {
         pub mod tty;
         pub mod udhcpc;
         pub mod udhcpd;
+        pub mod umount;
         pub mod uname;
         pub mod uniq;
         pub mod unzip;
@@ -186,6 +195,10 @@ macro_rules! define_applet_entries {
                 main: applets::cp::main,
             },
             $entry {
+                name: "cpio",
+                main: applets::cpio::main,
+            },
+            $entry {
                 name: "cut",
                 main: applets::cut::main,
             },
@@ -240,6 +253,10 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "expr",
                 main: applets::expr::main,
+            },
+            $entry {
+                name: "fsck",
+                main: applets::fsck::main,
             },
             $entry {
                 name: "flock",
@@ -320,6 +337,10 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "hostname",
                 main: applets::hostname::main,
+            },
+            $entry {
+                name: "hwclock",
+                main: applets::hwclock::main,
             },
             $entry {
                 name: "id",
@@ -408,6 +429,14 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "mktemp",
                 main: applets::mktemp::main,
+            },
+            $entry {
+                name: "mkswap",
+                main: applets::mkswap::main,
+            },
+            $entry {
+                name: "mount",
+                main: applets::mount::main,
             },
             $entry {
                 name: "mv",
@@ -554,6 +583,18 @@ macro_rules! define_applet_entries {
                 main: applets::strings::main,
             },
             $entry {
+                name: "stty",
+                main: applets::stty::main,
+            },
+            $entry {
+                name: "swapoff",
+                main: applets::swapoff::main,
+            },
+            $entry {
+                name: "swapon",
+                main: applets::swapon::main,
+            },
+            $entry {
                 name: "su",
                 main: applets::su::main,
             },
@@ -648,6 +689,10 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "unzip",
                 main: applets::unzip::main,
+            },
+            $entry {
+                name: "umount",
+                main: applets::umount::main,
             },
             $entry {
                 name: "uptime",

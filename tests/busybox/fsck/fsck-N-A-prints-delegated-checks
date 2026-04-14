@@ -1,0 +1,12 @@
+tmpdir="${TMPDIR:-/tmp}/seed-fsck-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+cat >"$tmpdir/fstab" <<'EOF'
+/dev/root / ext4 defaults 1 1
+/dev/data /data xfs defaults 1 2
+/swap none swap defaults 0 0
+EOF
+
+SEED_FSTAB="$tmpdir/fstab" busybox fsck -A -N -t ext4 2>"$tmpdir/stderr"
+grep '^fsck.ext4 /dev/root$' "$tmpdir/stderr"

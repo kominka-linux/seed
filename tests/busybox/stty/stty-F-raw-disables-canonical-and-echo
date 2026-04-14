@@ -1,0 +1,20 @@
+python3 - <<'PY'
+import os
+import pty
+import subprocess
+import termios
+
+master, slave = pty.openpty()
+path = os.ttyname(slave)
+subprocess.run(["busybox", "stty", "-F", path, "raw", "-echo", "9600"], check=True)
+attrs = termios.tcgetattr(slave)
+lflag = attrs[3]
+ispeed = attrs[4]
+ospeed = attrs[5]
+assert not (lflag & termios.ICANON)
+assert not (lflag & termios.ECHO)
+assert ispeed == termios.B9600
+assert ospeed == termios.B9600
+os.close(master)
+os.close(slave)
+PY

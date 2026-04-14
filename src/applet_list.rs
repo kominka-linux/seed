@@ -82,6 +82,8 @@ macro_rules! define_applet_modules {
         #[cfg(target_os = "linux")]
         pub mod mountpoint;
         pub mod mv;
+        #[cfg(target_os = "linux")]
+        pub mod netstat;
         pub mod nohup;
         pub mod nologin;
         pub mod nproc;
@@ -511,6 +513,11 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "mv",
                 main: applets::mv::main,
+            },
+            #[cfg(target_os = "linux")]
+            $entry {
+                name: "netstat",
+                main: applets::netstat::main,
             },
             $entry {
                 name: "nohup",

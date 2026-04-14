@@ -215,7 +215,7 @@ obvious output utilities.
 - [x] hostname
 - [x] ifconfig
 - [x] ip
-- [ ] netstat
+- [x] netstat
 - [x] nslookup
 - [x] ntpd
 - [ ] ping / ping6

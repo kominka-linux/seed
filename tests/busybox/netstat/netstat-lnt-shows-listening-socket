@@ -1,0 +1,31 @@
+tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/seed-netstat.XXXXXX")
+trap 'rm -rf "$tmpdir"' EXIT HUP INT TERM
+
+cat >"$tmpdir/tcp" <<'EOF'
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 0100007F:0016 00000000:0000 0A 00000002:00000001 00:00000000 00000000   0        0 0 1 0000000000000000 100 0 0 10 0
+   1: 0100007F:1F90 0200007F:0035 01 00000004:00000003 00:00000000 00000000   0        0 0 1 0000000000000000 100 0 0 10 0
+EOF
+cat >"$tmpdir/tcp6" <<'EOF'
+  sl  local_address                         rem_address                          st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+EOF
+cat >"$tmpdir/udp" <<'EOF'
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+EOF
+cat >"$tmpdir/udp6" <<'EOF'
+  sl  local_address                         rem_address                          st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+EOF
+
+SEED_PROC_NET_TCP="$tmpdir/tcp" \
+SEED_PROC_NET_TCP6="$tmpdir/tcp6" \
+SEED_PROC_NET_UDP="$tmpdir/udp" \
+SEED_PROC_NET_UDP6="$tmpdir/udp6" \
+	busybox netstat -lnt >out
+
+grep '^Active Internet connections$' out
+grep '^Proto[[:space:]]\+Recv-Q[[:space:]]\+Send-Q' out
+grep 'tcp[[:space:]]\+1[[:space:]]\+2[[:space:]]\+127.0.0.1:22[[:space:]]\+0.0.0.0:\*[[:space:]]\+LISTEN' out
+if grep '127.0.0.1:8080' out >/dev/null; then
+	echo "netstat unexpectedly included non-listening socket" >&2
+	exit 1
+fi

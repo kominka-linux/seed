@@ -1,0 +1,13 @@
+tmpdir="${TMPDIR:-/tmp}/seed-sulogin-eof-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir/etc" "$tmpdir/home/root"
+
+cat >"$tmpdir/etc/passwd" <<EOF
+root:x:0:0::$tmpdir/home/root:/bin/sh
+EOF
+
+cat >"$tmpdir/etc/shadow" <<'EOF'
+root:hash:20557:0:99999:7:::
+EOF
+
+SEED_ETC_DIR="$tmpdir/etc" busybox sulogin </dev/null

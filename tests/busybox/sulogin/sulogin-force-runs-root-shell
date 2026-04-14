@@ -1,0 +1,20 @@
+tmpdir="${TMPDIR:-/tmp}/seed-sulogin-force-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir/etc" "$tmpdir/home/root"
+
+cat >"$tmpdir/fake-shell" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$USER"
+EOF
+chmod +x "$tmpdir/fake-shell"
+
+cat >"$tmpdir/etc/passwd" <<EOF
+root:x:0:0::$tmpdir/home/root:$tmpdir/fake-shell
+EOF
+
+cat >"$tmpdir/etc/shadow" <<'EOF'
+root:!:20557:0:99999:7:::
+EOF
+
+actual="$(SEED_ETC_DIR="$tmpdir/etc" busybox sulogin --force)"
+test "$actual" = "root"

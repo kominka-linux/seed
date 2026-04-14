@@ -1,0 +1,2 @@
+actual="$(busybox su -s /bin/sh nobody -c 'id -un')"
+test "$actual" = "nobody"

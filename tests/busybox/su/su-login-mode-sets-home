@@ -1,0 +1,2 @@
+actual="$(HOME=/tmp/original busybox su - root -c 'printf %s "$HOME"')"
+test "$actual" = "/root"

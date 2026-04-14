@@ -1,0 +1,16 @@
+tmpdir="${TMPDIR:-/tmp}/seed-login-force-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir/etc" "$tmpdir/home/root"
+
+cat >"$tmpdir/fake-shell" <<'EOF'
+#!/bin/sh
+printf '%s:%s:%s\n' "$HOME" "$USER" "$REMOTEHOST"
+EOF
+chmod +x "$tmpdir/fake-shell"
+
+cat >"$tmpdir/etc/passwd" <<EOF
+root:x:0:0::$tmpdir/home/root:$tmpdir/fake-shell
+EOF
+
+actual="$(SEED_ETC_DIR="$tmpdir/etc" busybox login -h example.test -f root)"
+test "$actual" = "$tmpdir/home/root:root:example.test"

@@ -29,6 +29,7 @@ macro_rules! define_applet_modules {
         pub mod fold;
         pub mod free;
         pub mod getopt;
+        pub mod getty;
         pub mod grep;
         pub mod gzip;
         pub mod hashsum;
@@ -44,6 +45,7 @@ macro_rules! define_applet_modules {
         pub mod less;
         pub mod link;
         pub mod ln;
+        pub mod login;
         pub mod losetup;
         pub mod ls;
         pub mod lsmod;
@@ -86,6 +88,8 @@ macro_rules! define_applet_modules {
         pub mod split;
         pub mod stat;
         pub mod strings;
+        pub mod su;
+        pub mod sulogin;
         pub mod sync;
         pub mod sysctl;
         pub mod tail;
@@ -267,6 +271,10 @@ macro_rules! define_applet_entries {
                 main: applets::getopt::main,
             },
             $entry {
+                name: "getty",
+                main: applets::getty::main,
+            },
+            $entry {
                 name: "grep",
                 main: applets::grep::main,
             },
@@ -337,6 +345,10 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "less",
                 main: applets::less::main,
+            },
+            $entry {
+                name: "login",
+                main: applets::login::main,
             },
             $entry {
                 name: "link",
@@ -525,6 +537,14 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "strings",
                 main: applets::strings::main,
+            },
+            $entry {
+                name: "su",
+                main: applets::su::main,
+            },
+            $entry {
+                name: "sulogin",
+                main: applets::sulogin::main,
             },
             $entry {
                 name: "sync",

@@ -1,0 +1,11 @@
+tmpdir="${TMPDIR:-/tmp}/seed-getty-user-$$"
+trap 'rm -f "$tmpdir-fake-login"' EXIT
+
+cat >"$tmpdir-fake-login" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$1"
+EOF
+chmod +x "$tmpdir-fake-login"
+
+actual="$(printf 'alice\n' | busybox getty -i -l "$tmpdir-fake-login" 0 /dev/null)"
+test "$actual" = "login: alice"

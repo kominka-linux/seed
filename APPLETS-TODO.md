@@ -158,12 +158,12 @@ obvious output utilities.
 - [x] adduser
 - [x] delgroup
 - [x] deluser
-- [ ] getty
-- [ ] login
+- [x] getty
+- [x] login
 - [x] nologin
 - [x] passwd
-- [ ] su
-- [ ] sulogin
+- [x] su
+- [x] sulogin
 
 ## Linux Ext2 FS Progs
 

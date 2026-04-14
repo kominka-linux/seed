@@ -1,0 +1,16 @@
+tmpdir="${TMPDIR:-/tmp}/seed-login-preserve-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir/etc" "$tmpdir/home/root"
+
+cat >"$tmpdir/fake-shell" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$HOME"
+EOF
+chmod +x "$tmpdir/fake-shell"
+
+cat >"$tmpdir/etc/passwd" <<EOF
+root:x:0:0::$tmpdir/home/root:$tmpdir/fake-shell
+EOF
+
+actual="$(HOME=/tmp/original SEED_ETC_DIR="$tmpdir/etc" busybox login -p -f root)"
+test "$actual" = "/tmp/original"

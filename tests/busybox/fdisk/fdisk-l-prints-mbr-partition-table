@@ -1,0 +1,27 @@
+image=$PWD/disk.img
+rm -f "$image"
+truncate -s 64M "$image"
+
+python3 - <<'PY' "$image"
+import struct
+import sys
+
+path = sys.argv[1]
+sector = bytearray(512)
+offset = 446
+sector[offset] = 0x80
+sector[offset + 4] = 0x83
+sector[offset + 8:offset + 12] = struct.pack("<I", 2048)
+sector[offset + 12:offset + 16] = struct.pack("<I", 32768)
+sector[510:512] = b"\x55\xaa"
+with open(path, "r+b") as handle:
+    handle.write(sector)
+PY
+
+busybox fdisk -l "$image" >out
+
+grep "^Disk $image:" out
+grep '^Units: sectors of 1 \* 512 = 512 bytes$' out
+grep '^Disklabel type: dos$' out
+grep "$image"'1[[:space:]]\+\*[[:space:]]\+2048[[:space:]]\+34815[[:space:]]\+32768' out
+grep '83 Linux$' out

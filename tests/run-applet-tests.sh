@@ -163,7 +163,7 @@ fi
 
 applets="addgroup adduser busybox bunzip2 bzip2 bzcat cat chattr chmod chgrp chown cmp cp cpio date dd delgroup deluser diff du egrep env expr find flock free fsck getopt getty grep gunzip gzip hexdump install killall less ln login ls lsattr lzcat lzma man mkdir mkfifo mkswap mv nologin nslookup ntpd od passwd paste patch pidof pgrep pkill printf ps pstree readlink realpath rm rmdir run-parts setsid sleep sort split stat stty su sulogin tar tee test time touch timeout tr tree udhcpc udhcpd uname unlzma unxz unzip watch wc wget xargs xz xzcat zcat [ [["
 if [ "$is_linux" -eq 1 ]; then
-	applets="$applets blkid chroot df dmesg halt hwclock ifconfig insmod ip killall5 losetup lsmod lsof mknod mount mountpoint netstat ping ping6 pivot_root poweroff reboot rfkill rmmod swapoff swapon switch_root sysctl umount uptime"
+	applets="$applets blkid chroot df dmesg fdisk halt hwclock ifconfig insmod ip killall5 losetup lsmod lsof mknod mount mountpoint netstat ping ping6 pivot_root poweroff reboot rfkill rmmod swapoff swapon switch_root sysctl umount uptime"
 fi
 
 for applet in $applets; do
@@ -228,6 +228,10 @@ run_old_style tests/busybox/basename/dirname-basic
 if [ "$is_linux" -eq 1 ]; then
 	run_old_style tests/busybox/blkid/blkid-lists-cache-backed-devices
 	run_old_style tests/busybox/blkid/blkid-detects-swap-header
+	run_old_style tests/busybox/fdisk/fdisk-l-prints-mbr-partition-table
+	run_old_style tests/busybox/fdisk/fdisk-s-prints-image-size-in-kib
+	run_old_style tests/busybox/fdisk/fdisk-script-creates-dos-partition
+	run_old_style tests/busybox/fdisk/fdisk-script-creates-gpt-efi-partition
 fi
 
 run_old_style tests/busybox/chattr/chattr-sets-and-clears-flags

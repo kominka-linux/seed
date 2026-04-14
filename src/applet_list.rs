@@ -31,6 +31,8 @@ macro_rules! define_applet_modules {
         pub mod echo;
         pub mod env;
         pub mod expr;
+        #[cfg(target_os = "linux")]
+        pub mod fdisk;
         pub mod find;
         pub mod flock;
         pub mod fold;
@@ -303,6 +305,11 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "expr",
                 main: applets::expr::main,
+            },
+            #[cfg(target_os = "linux")]
+            $entry {
+                name: "fdisk",
+                main: applets::fdisk::main,
             },
             $entry {
                 name: "fsck",

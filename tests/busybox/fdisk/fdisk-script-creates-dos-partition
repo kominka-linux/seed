@@ -1,0 +1,30 @@
+image=$PWD/disk.img
+rm -f "$image"
+truncate -s 64M "$image"
+
+printf 'o\nn\n1\n\n+16M\na\n1\nw\n' | busybox fdisk "$image" >stdout
+busybox fdisk -l "$image" >out
+
+grep '^Disklabel type: dos$' out
+grep "$image"'1[[:space:]]\+\*[[:space:]]\+2048[[:space:]]\+34815[[:space:]]\+32768' out
+grep '83 Linux$' out
+
+python3 - <<'PY' "$image"
+import struct
+import sys
+
+with open(sys.argv[1], "rb") as handle:
+    sector = handle.read(512)
+
+offset = 446
+boot = sector[offset]
+ptype = sector[offset + 4]
+start = struct.unpack("<I", sector[offset + 8:offset + 12])[0]
+count = struct.unpack("<I", sector[offset + 12:offset + 16])[0]
+
+assert boot == 0x80, boot
+assert ptype == 0x83, hex(ptype)
+assert start == 2048, start
+assert count == 32768, count
+assert sector[510:512] == b"\x55\xaa"
+PY

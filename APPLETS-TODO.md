@@ -184,7 +184,7 @@ obvious output utilities.
 - [ ] acpid
 - [x] blkid
 - [x] dmesg
-- [ ] fdisk
+- [x] fdisk
 - [x] flock
 - [x] getopt
 - [x] hwclock

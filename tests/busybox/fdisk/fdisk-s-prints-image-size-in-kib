@@ -1,0 +1,7 @@
+image=$PWD/disk.img
+rm -f "$image"
+truncate -s 1M "$image"
+
+busybox fdisk -s "$image" >out
+
+test "$(cat out)" = "1024"

@@ -1,0 +1,29 @@
+image=$PWD/disk.img
+rm -f "$image"
+truncate -s 96M "$image"
+
+printf 'g\nn\n1\n\n+32M\nt\n1\nefi\nw\n' | busybox fdisk "$image" >stdout
+busybox fdisk -l "$image" >out
+
+grep '^Disklabel type: gpt$' out
+grep "$image"'1[[:space:]]\+2048[[:space:]]\+67583[[:space:]]\+65536' out
+grep 'EFI System$' out
+
+python3 - <<'PY' "$image"
+import sys
+
+with open(sys.argv[1], "rb") as handle:
+    handle.seek(512)
+    header = handle.read(92)
+    assert header[:8] == b"EFI PART"
+    entries_lba = int.from_bytes(header[72:80], "little")
+    handle.seek(entries_lba * 512)
+    entry = handle.read(128)
+
+guid = entry[:16]
+assert guid == bytes.fromhex("28732ac11ff8d211ba4b00a0c93ec93b"), guid.hex()
+first = int.from_bytes(entry[32:40], "little")
+last = int.from_bytes(entry[40:48], "little")
+assert first == 2048, first
+assert last == 67583, last
+PY

@@ -1,0 +1,11 @@
+tmpdir="${TMPDIR:-/tmp}/seed-sed-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+printf 'a woo\nb woo' >"$tmpdir/input"
+printf 'c no\nd woo' >"$tmpdir/stdin"
+
+sed -ne 's/woo/bang/p' "$tmpdir/input" - <"$tmpdir/stdin" >"$tmpdir/actual"
+printf 'a bang\nb bang\nd bang' >"$tmpdir/expected"
+
+diff -u "$tmpdir/expected" "$tmpdir/actual"

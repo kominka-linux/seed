@@ -4,7 +4,7 @@ mkdir -p "$tmpdir"
 
 printf 'ab12 ab34\n' >"$tmpdir/input"
 
-busybox sed -E 's/(ab)([0-9]+)/[\2:\1]/g' "$tmpdir/input" >"$tmpdir/actual"
+sed -E 's/(ab)([0-9]+)/[\2:\1]/g' "$tmpdir/input" >"$tmpdir/actual"
 printf '[12:ab] [34:ab]\n' >"$tmpdir/expected"
 
 diff -u "$tmpdir/expected" "$tmpdir/actual"

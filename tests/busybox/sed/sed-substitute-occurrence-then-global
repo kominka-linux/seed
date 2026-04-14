@@ -1,0 +1,10 @@
+tmpdir="${TMPDIR:-/tmp}/seed-sed-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+printf 'aa\n' >"$tmpdir/input"
+
+sed -e 's/a/b/2; s/a/c/g' "$tmpdir/input" >"$tmpdir/actual"
+printf 'cb\n' >"$tmpdir/expected"
+
+diff -u "$tmpdir/expected" "$tmpdir/actual"

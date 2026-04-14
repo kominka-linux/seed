@@ -1,0 +1,10 @@
+tmpdir="${TMPDIR:-/tmp}/seed-sed-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+printf 'this is a regular line\nline with \\\ncontinuation\nmore regular lines\nline with \\\ncontinuation\n' >"$tmpdir/input"
+
+sed ': testcont; /\\$/{ =; N; b testcont }' "$tmpdir/input" >"$tmpdir/actual"
+printf 'this is a regular line\n2\nline with \\\ncontinuation\nmore regular lines\n5\nline with \\\ncontinuation\n' >"$tmpdir/expected"
+
+diff -u "$tmpdir/expected" "$tmpdir/actual"

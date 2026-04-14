@@ -1,0 +1,11 @@
+tmpdir="${TMPDIR:-/tmp}/seed-sed-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+: >"$tmpdir/input"
+
+if sed -e 'b walrus' "$tmpdir/input" >"$tmpdir/actual" 2>"$tmpdir/error"; then
+    exit 1
+fi
+
+grep -F 'undefined label: walrus' "$tmpdir/error" >/dev/null

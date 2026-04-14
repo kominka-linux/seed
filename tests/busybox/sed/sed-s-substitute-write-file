@@ -1,0 +1,12 @@
+tmpdir="${TMPDIR:-/tmp}/seed-sed-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+printf '123\nqwe\nasd\n' >"$tmpdir/input"
+
+(cd "$tmpdir" && sed 's/qwe/ZZZ/wz' input >actual)
+printf '123\nZZZ\nasd\n' >"$tmpdir/expected"
+printf 'ZZZ\n' >"$tmpdir/expected.w"
+
+diff -u "$tmpdir/expected" "$tmpdir/actual"
+diff -u "$tmpdir/expected.w" "$tmpdir/z"

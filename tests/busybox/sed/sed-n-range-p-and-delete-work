@@ -9,7 +9,7 @@ two
 three
 EOF
 
-busybox sed -n -e '/skip/d' -e '/two/,$p' "$tmpdir/input" >"$tmpdir/actual"
+sed -n -e '/skip/d' -e '/two/,$p' "$tmpdir/input" >"$tmpdir/actual"
 cat >"$tmpdir/expected" <<'EOF'
 two
 three

@@ -2,17 +2,14 @@ tmpdir="${TMPDIR:-/tmp}/seed-sed-$$"
 trap 'rm -rf "$tmpdir"' EXIT
 mkdir -p "$tmpdir"
 
-cat >"$tmpdir/input" <<'EOF'
-alpha
-beta
-gamma
-EOF
+printf '0\n1\n2\n3\n' >"$tmpdir/input"
 
-sed 's/a/A/' "$tmpdir/input" >"$tmpdir/actual"
+sed 's/1/x/;T;n;:next;s/3/y/;t quit;n;b next;:quit;q' "$tmpdir/input" >"$tmpdir/actual"
 cat >"$tmpdir/expected" <<'EOF'
-Alpha
-betA
-gAmma
+0
+x
+2
+y
 EOF
 
 diff -u "$tmpdir/expected" "$tmpdir/actual"

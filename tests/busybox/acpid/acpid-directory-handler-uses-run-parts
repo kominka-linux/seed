@@ -1,0 +1,24 @@
+confdir=$PWD/acpi
+action_file=$PWD/acpid.conf
+event_file=$PWD/events
+stamp=$PWD/handled
+
+mkdir -p "$confdir/lid"
+cat >"$confdir/lid/S10-handle" <<EOF
+#!/bin/sh
+printf handled > "$stamp"
+EOF
+chmod +x "$confdir/lid/S10-handle"
+printf 'ignored\n' >"$confdir/lid/README"
+
+cat >"$action_file" <<'EOF'
+LID0 lid
+EOF
+
+cat >"$event_file" <<'EOF'
+button/lid LID0 00000080 00000001
+EOF
+
+busybox acpid -d -f -c "$confdir" -a "$action_file" -e "$event_file"
+
+test -f "$stamp"

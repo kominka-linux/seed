@@ -1,5 +1,7 @@
 macro_rules! define_applet_modules {
     () => {
+        #[cfg(target_os = "linux")]
+        pub mod acpid;
         pub mod addgroup;
         pub mod adduser;
         pub mod base64;
@@ -174,6 +176,11 @@ macro_rules! define_applet_modules {
 macro_rules! define_applet_entries {
     ($entry:ident) => {
         &[
+            #[cfg(target_os = "linux")]
+            $entry {
+                name: "acpid",
+                main: applets::acpid::main,
+            },
             $entry {
                 name: "addgroup",
                 main: applets::addgroup::main,

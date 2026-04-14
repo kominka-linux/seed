@@ -181,7 +181,7 @@ obvious output utilities.
 ## Linux System Utilities
 
 - [x] losetup
-- [ ] acpid
+- [x] acpid
 - [x] blkid
 - [x] dmesg
 - [x] fdisk

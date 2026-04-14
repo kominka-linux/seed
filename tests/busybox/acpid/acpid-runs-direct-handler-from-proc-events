@@ -1,0 +1,25 @@
+confdir=$PWD/acpi
+action_file=$PWD/acpid.conf
+event_file=$PWD/events
+pid_file=$PWD/acpid.pid
+stamp=$PWD/handled
+
+mkdir -p "$confdir"
+cat >"$confdir/powerbtn" <<EOF
+#!/bin/sh
+printf handled > "$stamp"
+EOF
+chmod +x "$confdir/powerbtn"
+
+cat >"$action_file" <<'EOF'
+PWRF powerbtn
+EOF
+
+cat >"$event_file" <<'EOF'
+button/power PWRF 00000080 00000000
+EOF
+
+busybox acpid -d -f -c "$confdir" -a "$action_file" -e "$event_file" -p "$pid_file"
+
+test -f "$stamp"
+test ! -e "$pid_file"

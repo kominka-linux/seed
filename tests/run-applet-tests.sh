@@ -163,7 +163,7 @@ fi
 
 applets="addgroup adduser busybox bunzip2 bzip2 bzcat cat chattr chmod chgrp chown cmp cp cpio date dd delgroup deluser diff du egrep env expr find flock free fsck getopt getty grep gunzip gzip hexdump install killall less ln login ls lsattr lzcat lzma man mkdir mkfifo mkswap mv nologin nslookup ntpd od passwd paste patch pidof pgrep pkill printf ps pstree readlink realpath rm rmdir run-parts setsid sleep sort split stat stty su sulogin tar tee test time touch timeout tr tree udhcpc udhcpd uname unlzma unxz unzip watch wc wget xargs xz xzcat zcat [ [["
 if [ "$is_linux" -eq 1 ]; then
-	applets="$applets blkid chroot df dmesg fdisk halt hwclock ifconfig insmod ip killall5 losetup lsmod lsof mknod mount mountpoint netstat ping ping6 pivot_root poweroff reboot rfkill rmmod swapoff swapon switch_root sysctl umount uptime"
+	applets="$applets acpid blkid chroot df dmesg fdisk halt hwclock ifconfig insmod ip killall5 losetup lsmod lsof mknod mount mountpoint netstat ping ping6 pivot_root poweroff reboot rfkill rmmod swapoff swapon switch_root sysctl umount uptime"
 fi
 
 for applet in $applets; do
@@ -226,6 +226,8 @@ run_old_style tests/busybox/basename/basename-strips-suffix
 run_old_style tests/busybox/basename/basename-multiple-names
 run_old_style tests/busybox/basename/dirname-basic
 if [ "$is_linux" -eq 1 ]; then
+	run_old_style tests/busybox/acpid/acpid-runs-direct-handler-from-proc-events
+	run_old_style tests/busybox/acpid/acpid-directory-handler-uses-run-parts
 	run_old_style tests/busybox/blkid/blkid-lists-cache-backed-devices
 	run_old_style tests/busybox/blkid/blkid-detects-swap-header
 	run_old_style tests/busybox/fdisk/fdisk-l-prints-mbr-partition-table

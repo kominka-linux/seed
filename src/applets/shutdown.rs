@@ -1,13 +1,10 @@
-#[cfg(target_os = "linux")]
 use std::thread;
-#[cfg(target_os = "linux")]
 use std::time::Duration;
 
 use crate::common::applet::{AppletResult, finish};
 use crate::common::args::{ArgCursor, ArgToken};
 use crate::common::error::AppletError;
 
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Action {
     Halt,
@@ -15,7 +12,6 @@ enum Action {
     Reboot,
 }
 
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct Options {
     delay_secs: u64,
@@ -39,20 +35,7 @@ pub fn main_reboot(args: &[String]) -> i32 {
 fn run(action: Action, args: &[String]) -> AppletResult {
     let applet = action.applet_name();
     let options = parse_args(applet, args)?;
-
-    #[cfg(target_os = "linux")]
-    {
-        return run_linux(action, options);
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    let _ = (action, options);
-
-    #[allow(unreachable_code)]
-    Err(vec![AppletError::new(
-        applet,
-        "unsupported on this platform",
-    )])
+    run_linux(action, options)
 }
 
 fn parse_args(applet: &'static str, args: &[String]) -> Result<Options, Vec<AppletError>> {
@@ -100,7 +83,6 @@ fn parse_short_flags<'a>(
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
 fn run_linux(action: Action, options: Options) -> AppletResult {
     if options.delay_secs > 0 {
         thread::sleep(Duration::from_secs(options.delay_secs));
@@ -124,7 +106,6 @@ fn run_linux(action: Action, options: Options) -> AppletResult {
     result.map_err(|err| vec![AppletError::new(action.applet_name(), err)])
 }
 
-#[cfg(target_os = "linux")]
 fn request_init_shutdown(action: Action) -> Result<(), String> {
     let signal = action.init_signal();
     // SAFETY: kill() is called with a well-defined PID and signal number.
@@ -136,7 +117,6 @@ fn request_init_shutdown(action: Action) -> Result<(), String> {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn force_shutdown(action: Action) -> Result<(), String> {
     // SAFETY: reboot() is called with a valid Linux reboot command constant.
     let rc = unsafe { libc::reboot(action.reboot_cmd()) };
@@ -159,7 +139,6 @@ impl Action {
         }
     }
 
-    #[cfg(target_os = "linux")]
     fn init_signal(self) -> libc::c_int {
         match self {
             Action::Halt => libc::SIGUSR1,
@@ -168,7 +147,6 @@ impl Action {
         }
     }
 
-    #[cfg(target_os = "linux")]
     fn reboot_cmd(self) -> libc::c_int {
         match self {
             Action::Halt => libc::LINUX_REBOOT_CMD_HALT,
@@ -181,7 +159,6 @@ impl Action {
 #[cfg(test)]
 mod tests {
     use super::{Options, parse_args};
-    #[cfg(target_os = "linux")]
     use super::Action;
 
     fn args(values: &[&str]) -> Vec<String> {
@@ -218,7 +195,6 @@ mod tests {
         assert!(parse_args("poweroff", &args(&["-d"])).is_err());
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
     fn maps_init_signals() {
         assert_eq!(Action::Halt.init_signal(), libc::SIGUSR1);
@@ -226,7 +202,6 @@ mod tests {
         assert_eq!(Action::Reboot.init_signal(), libc::SIGTERM);
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
     fn maps_reboot_commands() {
         assert_eq!(Action::Halt.reboot_cmd(), libc::LINUX_REBOOT_CMD_HALT);

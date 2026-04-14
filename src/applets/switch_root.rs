@@ -1,18 +1,10 @@
-#![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
-#[cfg(target_os = "linux")]
 use std::ffi::CString;
-#[cfg(target_os = "linux")]
 use std::fs;
-#[cfg(target_os = "linux")]
 use std::os::unix::ffi::OsStrExt;
-#[cfg(target_os = "linux")]
 use std::os::unix::fs::MetadataExt;
-#[cfg(target_os = "linux")]
 use std::os::unix::process::CommandExt;
-#[cfg(target_os = "linux")]
 use std::path::{Path, PathBuf};
-#[cfg(target_os = "linux")]
 use std::process::Command;
 
 use crate::common::applet::finish_code;
@@ -37,20 +29,7 @@ pub fn main(args: &[String]) -> i32 {
 
 fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
     let options = parse_args(args)?;
-
-    #[cfg(target_os = "linux")]
-    {
-        return run_linux(&options);
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    let _ = options;
-
-    #[allow(unreachable_code)]
-    Err(vec![AppletError::new(
-        APPLET,
-        "unsupported on this platform",
-    )])
+    run_linux(&options)
 }
 
 fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
@@ -88,7 +67,6 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     })
 }
 
-#[cfg(target_os = "linux")]
 fn run_linux(options: &Options) -> Result<i32, Vec<AppletError>> {
     validate_switch_root(options)?;
 
@@ -147,7 +125,6 @@ fn run_linux(options: &Options) -> Result<i32, Vec<AppletError>> {
     )])
 }
 
-#[cfg(target_os = "linux")]
 fn validate_switch_root(options: &Options) -> Result<(), Vec<AppletError>> {
     if current_pid() != 1 {
         return Err(vec![AppletError::new(APPLET, "PID must be 1")]);
@@ -196,7 +173,6 @@ fn validate_switch_root(options: &Options) -> Result<(), Vec<AppletError>> {
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
 fn validate_dry_run_target(options: &Options) -> Result<(), Vec<AppletError>> {
     let target = dry_run_init_target(options);
     let meta = fs::metadata(&target).map_err(|err| {
@@ -223,13 +199,11 @@ fn validate_dry_run_target(options: &Options) -> Result<(), Vec<AppletError>> {
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
 fn dry_run_init_target(options: &Options) -> PathBuf {
     let relative = options.new_init.strip_prefix('/').unwrap_or(&options.new_init);
     Path::new(&options.new_root).join(relative)
 }
 
-#[cfg(target_os = "linux")]
 fn delete_root_contents(root: &Path, root_dev: u64, keep: &Path) -> Result<(), Vec<AppletError>> {
     let entries = fs::read_dir(root)
         .map_err(|err| vec![AppletError::from_io(APPLET, "reading directory", Some("/"), err)])?;
@@ -244,7 +218,6 @@ fn delete_root_contents(root: &Path, root_dev: u64, keep: &Path) -> Result<(), V
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
 fn delete_path(path: &Path, root_dev: u64, keep: &Path) -> Result<(), Vec<AppletError>> {
     if path == keep {
         return Ok(());
@@ -304,7 +277,6 @@ fn delete_path(path: &Path, root_dev: u64, keep: &Path) -> Result<(), Vec<Applet
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
 fn move_mount_to_root(new_root: &Path) -> Result<(), Vec<AppletError>> {
     let source = CString::new(new_root.as_os_str().as_bytes())
         .map_err(|_| vec![AppletError::new(APPLET, "path contains NUL byte")])?;
@@ -329,7 +301,6 @@ fn move_mount_to_root(new_root: &Path) -> Result<(), Vec<AppletError>> {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn current_pid() -> u32 {
     std::env::var("SEED_SWITCH_ROOT_TEST_PID")
         .ok()
@@ -337,7 +308,6 @@ fn current_pid() -> u32 {
         .unwrap_or_else(std::process::id)
 }
 
-#[cfg(target_os = "linux")]
 fn current_root_fs_type() -> Result<libc::c_long, Vec<AppletError>> {
     if let Ok(value) = std::env::var("SEED_SWITCH_ROOT_TEST_ROOTFS") {
         return parse_rootfs_override(&value);
@@ -358,7 +328,6 @@ fn current_root_fs_type() -> Result<libc::c_long, Vec<AppletError>> {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn parse_rootfs_override(value: &str) -> Result<libc::c_long, Vec<AppletError>> {
     match value {
         "ramfs" => Ok(RAMFS_MAGIC),
@@ -372,7 +341,6 @@ fn parse_rootfs_override(value: &str) -> Result<libc::c_long, Vec<AppletError>> 
     }
 }
 
-#[cfg(target_os = "linux")]
 fn current_root_metadata() -> Result<fs::Metadata, Vec<AppletError>> {
     let path = std::env::var_os("SEED_SWITCH_ROOT_TEST_ROOT")
         .map(PathBuf::from)
@@ -387,19 +355,16 @@ fn current_root_metadata() -> Result<fs::Metadata, Vec<AppletError>> {
     })
 }
 
-#[cfg(target_os = "linux")]
 fn init_check_path() -> PathBuf {
     std::env::var_os("SEED_SWITCH_ROOT_TEST_INIT")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/init"))
 }
 
-#[cfg(target_os = "linux")]
 fn allow_same_device() -> bool {
     std::env::var_os("SEED_SWITCH_ROOT_TEST_ALLOW_SAME_DEV").is_some()
 }
 
-#[cfg(target_os = "linux")]
 fn dry_run_enabled() -> bool {
     std::env::var_os("SEED_SWITCH_ROOT_TEST_DRY_RUN").is_some()
 }

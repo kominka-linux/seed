@@ -156,7 +156,17 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in addgroup adduser blkid busybox bunzip2 bzip2 bzcat cat chattr chmod chgrp chown chroot cmp cp cpio date dd delgroup deluser df diff dmesg du egrep env expr find flock free fsck getopt getty grep gunzip gzip halt hexdump hwclock ifconfig insmod install ip killall killall5 less ln login ls lsattr lsmod lsof lzcat lzma man mkdir mkfifo mkswap mount mountpoint mv nologin nslookup ntpd od passwd paste patch pidof pgrep pivot_root pkill poweroff printf ps pstree readlink realpath reboot rfkill rm rmdir rmmod run-parts setsid sleep sort split stat stty su sulogin swapoff swapon switch_root sysctl tar tee test time touch timeout tr tree udhcpc udhcpd umount uname unlzma unxz unzip uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
+is_linux=0
+if [ "$(uname -s)" = "Linux" ]; then
+	is_linux=1
+fi
+
+applets="addgroup adduser busybox bunzip2 bzip2 bzcat cat chattr chmod chgrp chown cmp cp cpio date dd delgroup deluser diff du egrep env expr find flock free fsck getopt getty grep gunzip gzip hexdump install killall less ln login ls lsattr lzcat lzma man mkdir mkfifo mkswap mv nologin nslookup ntpd od passwd paste patch pidof pgrep pkill printf ps pstree readlink realpath rm rmdir run-parts setsid sleep sort split stat stty su sulogin tar tee test time touch timeout tr tree udhcpc udhcpd uname unlzma unxz unzip watch wc wget xargs xz xzcat zcat [ [["
+if [ "$is_linux" -eq 1 ]; then
+	applets="$applets blkid chroot df dmesg halt hwclock ifconfig insmod ip killall5 losetup lsmod lsof mknod mount mountpoint pivot_root poweroff reboot rfkill rmmod swapoff swapon switch_root sysctl umount uptime"
+fi
+
+for applet in $applets; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -215,8 +225,10 @@ run_old_style tests/busybox/udhcpd/udhcpd-rejects-invalid-pool
 run_old_style tests/busybox/basename/basename-strips-suffix
 run_old_style tests/busybox/basename/basename-multiple-names
 run_old_style tests/busybox/basename/dirname-basic
-run_old_style tests/busybox/blkid/blkid-lists-cache-backed-devices
-run_old_style tests/busybox/blkid/blkid-detects-swap-header
+if [ "$is_linux" -eq 1 ]; then
+	run_old_style tests/busybox/blkid/blkid-lists-cache-backed-devices
+	run_old_style tests/busybox/blkid/blkid-detects-swap-header
+fi
 
 run_old_style tests/busybox/chattr/chattr-sets-and-clears-flags
 run_old_style tests/busybox/chattr/chattr-R-sets-version-on-descendants
@@ -224,10 +236,12 @@ run_old_style tests/busybox/chmod/chmod-R-descends-before-changing-directory
 run_old_style tests/busybox/chgrp/chgrp-sets-group
 run_old_style tests/busybox/chown/chown-sets-owner
 run_old_style tests/busybox/chown/chown-sets-owner-and-group
-run_old_style tests/busybox/chroot/chroot-propagates-command-exit-status
-run_old_style tests/busybox/chroot/chroot-rejects-missing-root
-run_old_style tests/busybox/chroot/chroot-runs-command-in-new-root
-run_old_style tests/busybox/chroot/chroot-fails-missing-root-path
+if [ "$is_linux" -eq 1 ]; then
+	run_old_style tests/busybox/chroot/chroot-propagates-command-exit-status
+	run_old_style tests/busybox/chroot/chroot-rejects-missing-root
+	run_old_style tests/busybox/chroot/chroot-runs-command-in-new-root
+	run_old_style tests/busybox/chroot/chroot-fails-missing-root-path
+fi
 
 run_old_style tests/busybox/cmp/cmp-identical-files
 run_old_style tests/busybox/cmp/cmp-different-files-exit-one
@@ -253,18 +267,22 @@ run_old_style tests/busybox/date/date-u-works
 run_old_style tests/busybox/date/date-works
 run_old_style tests/busybox/date/date-works-1
 
-run_old_style tests/busybox/dmesg/dmesg-invalid-option-fails
-run_old_style tests/busybox/dmesg/dmesg-n-requires-argument
-run_old_style tests/busybox/dmesg/dmesg-rejects-invalid-number
-run_old_style tests/busybox/dmesg/dmesg-reads-or-reports-permission-error
+if [ "$is_linux" -eq 1 ]; then
+	run_old_style tests/busybox/dmesg/dmesg-invalid-option-fails
+	run_old_style tests/busybox/dmesg/dmesg-n-requires-argument
+	run_old_style tests/busybox/dmesg/dmesg-rejects-invalid-number
+	run_old_style tests/busybox/dmesg/dmesg-reads-or-reports-permission-error
+fi
 
 run_old_style tests/busybox/dd/dd-copies-file
 run_old_style tests/busybox/dd/dd-count-limits-copied-blocks
 run_old_style tests/busybox/dd/dd-skip-and-seek
 run_old_style tests/busybox/dd/dd-uses-stdin-and-stdout
 
-run_old_style tests/busybox/df/df-kP-matches-host
-run_old_style tests/busybox/df/df-default-matches-host-kP
+if [ "$is_linux" -eq 1 ]; then
+	run_old_style tests/busybox/df/df-kP-matches-host
+	run_old_style tests/busybox/df/df-default-matches-host-kP
+fi
 
 run_old_style tests/busybox/du/du-k-matches-host
 run_old_style tests/busybox/du/du-m-matches-host
@@ -290,11 +308,13 @@ run_old_style tests/busybox/hexdump/hexdump-C-reads-stdin
 run_old_style tests/busybox/hexdump/hexdump-C-renders-file
 run_old_style tests/busybox/hexdump/hexdump-squeezes-repeated-lines
 run_old_style tests/busybox/hexdump/hexdump-v-disables-squeezing
-run_old_style tests/busybox/ifconfig/ifconfig-lists-state-backed-interface
-run_old_style tests/busybox/ifconfig/ifconfig-updates-address-and-mtu
-run_old_style tests/busybox/ip/ip-addr-show-prints-state
-run_old_style tests/busybox/ip/ip-link-set-updates-state
-run_old_style tests/busybox/ip/ip-route-add-updates-state
+if [ "$is_linux" -eq 1 ]; then
+	run_old_style tests/busybox/ifconfig/ifconfig-lists-state-backed-interface
+	run_old_style tests/busybox/ifconfig/ifconfig-updates-address-and-mtu
+	run_old_style tests/busybox/ip/ip-addr-show-prints-state
+	run_old_style tests/busybox/ip/ip-link-set-updates-state
+	run_old_style tests/busybox/ip/ip-route-add-updates-state
+fi
 
 run_old_style tests/busybox/stat/stat-c-prints-size-mode-and-name
 run_old_style tests/busybox/stat/stat-c-reports-hard-links
@@ -314,8 +334,10 @@ run_old_style tests/busybox/unzip/unzip-l-lists-entries
 run_old_style tests/busybox/unzip/unzip-p-prints-selected-file
 run_old_style tests/busybox/unzip/unzip-rejects-path-traversal
 
-run_old_style tests/busybox/uptime/uptime-prints-linux-style-output
-run_old_style tests/busybox/uptime/uptime-matches-host-uptime-and-loads
+if [ "$is_linux" -eq 1 ]; then
+	run_old_style tests/busybox/uptime/uptime-prints-linux-style-output
+	run_old_style tests/busybox/uptime/uptime-matches-host-uptime-and-loads
+fi
 
 run_old_style tests/busybox/xargs/xargs-n-batches-arguments
 run_old_style tests/busybox/xargs/xargs-p2-runs-jobs-in-parallel
@@ -323,11 +345,13 @@ run_old_style tests/busybox/xargs/xargs-p2-runs-jobs-in-parallel
 run_old_style tests/busybox/less/less-prints-file
 run_old_style tests/busybox/less/less-reads-stdin
 run_old_style tests/busybox/less/less-concatenates-multiple-inputs
-run_old_style tests/busybox/lsof/lsof-lists-open-passwd
-run_old_style tests/busybox/lsof/lsof-ignores-extra-operands
+if [ "$is_linux" -eq 1 ]; then
+	run_old_style tests/busybox/lsof/lsof-lists-open-passwd
+	run_old_style tests/busybox/lsof/lsof-ignores-extra-operands
 
-run_old_style tests/busybox/lsmod/lsmod-prints-proc-modules
-run_old_style tests/busybox/lsmod/lsmod-rejects-extra-operand
+	run_old_style tests/busybox/lsmod/lsmod-prints-proc-modules
+	run_old_style tests/busybox/lsmod/lsmod-rejects-extra-operand
+fi
 
 run_old_style tests/busybox/ps/ps-prints-header-and-self
 run_old_style tests/busybox/ps/ps-lists-child-process
@@ -340,39 +364,52 @@ run_old_style tests/busybox/pgrep/pgrep-rejects-missing-pattern
 run_old_style tests/busybox/pidof/pidof-finds-sleep-process
 run_old_style tests/busybox/pidof/pidof-s-prints-one-pid
 run_old_style tests/busybox/pidof/pidof-o-omits-pid
-run_old_style tests/busybox/pivot_root/pivot_root-rejects-extra-operand
-
-run_old_style tests/busybox/poweroff/poweroff-w-exits-zero
+if [ "$is_linux" -eq 1 ]; then
+	run_old_style tests/busybox/pivot_root/pivot_root-rejects-extra-operand
+	run_old_style tests/busybox/poweroff/poweroff-w-exits-zero
+fi
 
 run_old_style tests/busybox/pkill/pkill-terminates-matching-child
 run_old_style tests/busybox/pkill/pkill-does-not-kill-wrapper-shell-by-script-argv
 run_old_style tests/busybox/pkill/pkill-exits-one-when-no-match
 run_old_style tests/busybox/pkill/pkill-rejects-missing-pattern
 run_old_style tests/busybox/pstree/pstree-p-shows-child-processes
-run_old_style tests/busybox/switch_root/switch_root-dry-run-validates-target
-run_old_style tests/busybox/switch_root/switch_root-requires-pid1
+if [ "$is_linux" -eq 1 ]; then
+	run_old_style tests/busybox/switch_root/switch_root-dry-run-validates-target
+	run_old_style tests/busybox/switch_root/switch_root-requires-pid1
+fi
 
 run_old_style tests/busybox/fsck/fsck-N-A-prints-delegated-checks
-run_old_style tests/busybox/hwclock/hwclock-rejects-unsupported-param-access
+if [ "$is_linux" -eq 1 ]; then
+	run_old_style tests/busybox/hwclock/hwclock-rejects-unsupported-param-access
+fi
 run_old_style tests/busybox/mkswap/mkswap-writes-swapspace2-magic
-run_old_style tests/busybox/mount/mount-f-a-reads-fstab
+if [ "$is_linux" -eq 1 ]; then
+	run_old_style tests/busybox/mount/mount-f-a-reads-fstab
+fi
 
 run_old_style tests/busybox/killall/killall-terminates-exact-name-match
 run_old_style tests/busybox/killall/killall-does-not-kill-wrapper-shell-by-script-argv
 run_old_style tests/busybox/killall/killall-exits-one-when-no-match
 run_old_style tests/busybox/killall/killall-rejects-missing-name
-run_old_style tests/busybox/killall5/killall5-lists-signals
-run_old_style tests/busybox/killall5/killall5-rejects-bad-signal
+if [ "$is_linux" -eq 1 ]; then
+	run_old_style tests/busybox/killall5/killall5-lists-signals
+	run_old_style tests/busybox/killall5/killall5-rejects-bad-signal
+fi
 
-run_old_style tests/busybox/mountpoint/mountpoint-d-matches-host
-run_old_style tests/busybox/mountpoint/mountpoint-proc-is-mountpoint
-run_old_style tests/busybox/mountpoint/mountpoint-q-suppresses-output
-run_old_style tests/busybox/mountpoint/mountpoint-src-is-not-mountpoint
-run_old_style tests/busybox/mountpoint/mountpoint-symlink-nofollow
+if [ "$is_linux" -eq 1 ]; then
+	run_old_style tests/busybox/mountpoint/mountpoint-d-matches-host
+	run_old_style tests/busybox/mountpoint/mountpoint-proc-is-mountpoint
+	run_old_style tests/busybox/mountpoint/mountpoint-q-suppresses-output
+	run_old_style tests/busybox/mountpoint/mountpoint-src-is-not-mountpoint
+	run_old_style tests/busybox/mountpoint/mountpoint-symlink-nofollow
+fi
 run_old_style tests/busybox/stty/stty-F-raw-disables-canonical-and-echo
 run_old_style tests/busybox/stty/stty-g-round-trips-state
-run_old_style tests/busybox/swapoff/swapoff-a-reads-proc-swaps
-run_old_style tests/busybox/swapon/swapon-a-e-skips-missing-devices
+if [ "$is_linux" -eq 1 ]; then
+	run_old_style tests/busybox/swapoff/swapoff-a-reads-proc-swaps
+	run_old_style tests/busybox/swapon/swapon-a-e-skips-missing-devices
+fi
 
 run_old_style tests/busybox/flock/flock-runs-command-under-lock
 run_old_style tests/busybox/flock/flock-nonblock-fails-when-locked
@@ -395,9 +432,11 @@ run_old_style tests/busybox/patch/patch-p1-strips-leading-component
 run_old_style tests/busybox/patch/patch-fails-without-partial-write
 run_old_style tests/busybox/patch/patch-refuses-symlink-target
 
-run_old_style tests/busybox/sysctl/sysctl-prints-keyed-values
-run_old_style tests/busybox/sysctl/sysctl-n-suppresses-keys
-run_old_style tests/busybox/sysctl/sysctl-fails-on-unknown-name
+if [ "$is_linux" -eq 1 ]; then
+	run_old_style tests/busybox/sysctl/sysctl-prints-keyed-values
+	run_old_style tests/busybox/sysctl/sysctl-n-suppresses-keys
+	run_old_style tests/busybox/sysctl/sysctl-fails-on-unknown-name
+fi
 
 run_old_style tests/busybox/setsid/setsid-creates-new-session
 run_old_style tests/busybox/setsid/setsid-propagates-exit-status
@@ -408,7 +447,9 @@ run_old_style tests/busybox/getopt/getopt-parses-attached-argument
 run_old_style tests/busybox/getopt/getopt-fails-invalid-option
 run_old_style tests/busybox/getopt/getopt-fails-missing-option-argument
 
-run_old_style tests/busybox/halt/halt-w-exits-zero
+if [ "$is_linux" -eq 1 ]; then
+	run_old_style tests/busybox/halt/halt-w-exits-zero
+fi
 
 run_old_style tests/busybox/free/free-prints-memory-table
 run_old_style tests/busybox/free/free-k-values-match-proc-meminfo
@@ -460,9 +501,11 @@ run_old_style tests/busybox/install/install-D-creates-parent-directories
 run_old_style tests/busybox/install/install-d-creates-directories
 run_old_style tests/busybox/install/install-m-sets-mode
 run_old_style tests/busybox/install/install-refuses-symlink-target
-run_old_style tests/busybox/insmod/insmod-rejects-missing-module
-run_old_style tests/busybox/insmod/insmod-reports-missing-file
-run_old_style tests/busybox/insmod/insmod-rejects-empty-file
+if [ "$is_linux" -eq 1 ]; then
+	run_old_style tests/busybox/insmod/insmod-rejects-missing-module
+	run_old_style tests/busybox/insmod/insmod-reports-missing-file
+	run_old_style tests/busybox/insmod/insmod-rejects-empty-file
+fi
 
 run_old_style tests/busybox/ln/ln-creates-hard-link
 run_old_style tests/busybox/ln/ln-creates-link-in-directory
@@ -531,11 +574,13 @@ run_old_style tests/busybox/readlink/readlink-f-canonicalizes
 run_old_style tests/busybox/readlink/readlink-f-normalizes-dotdot-after-missing-component
 run_old_style tests/busybox/realpath/realpath-canonicalizes-existing-path
 run_old_style tests/busybox/realpath/realpath-fails-for-missing-path
-run_old_style tests/busybox/rfkill/rfkill-list-reports-missing-device-or-lists
-run_old_style tests/busybox/rfkill/rfkill-list-rejects-invalid-target
-run_old_style tests/busybox/rfkill/rfkill-block-requires-target
-run_old_style tests/busybox/reboot/reboot-w-exits-zero
-run_old_style tests/busybox/reboot/reboot-d-requires-argument
+if [ "$is_linux" -eq 1 ]; then
+	run_old_style tests/busybox/rfkill/rfkill-list-reports-missing-device-or-lists
+	run_old_style tests/busybox/rfkill/rfkill-list-rejects-invalid-target
+	run_old_style tests/busybox/rfkill/rfkill-block-requires-target
+	run_old_style tests/busybox/reboot/reboot-w-exits-zero
+	run_old_style tests/busybox/reboot/reboot-d-requires-argument
+fi
 
 run_old_style tests/busybox/tail/tail-prints-last-lines
 run_old_style tests/busybox/tail/tail-prints-from-line
@@ -582,9 +627,11 @@ run_old_style tests/busybox/nologin/nologin-rejects-extra-operand
 
 run_old_style tests/busybox/rm/rm-removes-file
 run_old_style tests/busybox/rmdir/rmdir-removes-parent-directories
-run_old_style tests/busybox/rmmod/rmmod-rejects-missing-module
-run_old_style tests/busybox/rmmod/rmmod-rejects-invalid-option
-run_old_style tests/busybox/rmmod/rmmod-a-fails-cleanly-without-privilege
+if [ "$is_linux" -eq 1 ]; then
+	run_old_style tests/busybox/rmmod/rmmod-rejects-missing-module
+	run_old_style tests/busybox/rmmod/rmmod-rejects-invalid-option
+	run_old_style tests/busybox/rmmod/rmmod-a-fails-cleanly-without-privilege
+fi
 run_old_style tests/busybox/sleep/sleep-rejects-invalid-interval
 run_old_style tests/busybox/sleep/sleep-sums-arguments
 run_old_style tests/busybox/tee/tee-appends-input

@@ -1,11 +1,9 @@
-#![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
 use std::net::Ipv4Addr;
 
 use crate::common::applet::finish;
 use crate::common::error::AppletError;
 use crate::common::net::{parse_mac, parse_prefix};
-#[cfg(target_os = "linux")]
 use crate::common::net::{
     AddressFamily, Ipv4Change, LinkChange, apply_link_change, broadcast_for, format_mac,
     interface_flag_names, list_interfaces, prefix_to_netmask, set_ipv4,
@@ -33,20 +31,7 @@ pub fn main(args: &[String]) -> i32 {
 
 fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
     let options = parse_args(args)?;
-
-    #[cfg(target_os = "linux")]
-    {
-        return run_linux(&options);
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    let _ = options;
-
-    #[allow(unreachable_code)]
-    Err(vec![AppletError::new(
-        APPLET,
-        "unsupported on this platform",
-    )])
+    run_linux(&options)
 }
 
 fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
@@ -133,7 +118,6 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     Ok(options)
 }
 
-#[cfg(target_os = "linux")]
 fn run_linux(options: &Options) -> Result<(), Vec<AppletError>> {
     if options.interface.is_none() {
         return print_interfaces(options.all);
@@ -187,7 +171,6 @@ fn run_linux(options: &Options) -> Result<(), Vec<AppletError>> {
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
 fn has_changes(options: &Options) -> bool {
     options.address.is_some()
         || options.netmask.is_some()
@@ -198,7 +181,6 @@ fn has_changes(options: &Options) -> bool {
         || options.up.is_some()
 }
 
-#[cfg(target_os = "linux")]
 fn print_interfaces(all: bool) -> Result<(), Vec<AppletError>> {
     let interfaces = list_interfaces().map_err(io_error("listing interfaces", None))?;
     for interface in interfaces {
@@ -210,7 +192,6 @@ fn print_interfaces(all: bool) -> Result<(), Vec<AppletError>> {
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
 fn print_single_interface(name: &str) -> Result<(), Vec<AppletError>> {
     let interface = list_interfaces()
         .map_err(io_error("listing interfaces", None))?
@@ -221,7 +202,6 @@ fn print_single_interface(name: &str) -> Result<(), Vec<AppletError>> {
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
 fn print_interface(interface: &crate::common::net::InterfaceInfo) {
     let mac = interface
         .mac
@@ -274,7 +254,6 @@ fn parse_u32(kind: &str, value: &str) -> Result<u32, Vec<AppletError>> {
         .map_err(|_| vec![AppletError::new(APPLET, format!("invalid {kind} '{value}'"))])
 }
 
-#[cfg(target_os = "linux")]
 fn io_error(
     action: &'static str,
     path: Option<String>,

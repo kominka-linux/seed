@@ -9,6 +9,7 @@ pub mod fstab;
 pub mod io;
 #[cfg(target_os = "linux")]
 pub mod mounts;
+#[cfg(target_os = "linux")]
 pub mod net;
 pub mod process;
 pub mod runtime;

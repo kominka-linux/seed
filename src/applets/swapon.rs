@@ -1,4 +1,3 @@
-#![cfg_attr(not(target_os = "linux"), allow(dead_code, unreachable_code))]
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -41,15 +40,6 @@ pub fn main_swapoff(args: &[String]) -> i32 {
 
 fn run(action: Action, args: &[String]) -> Result<i32, Vec<AppletError>> {
     let options = parse_args(action, args)?;
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = (action, options);
-        return Err(vec![AppletError::new(
-            APPLET_SWAPON,
-            "unsupported on this platform",
-        )]);
-    }
-
     let devices = selected_devices(action, &options)?;
     if devices.is_empty() {
         return Ok(0);
@@ -173,17 +163,6 @@ fn proc_swaps() -> Result<Vec<String>, Vec<AppletError>> {
 }
 
 fn apply_device(action: Action, device: &str, options: &Options) -> Result<(), std::io::Error> {
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = (action, device, options);
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "unsupported on this platform",
-        ))
-    }
-
-    #[cfg(target_os = "linux")]
-    {
     if action == Action::Swapon && options.if_exists && !std::path::Path::new(device).exists() {
         return Ok(());
     }
@@ -210,7 +189,6 @@ fn apply_device(action: Action, device: &str, options: &Options) -> Result<(), s
                 Err(std::io::Error::last_os_error())
             }
         }
-    }
     }
 }
 
@@ -273,7 +251,6 @@ impl Action {
     }
 }
 
-#[cfg(target_os = "linux")]
 unsafe extern "C" {
     #[link_name = "swapon"]
     fn swapon_sys(path: *const libc::c_char, flags: libc::c_int) -> libc::c_int;

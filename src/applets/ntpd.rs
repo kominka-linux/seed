@@ -290,7 +290,7 @@ fn maybe_bind_to_device(
     _socket: &UdpSocket,
     _interface: Option<&str>,
 ) -> Result<(), Vec<AppletError>> {
-    #[cfg(target_os = "linux")]
+    #[cfg(not(target_os = "macos"))]
     if let Some(interface) = _interface {
         use std::ffi::CString;
         use std::os::fd::AsRawFd;
@@ -399,7 +399,7 @@ fn run_script(options: &Options, sync: &SyncResult) -> Result<(), Vec<AppletErro
 }
 
 fn step_time(offset_seconds: f64) -> Result<(), Vec<AppletError>> {
-    #[cfg(target_os = "linux")]
+    #[cfg(not(target_os = "macos"))]
     {
         let now = now_unix_timeval()?;
         let base = now.tv_sec as f64 + (now.tv_usec as f64 / 1_000_000.0);
@@ -426,7 +426,7 @@ fn step_time(offset_seconds: f64) -> Result<(), Vec<AppletError>> {
         )])
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
     {
         let _ = offset_seconds;
         Err(vec![AppletError::new(

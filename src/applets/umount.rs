@@ -1,22 +1,11 @@
-#![cfg_attr(not(target_os = "linux"), allow(dead_code, unreachable_code))]
 
-#[cfg(target_os = "linux")]
 use std::ffi::CString;
 use std::fs::OpenOptions;
 use std::os::fd::AsRawFd;
 
 use crate::common::applet::finish_code;
 use crate::common::error::AppletError;
-#[cfg(target_os = "linux")]
 use crate::common::mounts::{self, MountInfo};
-#[cfg(not(target_os = "linux"))]
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct MountInfo {
-    source: String,
-    filesystem: String,
-    mounted_on: String,
-    options: Vec<String>,
-}
 
 const APPLET: &str = "umount";
 const LOOP_CLR_FD: libc::c_int = 0x4C01;
@@ -43,8 +32,6 @@ pub fn main(args: &[String]) -> i32 {
 
 fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
     let options = parse_args(args)?;
-    #[cfg(target_os = "linux")]
-    {
     let targets = unmount_targets(&options)?;
     if targets.is_empty() {
         return Ok(0);
@@ -59,16 +46,6 @@ fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
     }
 
     Ok(exit_code)
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = options;
-        Err(vec![AppletError::new(
-            APPLET,
-            "unsupported on this platform",
-        )])
-    }
 }
 
 fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
@@ -116,14 +93,6 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
 }
 
 fn unmount_targets(options: &Options) -> Result<Vec<MountInfo>, Vec<AppletError>> {
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = options;
-        Err(vec![AppletError::new(APPLET, "unsupported on this platform")])
-    }
-
-    #[cfg(target_os = "linux")]
-    {
     let mounts = mounts::read_mountinfo()
         .map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some("/proc/self/mountinfo"), err)])?;
     if options.all {
@@ -169,18 +138,9 @@ fn unmount_targets(options: &Options) -> Result<Vec<MountInfo>, Vec<AppletError>
                     })
             })
             .collect::<Vec<_>>())
-    }
 }
 
 fn unmount_target(options: &Options, entry: &MountInfo) -> Result<(), AppletError> {
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = (options, entry);
-        Err(AppletError::new(APPLET, "unsupported on this platform"))
-    }
-
-    #[cfg(target_os = "linux")]
-    {
     let target = CString::new(entry.mounted_on.as_str())
         .map_err(|_| AppletError::new(APPLET, "target contains NUL byte"))?;
     let mut flags = 0;
@@ -209,18 +169,9 @@ fn unmount_target(options: &Options, entry: &MountInfo) -> Result<(), AppletErro
         free_loop_device(&entry.source)?;
     }
     Ok(())
-    }
 }
 
 fn remount_readonly(entry: &MountInfo) -> Result<(), AppletError> {
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = entry;
-        Err(AppletError::new(APPLET, "unsupported on this platform"))
-    }
-
-    #[cfg(target_os = "linux")]
-    {
     let target = CString::new(entry.mounted_on.as_str())
         .map_err(|_| AppletError::new(APPLET, "target contains NUL byte"))?;
     // SAFETY: `target` is a valid NUL-terminated string; null pointers are permitted for source and fstype on remount.
@@ -244,7 +195,6 @@ fn remount_readonly(entry: &MountInfo) -> Result<(), AppletError> {
                 std::io::Error::last_os_error()
             ),
         ))
-    }
     }
 }
 
@@ -274,7 +224,6 @@ fn split_csv(value: &str) -> Vec<String> {
         .collect()
 }
 
-#[cfg(target_os = "linux")]
 unsafe extern "C" {
     #[link_name = "umount2"]
     fn umount2_sys(target: *const libc::c_char, flags: libc::c_int) -> libc::c_int;

@@ -636,11 +636,11 @@ const SPEED_TABLE: &[(u32, libc::speed_t)] = &[
     (9600, libc::B9600),
     (19200, libc::B19200),
     (38400, libc::B38400),
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(not(target_os = "macos"))]
     (57600, libc::B57600),
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(not(target_os = "macos"))]
     (115200, libc::B115200),
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(not(target_os = "macos"))]
     (230400, libc::B230400),
 ];
 

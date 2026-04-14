@@ -1,5 +1,4 @@
 use std::ffi::CStr;
-#[cfg(target_os = "linux")]
 use std::fs;
 use std::io::Write;
 use std::mem::MaybeUninit;
@@ -9,11 +8,8 @@ use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET: &str = "uptime";
-#[cfg(target_os = "linux")]
 const PROC_LOADAVG: &str = "/proc/loadavg";
-#[cfg(target_os = "linux")]
 const PROC_UPTIME: &str = "/proc/uptime";
-#[cfg(target_os = "linux")]
 const UTMP_PATHS: &[&str] = &["/run/utmp", "/var/run/utmp"];
 
 pub fn main(args: &[String]) -> i32 {
@@ -108,7 +104,6 @@ fn format_clock(seconds: i64) -> Result<String, AppletError> {
         .into_owned())
 }
 
-#[cfg(target_os = "linux")]
 fn collect_snapshot() -> Result<Snapshot, Vec<AppletError>> {
     let now = current_time()?;
     let uptime_seconds = read_uptime_seconds()?;
@@ -123,15 +118,6 @@ fn collect_snapshot() -> Result<Snapshot, Vec<AppletError>> {
     })
 }
 
-#[cfg(not(target_os = "linux"))]
-fn collect_snapshot() -> Result<Snapshot, Vec<AppletError>> {
-    Err(vec![AppletError::new(
-        APPLET,
-        "unsupported on this platform",
-    )])
-}
-
-#[cfg(target_os = "linux")]
 fn current_time() -> Result<i64, Vec<AppletError>> {
     // SAFETY: null tells libc to return the current time without writing it.
     let result = unsafe { libc::time(std::ptr::null_mut()) };
@@ -144,7 +130,6 @@ fn current_time() -> Result<i64, Vec<AppletError>> {
     Ok(result as i64)
 }
 
-#[cfg(target_os = "linux")]
 fn read_uptime_seconds() -> Result<u64, Vec<AppletError>> {
     let uptime = fs::read_to_string(PROC_UPTIME).map_err(|err| {
         vec![AppletError::from_io(
@@ -173,7 +158,6 @@ fn read_uptime_seconds() -> Result<u64, Vec<AppletError>> {
     Ok(seconds as u64)
 }
 
-#[cfg(target_os = "linux")]
 fn read_load_averages() -> Result<[f64; 3], Vec<AppletError>> {
     let loadavg = fs::read_to_string(PROC_LOADAVG).map_err(|err| {
         vec![AppletError::from_io(
@@ -205,7 +189,6 @@ fn read_load_averages() -> Result<[f64; 3], Vec<AppletError>> {
     Ok(loads)
 }
 
-#[cfg(target_os = "linux")]
 fn user_count() -> Result<usize, Vec<AppletError>> {
     for path in UTMP_PATHS {
         match fs::read(path) {
@@ -224,7 +207,6 @@ fn user_count() -> Result<usize, Vec<AppletError>> {
     Ok(0)
 }
 
-#[cfg(target_os = "linux")]
 fn count_utmp_users(bytes: &[u8]) -> usize {
     let size = std::mem::size_of::<libc::utmpx>();
     if size == 0 {
@@ -237,7 +219,6 @@ fn count_utmp_users(bytes: &[u8]) -> usize {
         .count()
 }
 
-#[cfg(target_os = "linux")]
 fn utmp_entry_is_user_process(chunk: &[u8]) -> bool {
     if chunk.len() != std::mem::size_of::<libc::utmpx>() {
         return false;
@@ -252,8 +233,6 @@ fn utmp_entry_is_user_process(chunk: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{Snapshot, format_snapshot, format_uptime, parse_args};
-
-    #[cfg(target_os = "linux")]
     use super::count_utmp_users;
 
     fn args(values: &[&str]) -> Vec<String> {
@@ -293,7 +272,6 @@ mod tests {
         assert!(rendered.contains("up 2 days, 21:01, 1 user, load averages: 1.25 2.50 3.75"));
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
     fn counts_user_process_entries_in_utmp() {
         let mut user = unsafe { std::mem::zeroed::<libc::utmpx>() };
@@ -312,7 +290,6 @@ mod tests {
         assert_eq!(count_utmp_users(&bytes), 1);
     }
 
-    #[cfg(target_os = "linux")]
     unsafe fn any_as_bytes<T>(value: &T) -> &[u8] {
         unsafe {
             std::slice::from_raw_parts((value as *const T).cast::<u8>(), std::mem::size_of::<T>())

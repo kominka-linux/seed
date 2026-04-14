@@ -1,11 +1,8 @@
-#![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
-#[cfg(target_os = "linux")]
 use std::net::Ipv4Addr;
 
 use crate::common::applet::finish;
 use crate::common::error::AppletError;
-#[cfg(target_os = "linux")]
 use crate::common::net::{
     AddressFamily, Ipv4Change, LinkChange, RouteInfo, add_route, apply_link_change, broadcast_for,
     clear_ipv4, del_route, format_mac, interface_flag_names, list_interfaces, list_routes, parse_mac,
@@ -19,19 +16,9 @@ pub fn main(args: &[String]) -> i32 {
 }
 
 fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
-    #[cfg(target_os = "linux")]
-    {
-        return run_linux(args);
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    let _ = args;
-
-    #[allow(unreachable_code)]
-    Err(vec![AppletError::new(APPLET, "unsupported on this platform")])
+    run_linux(args)
 }
 
-#[cfg(target_os = "linux")]
 fn run_linux(args: &[String]) -> Result<(), Vec<AppletError>> {
     let Some(command) = args.first().map(String::as_str) else {
         return Err(vec![AppletError::new(APPLET, "missing command")]);
@@ -47,7 +34,6 @@ fn run_linux(args: &[String]) -> Result<(), Vec<AppletError>> {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn run_addr(args: &[String]) -> Result<(), Vec<AppletError>> {
     match args.first().map(String::as_str).unwrap_or("show") {
         "show" | "list" => {
@@ -90,7 +76,6 @@ fn run_addr(args: &[String]) -> Result<(), Vec<AppletError>> {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn run_link(args: &[String]) -> Result<(), Vec<AppletError>> {
     match args.first().map(String::as_str).unwrap_or("show") {
         "show" | "list" => {
@@ -117,7 +102,6 @@ fn run_link(args: &[String]) -> Result<(), Vec<AppletError>> {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn run_route(args: &[String]) -> Result<(), Vec<AppletError>> {
     match args.first().map(String::as_str).unwrap_or("show") {
         "show" | "list" => {
@@ -143,7 +127,6 @@ fn run_route(args: &[String]) -> Result<(), Vec<AppletError>> {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn parse_dev_filter(args: &[String]) -> Result<Option<String>, Vec<AppletError>> {
     match args {
         [] => Ok(None),
@@ -152,7 +135,6 @@ fn parse_dev_filter(args: &[String]) -> Result<Option<String>, Vec<AppletError>>
     }
 }
 
-#[cfg(target_os = "linux")]
 fn parse_optional_dev(args: &[String]) -> Result<Option<String>, Vec<AppletError>> {
     match args {
         [] => Ok(None),
@@ -162,7 +144,6 @@ fn parse_optional_dev(args: &[String]) -> Result<Option<String>, Vec<AppletError
     }
 }
 
-#[cfg(target_os = "linux")]
 fn parse_addr_change(args: &[String]) -> Result<(String, String), Vec<AppletError>> {
     match args {
         [spec, label, dev] if label == "dev" => Ok((spec.clone(), dev.clone())),
@@ -170,7 +151,6 @@ fn parse_addr_change(args: &[String]) -> Result<(String, String), Vec<AppletErro
     }
 }
 
-#[cfg(target_os = "linux")]
 fn parse_link_change(args: &[String]) -> Result<(String, LinkChange), Vec<AppletError>> {
     let (name, mut index) = match args {
         [label, dev, ..] if label == "dev" => (dev.clone(), 2),
@@ -218,7 +198,6 @@ fn parse_link_change(args: &[String]) -> Result<(String, LinkChange), Vec<Applet
     Ok((name, change))
 }
 
-#[cfg(target_os = "linux")]
 fn parse_route_change(args: &[String]) -> Result<RouteInfo, Vec<AppletError>> {
     let mut destination = None;
     let mut prefix_len = None;
@@ -266,7 +245,6 @@ fn parse_route_change(args: &[String]) -> Result<RouteInfo, Vec<AppletError>> {
     })
 }
 
-#[cfg(target_os = "linux")]
 fn print_addr_interface(interface: &crate::common::net::InterfaceInfo) {
     print_link_interface(interface);
     for address in &interface.addresses {
@@ -281,7 +259,6 @@ fn print_addr_interface(interface: &crate::common::net::InterfaceInfo) {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn print_link_interface(interface: &crate::common::net::InterfaceInfo) {
     println!(
         "{}: {}: <{}> mtu {}",
@@ -301,7 +278,6 @@ fn print_link_interface(interface: &crate::common::net::InterfaceInfo) {
     );
 }
 
-#[cfg(target_os = "linux")]
 fn print_route(route: &RouteInfo) {
     if route.family != AddressFamily::Inet4 {
         return;
@@ -319,14 +295,12 @@ fn print_route(route: &RouteInfo) {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn parse_ipv4(value: &str) -> Result<Ipv4Addr, Vec<AppletError>> {
     value
         .parse::<Ipv4Addr>()
         .map_err(|_| vec![AppletError::new(APPLET, format!("invalid IPv4 address '{value}'"))])
 }
 
-#[cfg(target_os = "linux")]
 fn io_error(
     action: &'static str,
     path: Option<String>,
@@ -336,7 +310,6 @@ fn io_error(
 
 #[cfg(test)]
 mod tests {
-    #[cfg(target_os = "linux")]
     use super::{parse_addr_change, parse_link_change, parse_route_change};
 
     fn args(values: &[&str]) -> Vec<String> {
@@ -344,7 +317,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os = "linux")]
     fn parses_addr_change() {
         assert_eq!(
             parse_addr_change(&args(&["10.0.0.2/24", "dev", "eth0"])).unwrap(),
@@ -353,7 +325,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os = "linux")]
     fn parses_link_change() {
         let (name, change) = parse_link_change(&args(&["dev", "eth0", "mtu", "1400", "up"])).unwrap();
         assert_eq!(name, "eth0");
@@ -362,7 +333,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os = "linux")]
     fn parses_route_change() {
         let route = parse_route_change(&args(&["default", "via", "10.0.0.1", "dev", "eth0"])).unwrap();
         assert_eq!(route.destination, "0.0.0.0");

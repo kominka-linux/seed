@@ -1,8 +1,5 @@
-#[cfg(target_os = "linux")]
 use std::ffi::CString;
-#[cfg(target_os = "linux")]
 use std::fs::File;
-#[cfg(target_os = "linux")]
 use std::os::fd::AsRawFd;
 
 use crate::common::applet::{AppletResult, finish};
@@ -16,20 +13,7 @@ pub fn main(args: &[String]) -> i32 {
 
 fn run(args: &[String]) -> AppletResult {
     let (path, params) = parse_args(args)?;
-
-    #[cfg(target_os = "linux")]
-    {
-        return run_linux(&path, &params);
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    let _ = (path, params);
-
-    #[allow(unreachable_code)]
-    Err(vec![AppletError::new(
-        APPLET,
-        "unsupported on this platform",
-    )])
+    run_linux(&path, &params)
 }
 
 fn parse_args(args: &[String]) -> Result<(String, Vec<String>), Vec<AppletError>> {
@@ -39,7 +23,6 @@ fn parse_args(args: &[String]) -> Result<(String, Vec<String>), Vec<AppletError>
     Ok((path.clone(), args[1..].to_vec()))
 }
 
-#[cfg(target_os = "linux")]
 fn run_linux(path: &str, params: &[String]) -> AppletResult {
     let file = File::open(path)
         .map_err(|err| vec![AppletError::new(APPLET, format!("can't insert '{path}': {err}"))])?;

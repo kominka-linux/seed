@@ -68,6 +68,7 @@ pub(crate) fn option_present(options: &[String], target: &str) -> bool {
     })
 }
 
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub(crate) fn option_value<'a>(options: &'a [String], target: &str) -> Option<&'a str> {
     options.iter().find_map(|option| {
         let (name, value) = option.split_once('=')?;
@@ -99,6 +100,7 @@ pub(crate) fn matches_type_filter(filter: Option<&[String]>, vfstype: &str) -> b
     included.is_empty() || included.contains(&vfstype)
 }
 
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 pub(crate) fn matches_option_filter(filter: Option<&[String]>, options: &[String]) -> bool {
     filter
         .unwrap_or(&[])

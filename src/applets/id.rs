@@ -222,7 +222,7 @@ fn lookup_user_by_name(username: &str) -> Option<UserInfo> {
 }
 
 fn get_groups_for_user(c_name: &CString, primary_gid: u32) -> Vec<u32> {
-    #[cfg(target_os = "linux")]
+    #[cfg(not(target_os = "macos"))]
     {
         let mut ngroups: libc::c_int = 64;
         let mut groups: Vec<libc::gid_t> = vec![0; 64];
@@ -248,7 +248,7 @@ fn get_groups_for_user(c_name: &CString, primary_gid: u32) -> Vec<u32> {
         groups.truncate(ngroups.max(0) as usize);
         groups.into_iter().map(|g| g as u32).collect()
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
     {
         let _ = c_name;
         vec![primary_gid]

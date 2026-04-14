@@ -1,13 +1,9 @@
-#[cfg(target_os = "linux")]
 use std::fs;
-#[cfg(target_os = "linux")]
 use std::os::unix::fs::MetadataExt;
-#[cfg(target_os = "linux")]
 use std::path::Path;
 
 use crate::common::applet::finish_code;
 use crate::common::error::AppletError;
-#[cfg(target_os = "linux")]
 use crate::common::mounts;
 
 const APPLET: &str = "mountpoint";
@@ -25,23 +21,9 @@ pub fn main(args: &[String]) -> i32 {
 
 fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
     let (options, path) = parse_args(args)?;
-
-    #[cfg(target_os = "linux")]
-    {
-        return run_linux(options, &path);
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    let _ = (options, path);
-
-    #[allow(unreachable_code)]
-    Err(vec![AppletError::new(
-        APPLET,
-        "unsupported on this platform",
-    )])
+    run_linux(options, &path)
 }
 
-#[cfg(target_os = "linux")]
 fn run_linux(options: Options, path: &str) -> Result<i32, Vec<AppletError>> {
     let mount = mounts::mountpoint_at_path(Path::new(path), options.nofollow)
         .map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some(path), err)])?;

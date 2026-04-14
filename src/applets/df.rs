@@ -4,7 +4,6 @@ use std::path::Path;
 
 use crate::common::applet::{AppletResult, finish};
 use crate::common::error::AppletError;
-#[cfg(target_os = "linux")]
 use crate::common::mounts;
 
 const APPLET: &str = "df";
@@ -123,20 +122,6 @@ struct MountInfo {
 }
 
 fn mount_for_path(path: &str) -> Result<MountInfo, AppletError> {
-    #[cfg(target_os = "linux")]
-    {
-        return mount_for_path_linux(path);
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    let _ = path;
-
-    #[allow(unreachable_code)]
-    Err(AppletError::new(APPLET, "unsupported on this platform"))
-}
-
-#[cfg(target_os = "linux")]
-fn mount_for_path_linux(path: &str) -> Result<MountInfo, AppletError> {
     let mount = mounts::mount_for_path(Path::new(path))
         .map_err(|err| AppletError::from_io(APPLET, "reading", Some(path), err))?
         .ok_or_else(|| AppletError::new(APPLET, format!("no mount for '{path}'")))?;

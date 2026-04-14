@@ -4,6 +4,7 @@ macro_rules! define_applet_modules {
         pub mod adduser;
         pub mod base64;
         pub mod basename;
+        #[cfg(target_os = "linux")]
         pub mod blkid;
         pub mod bzip2;
         pub mod cat;
@@ -11,6 +12,7 @@ macro_rules! define_applet_modules {
         pub mod chgrp;
         pub mod chmod;
         pub mod chown;
+        #[cfg(target_os = "linux")]
         pub mod chroot;
         pub mod cmp;
         pub mod cp;
@@ -20,8 +22,10 @@ macro_rules! define_applet_modules {
         pub mod dd;
         pub mod delgroup;
         pub mod deluser;
+        #[cfg(target_os = "linux")]
         pub mod df;
         pub mod diff;
+        #[cfg(target_os = "linux")]
         pub mod dmesg;
         pub mod du;
         pub mod echo;
@@ -40,31 +44,42 @@ macro_rules! define_applet_modules {
         pub mod head;
         pub mod hexdump;
         pub mod hostname;
+        #[cfg(target_os = "linux")]
         pub mod hwclock;
         pub mod id;
+        #[cfg(target_os = "linux")]
         pub mod ifconfig;
+        #[cfg(target_os = "linux")]
         pub mod insmod;
         pub mod install;
+        #[cfg(target_os = "linux")]
         pub mod ip;
         pub mod kill;
         pub mod killall;
+        #[cfg(target_os = "linux")]
         pub mod killall5;
         pub mod less;
         pub mod link;
         pub mod ln;
         pub mod login;
+        #[cfg(target_os = "linux")]
         pub mod losetup;
         pub mod ls;
         pub mod lsattr;
+        #[cfg(target_os = "linux")]
         pub mod lsmod;
+        #[cfg(target_os = "linux")]
         pub mod lsof;
         pub mod man;
         pub mod mkdir;
         pub mod mkfifo;
+        #[cfg(target_os = "linux")]
         pub mod mknod;
         pub mod mkswap;
         pub mod mktemp;
+        #[cfg(target_os = "linux")]
         pub mod mount;
+        #[cfg(target_os = "linux")]
         pub mod mountpoint;
         pub mod mv;
         pub mod nohup;
@@ -78,6 +93,7 @@ macro_rules! define_applet_modules {
         pub mod patch;
         pub mod pgrep;
         pub mod pidof;
+        #[cfg(target_os = "linux")]
         pub mod pivot_root;
         pub mod pkill;
         pub mod printenv;
@@ -88,14 +104,17 @@ macro_rules! define_applet_modules {
         pub mod readlink;
         pub mod realpath;
         pub mod rev;
+        #[cfg(target_os = "linux")]
         pub mod rfkill;
         pub mod rm;
         pub mod rmdir;
+        #[cfg(target_os = "linux")]
         pub mod rmmod;
         pub mod run_parts;
         pub mod seq;
         pub mod setsid;
         pub mod shuf;
+        #[cfg(target_os = "linux")]
         pub mod shutdown;
         pub mod sleep;
         pub mod sort;
@@ -105,10 +124,14 @@ macro_rules! define_applet_modules {
         pub mod stty;
         pub mod su;
         pub mod sulogin;
+        #[cfg(target_os = "linux")]
         pub mod swapoff;
+        #[cfg(target_os = "linux")]
         pub mod swapon;
+        #[cfg(target_os = "linux")]
         pub mod switch_root;
         pub mod sync;
+        #[cfg(target_os = "linux")]
         pub mod sysctl;
         pub mod tail;
         pub mod tar;
@@ -124,10 +147,12 @@ macro_rules! define_applet_modules {
         pub mod tty;
         pub mod udhcpc;
         pub mod udhcpd;
+        #[cfg(target_os = "linux")]
         pub mod umount;
         pub mod uname;
         pub mod uniq;
         pub mod unzip;
+        #[cfg(target_os = "linux")]
         pub mod uptime;
         pub mod watch;
         pub mod wc;
@@ -163,6 +188,7 @@ macro_rules! define_applet_entries {
                 name: "basename",
                 main: applets::basename::main_basename,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "blkid",
                 main: applets::blkid::main,
@@ -199,6 +225,7 @@ macro_rules! define_applet_entries {
                 name: "chown",
                 main: applets::chown::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "chroot",
                 main: applets::chroot::main,
@@ -235,10 +262,12 @@ macro_rules! define_applet_entries {
                 name: "deluser",
                 main: applets::deluser::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "df",
                 main: applets::df::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "dmesg",
                 main: applets::dmesg::main,
@@ -323,6 +352,7 @@ macro_rules! define_applet_entries {
                 name: "gzip",
                 main: applets::gzip::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "halt",
                 main: applets::shutdown::main_halt,
@@ -355,6 +385,7 @@ macro_rules! define_applet_entries {
                 name: "hostname",
                 main: applets::hostname::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "hwclock",
                 main: applets::hwclock::main,
@@ -363,14 +394,17 @@ macro_rules! define_applet_entries {
                 name: "id",
                 main: applets::id::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "ifconfig",
                 main: applets::ifconfig::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "ip",
                 main: applets::ip::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "insmod",
                 main: applets::insmod::main,
@@ -387,6 +421,7 @@ macro_rules! define_applet_entries {
                 name: "killall",
                 main: applets::killall::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "killall5",
                 main: applets::killall5::main,
@@ -407,6 +442,7 @@ macro_rules! define_applet_entries {
                 name: "ln",
                 main: applets::ln::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "losetup",
                 main: applets::losetup::main,
@@ -419,10 +455,12 @@ macro_rules! define_applet_entries {
                 name: "lsattr",
                 main: applets::lsattr::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "lsmod",
                 main: applets::lsmod::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "lsof",
                 main: applets::lsof::main,
@@ -447,10 +485,12 @@ macro_rules! define_applet_entries {
                 name: "mkfifo",
                 main: applets::mkfifo::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "mknod",
                 main: applets::mknod::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "mountpoint",
                 main: applets::mountpoint::main,
@@ -463,6 +503,7 @@ macro_rules! define_applet_entries {
                 name: "mkswap",
                 main: applets::mkswap::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "mount",
                 main: applets::mount::main,
@@ -527,6 +568,7 @@ macro_rules! define_applet_entries {
                 name: "pkill",
                 main: applets::pkill::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "pivot_root",
                 main: applets::pivot_root::main,
@@ -535,6 +577,7 @@ macro_rules! define_applet_entries {
                 name: "printenv",
                 main: applets::printenv::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "poweroff",
                 main: applets::shutdown::main_poweroff,
@@ -563,10 +606,12 @@ macro_rules! define_applet_entries {
                 name: "realpath",
                 main: applets::realpath::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "rfkill",
                 main: applets::rfkill::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "reboot",
                 main: applets::shutdown::main_reboot,
@@ -579,6 +624,7 @@ macro_rules! define_applet_entries {
                 name: "rm",
                 main: applets::rm::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "rmmod",
                 main: applets::rmmod::main,
@@ -627,14 +673,17 @@ macro_rules! define_applet_entries {
                 name: "stty",
                 main: applets::stty::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "swapoff",
                 main: applets::swapoff::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "swapon",
                 main: applets::swapon::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "switch_root",
                 main: applets::switch_root::main,
@@ -651,6 +700,7 @@ macro_rules! define_applet_entries {
                 name: "sync",
                 main: applets::sync::main_sync,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "sysctl",
                 main: applets::sysctl::main,
@@ -735,10 +785,12 @@ macro_rules! define_applet_entries {
                 name: "unzip",
                 main: applets::unzip::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "umount",
                 main: applets::umount::main,
             },
+            #[cfg(target_os = "linux")]
             $entry {
                 name: "uptime",
                 main: applets::uptime::main,

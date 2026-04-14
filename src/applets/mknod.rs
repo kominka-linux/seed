@@ -1,4 +1,3 @@
-#[cfg(target_os = "linux")]
 use std::ffi::CString;
 
 use crate::common::applet::{AppletResult, finish};
@@ -15,7 +14,6 @@ enum NodeType {
     Fifo,
 }
 
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 #[derive(Debug)]
 struct Options {
     mode: u32,
@@ -31,18 +29,7 @@ pub fn main(args: &[String]) -> i32 {
 
 fn run(args: &[String]) -> AppletResult {
     let options = parse_args(args)?;
-    #[cfg(target_os = "linux")]
-    {
-        create_node(&options)
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = options;
-        Err(vec![AppletError::new(
-            APPLET,
-            "not supported on this platform",
-        )])
-    }
+    create_node(&options)
 }
 
 fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
@@ -134,7 +121,6 @@ fn parse_device_number(text: &str, label: &str) -> Result<u32, Vec<AppletError>>
     })
 }
 
-#[cfg(target_os = "linux")]
 fn create_node(options: &Options) -> AppletResult {
     let path = CString::new(options.path.as_str())
         .map_err(|_| vec![AppletError::new(APPLET, "path contains NUL byte")])?;

@@ -1,11 +1,8 @@
-#[cfg(target_os = "linux")]
 use std::io::Write;
 
 use crate::common::applet::{AppletCodeResult, finish_code};
 use crate::common::error::AppletError;
-#[cfg(target_os = "linux")]
 use crate::common::io::stdout;
-#[cfg(target_os = "linux")]
 use crate::common::process::list_processes;
 
 const APPLET: &str = "killall5";
@@ -22,25 +19,12 @@ pub fn main(args: &[String]) -> i32 {
 
 fn run(args: &[String]) -> AppletCodeResult {
     let options = parse_args(args)?;
-
-    #[cfg(target_os = "linux")]
-    {
-        if options.list_signals {
-            return print_signal_list()
-                .map(|()| 0)
-                .map_err(|err| vec![AppletError::from_io(APPLET, "writing stdout", None, err)]);
-        }
-        return run_linux(options).map(|()| 0);
+    if options.list_signals {
+        return print_signal_list()
+            .map(|()| 0)
+            .map_err(|err| vec![AppletError::from_io(APPLET, "writing stdout", None, err)]);
     }
-
-    #[cfg(not(target_os = "linux"))]
-    let _ = options;
-
-    #[allow(unreachable_code)]
-    Err(vec![AppletError::new(
-        APPLET,
-        "unsupported on this platform",
-    )])
+    run_linux(options).map(|()| 0)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -140,7 +124,6 @@ fn signal_number(name: &str) -> Option<libc::c_int> {
     })
 }
 
-#[cfg(target_os = "linux")]
 fn print_signal_list() -> std::io::Result<()> {
     let mut out = stdout();
     for (number, name) in signal_list() {
@@ -149,7 +132,6 @@ fn print_signal_list() -> std::io::Result<()> {
     out.flush()
 }
 
-#[cfg(target_os = "linux")]
 fn signal_list() -> Vec<(libc::c_int, &'static str)> {
     vec![
         (1, "HUP"),
@@ -188,7 +170,6 @@ fn signal_list() -> Vec<(libc::c_int, &'static str)> {
     ]
 }
 
-#[cfg(target_os = "linux")]
 fn run_linux(options: Options) -> Result<(), Vec<AppletError>> {
     let current_sid = current_session_id()?;
     let processes = list_processes().map_err(|message| vec![AppletError::new(APPLET, message)])?;
@@ -225,12 +206,10 @@ fn run_linux(options: Options) -> Result<(), Vec<AppletError>> {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn current_session_id() -> Result<i32, Vec<AppletError>> {
     session_id_of(0).map_err(|err| vec![AppletError::new(APPLET, format!("getsid: {err}"))])
 }
 
-#[cfg(target_os = "linux")]
 fn session_id_of(pid: i32) -> Result<i32, std::io::Error> {
     // SAFETY: `getsid` is called with a valid pid or 0 for the current process.
     let sid = unsafe { libc::getsid(pid) };

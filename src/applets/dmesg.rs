@@ -1,22 +1,16 @@
-#[cfg(target_os = "linux")]
 use std::borrow::Cow;
-#[cfg(target_os = "linux")]
 use std::io::Write;
 
 use crate::common::applet::{AppletResult, finish};
 use crate::common::args::{ArgCursor, ArgToken};
 use crate::common::error::AppletError;
-#[cfg(target_os = "linux")]
 use crate::common::io::stdout;
 
 const APPLET: &str = "dmesg";
 const DEFAULT_BUFFER_SIZE: i32 = 16 * 1024;
 
-#[cfg(target_os = "linux")]
 const SYSLOG_ACTION_READ_ALL: libc::c_int = 3;
-#[cfg(target_os = "linux")]
 const SYSLOG_ACTION_READ_CLEAR: libc::c_int = 4;
-#[cfg(target_os = "linux")]
 const SYSLOG_ACTION_CONSOLE_LEVEL: libc::c_int = 8;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -33,20 +27,7 @@ pub fn main(args: &[String]) -> i32 {
 
 fn run(args: &[String]) -> AppletResult {
     let options = parse_args(args)?;
-
-    #[cfg(target_os = "linux")]
-    {
-        return run_linux(options);
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    let _ = options;
-
-    #[allow(unreachable_code)]
-    Err(vec![AppletError::new(
-        APPLET,
-        "unsupported on this platform",
-    )])
+    run_linux(options)
 }
 
 fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
@@ -109,7 +90,6 @@ fn parse_number(value: &str) -> Result<i32, Vec<AppletError>> {
     Ok(parsed)
 }
 
-#[cfg(target_os = "linux")]
 fn run_linux(options: Options) -> AppletResult {
     if let Some(level) = options.console_level {
         return klogctl(SYSLOG_ACTION_CONSOLE_LEVEL, std::ptr::null_mut(), level)
@@ -141,7 +121,6 @@ fn run_linux(options: Options) -> AppletResult {
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
 fn klogctl(
     action: libc::c_int,
     buffer: *mut libc::c_char,
@@ -157,7 +136,6 @@ fn klogctl(
     }
 }
 
-#[cfg(target_os = "linux")]
 fn strip_syslog_prefixes(text: &str) -> Cow<'_, str> {
     if !text.contains('<') {
         return Cow::Borrowed(text);
@@ -171,7 +149,6 @@ fn strip_syslog_prefixes(text: &str) -> Cow<'_, str> {
     Cow::Owned(normalized)
 }
 
-#[cfg(target_os = "linux")]
 fn strip_syslog_prefix(line: &str) -> &str {
     let Some(rest) = line.strip_prefix('<') else {
         return line;
@@ -186,7 +163,6 @@ fn strip_syslog_prefix(line: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::{Options, parse_args, parse_number};
-    #[cfg(target_os = "linux")]
     use super::{strip_syslog_prefix, strip_syslog_prefixes};
 
     fn args(values: &[&str]) -> Vec<String> {
@@ -212,14 +188,12 @@ mod tests {
         assert!(parse_number("-1").is_err());
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
     fn strips_prefix_from_kernel_messages() {
         assert_eq!(strip_syslog_prefix("<6>[1.0] hello\n"), "[1.0] hello\n");
         assert_eq!(strip_syslog_prefix("[1.0] hello\n"), "[1.0] hello\n");
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
     fn strips_prefixes_across_multiple_lines() {
         assert_eq!(

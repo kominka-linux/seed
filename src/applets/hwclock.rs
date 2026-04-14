@@ -1,15 +1,9 @@
 #![allow(deprecated)]
-#![cfg_attr(not(target_os = "linux"), allow(dead_code, unused_imports))]
 
-#[cfg(target_os = "linux")]
 use std::env;
-#[cfg(target_os = "linux")]
 use std::ffi::CString;
-#[cfg(target_os = "linux")]
 use std::fs;
-#[cfg(target_os = "linux")]
 use std::os::fd::RawFd;
-#[cfg(target_os = "linux")]
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::common::applet::finish;
@@ -43,14 +37,12 @@ struct LinuxRtcTime {
     tm_isdst: libc::c_int,
 }
 
-#[cfg(target_os = "linux")]
 #[repr(C)]
 struct LinuxTimezone {
     tz_minuteswest: libc::c_int,
     tz_dsttime: libc::c_int,
 }
 
-#[cfg(target_os = "linux")]
 unsafe extern "C" {
     fn tzset();
     static mut timezone: libc::c_long;
@@ -64,20 +56,7 @@ pub fn main(args: &[String]) -> i32 {
 
 fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
     let options = parse_args(args)?;
-
-    #[cfg(target_os = "linux")]
-    {
-        return run_linux(&options);
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    let _ = options;
-
-    #[allow(unreachable_code)]
-    Err(vec![AppletError::new(
-        APPLET,
-        "unsupported on this platform",
-    )])
+    run_linux(&options)
 }
 
 fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
@@ -139,7 +118,6 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     Ok(options)
 }
 
-#[cfg(target_os = "linux")]
 fn run_linux(options: &Options) -> Result<(), Vec<AppletError>> {
     let utc = options.utc.unwrap_or_else(adjtime_is_utc);
     match () {
@@ -150,14 +128,12 @@ fn run_linux(options: &Options) -> Result<(), Vec<AppletError>> {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn show_clock(device: Option<&str>, utc: bool) -> Result<(), Vec<AppletError>> {
     let time = read_rtc_time(device, utc)?;
     println!("{}  0.000000 seconds", format_ctime(time));
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
 fn set_system_time_from_rtc(device: Option<&str>, utc: bool) -> Result<(), Vec<AppletError>> {
     let seconds = read_rtc_time(device, utc)?;
     let tv = libc::timeval {
@@ -177,7 +153,6 @@ fn set_system_time_from_rtc(device: Option<&str>, utc: bool) -> Result<(), Vec<A
     }
 }
 
-#[cfg(target_os = "linux")]
 fn set_rtc_from_system_time(device: Option<&str>, utc: bool) -> Result<(), Vec<AppletError>> {
     let fd = open_rtc(device, libc::O_RDWR)?;
     let now = SystemTime::now()
@@ -199,7 +174,6 @@ fn set_rtc_from_system_time(device: Option<&str>, utc: bool) -> Result<(), Vec<A
     }
 }
 
-#[cfg(target_os = "linux")]
 fn set_kernel_timezone(utc: bool) -> Result<(), Vec<AppletError>> {
     // SAFETY: `tzset` updates libc global timezone state.
     unsafe { tzset() };
@@ -226,7 +200,6 @@ fn set_kernel_timezone(utc: bool) -> Result<(), Vec<AppletError>> {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn read_rtc_time(device: Option<&str>, utc: bool) -> Result<libc::time_t, Vec<AppletError>> {
     let fd = open_rtc(device, libc::O_RDONLY)?;
     let mut rtc = LinuxRtcTime::default();
@@ -240,7 +213,6 @@ fn read_rtc_time(device: Option<&str>, utc: bool) -> Result<libc::time_t, Vec<Ap
     rtc_to_time(rtc, utc).map_err(|error| vec![error])
 }
 
-#[cfg(target_os = "linux")]
 fn open_rtc(device: Option<&str>, flags: libc::c_int) -> Result<RawFd, Vec<AppletError>> {
     let candidates = if let Some(device) = device {
         vec![device.to_string()]
@@ -268,7 +240,6 @@ fn open_rtc(device: Option<&str>, flags: libc::c_int) -> Result<RawFd, Vec<Apple
     Err(vec![AppletError::from_io(APPLET, "opening", Some(&path), err)])
 }
 
-#[cfg(target_os = "linux")]
 fn close_fd(fd: RawFd) {
     // SAFETY: `fd` is an open file descriptor returned from `open`.
     unsafe {
@@ -276,7 +247,6 @@ fn close_fd(fd: RawFd) {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn rtc_to_time(rtc: LinuxRtcTime, utc: bool) -> Result<libc::time_t, AppletError> {
     let mut tm = libc::tm {
         tm_sec: rtc.tm_sec,
@@ -288,40 +258,12 @@ fn rtc_to_time(rtc: LinuxRtcTime, utc: bool) -> Result<libc::time_t, AppletError
         tm_wday: rtc.tm_wday,
         tm_yday: rtc.tm_yday,
         tm_isdst: -1,
-        #[cfg(any(
-            target_os = "android",
-            target_os = "dragonfly",
-            target_os = "emscripten",
-            target_os = "freebsd",
-            target_os = "fuchsia",
-            target_os = "haiku",
-            target_os = "hermit",
-            target_os = "illumos",
-            target_os = "linux",
-            target_os = "netbsd",
-            target_os = "openbsd",
-            target_os = "solaris"
-        ))]
         tm_gmtoff: 0,
-        #[cfg(any(
-            target_os = "android",
-            target_os = "dragonfly",
-            target_os = "emscripten",
-            target_os = "freebsd",
-            target_os = "fuchsia",
-            target_os = "haiku",
-            target_os = "illumos",
-            target_os = "linux",
-            target_os = "netbsd",
-            target_os = "openbsd",
-            target_os = "solaris"
-        ))]
         tm_zone: std::ptr::null(),
     };
     tm_to_time(&mut tm, utc)
 }
 
-#[cfg(target_os = "linux")]
 fn tm_to_rtc(tm: libc::tm) -> LinuxRtcTime {
     LinuxRtcTime {
         tm_sec: tm.tm_sec,
@@ -336,7 +278,6 @@ fn tm_to_rtc(tm: libc::tm) -> LinuxRtcTime {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn tm_to_time(tm: &mut libc::tm, utc: bool) -> Result<libc::time_t, AppletError> {
     if utc {
         unsafe {
@@ -366,7 +307,6 @@ fn tm_to_time(tm: &mut libc::tm, utc: bool) -> Result<libc::time_t, AppletError>
     }
 }
 
-#[cfg(target_os = "linux")]
 fn time_to_tm(value: libc::time_t, utc: bool) -> Result<libc::tm, Vec<AppletError>> {
     let mut tm = zeroed_tm();
     let rc = if utc {
@@ -383,7 +323,6 @@ fn time_to_tm(value: libc::time_t, utc: bool) -> Result<libc::tm, Vec<AppletErro
     }
 }
 
-#[cfg(target_os = "linux")]
 fn zeroed_tm() -> libc::tm {
     libc::tm {
         tm_sec: 0,
@@ -395,39 +334,11 @@ fn zeroed_tm() -> libc::tm {
         tm_wday: 0,
         tm_yday: 0,
         tm_isdst: 0,
-        #[cfg(any(
-            target_os = "android",
-            target_os = "dragonfly",
-            target_os = "emscripten",
-            target_os = "freebsd",
-            target_os = "fuchsia",
-            target_os = "haiku",
-            target_os = "hermit",
-            target_os = "illumos",
-            target_os = "linux",
-            target_os = "netbsd",
-            target_os = "openbsd",
-            target_os = "solaris"
-        ))]
         tm_gmtoff: 0,
-        #[cfg(any(
-            target_os = "android",
-            target_os = "dragonfly",
-            target_os = "emscripten",
-            target_os = "freebsd",
-            target_os = "fuchsia",
-            target_os = "haiku",
-            target_os = "illumos",
-            target_os = "linux",
-            target_os = "netbsd",
-            target_os = "openbsd",
-            target_os = "solaris"
-        ))]
         tm_zone: std::ptr::null(),
     }
 }
 
-#[cfg(target_os = "linux")]
 fn system_timezone_struct(utc: bool) -> Result<LinuxTimezone, Vec<AppletError>> {
     let local = time_to_tm(
         SystemTime::now()
@@ -448,7 +359,6 @@ fn system_timezone_struct(utc: bool) -> Result<LinuxTimezone, Vec<AppletError>> 
     })
 }
 
-#[cfg(target_os = "linux")]
 fn adjtime_is_utc() -> bool {
     let path = env::var_os("SEED_ADJTIME")
         .map(Into::into)
@@ -458,7 +368,6 @@ fn adjtime_is_utc() -> bool {
         .is_some_and(|text| text.lines().any(|line| line.trim() == "UTC"))
 }
 
-#[cfg(target_os = "linux")]
 fn format_ctime(value: libc::time_t) -> String {
     let mut tm = zeroed_tm();
     // SAFETY: pointers remain valid for the duration of the call.
@@ -479,17 +388,13 @@ fn format_ctime(value: libc::time_t) -> String {
     String::from_utf8_lossy(&buffer[..written]).into_owned()
 }
 
-#[cfg(target_os = "linux")]
 use std::path::PathBuf;
 
 #[cfg(test)]
 mod tests {
     use super::{Options, parse_args};
-    #[cfg(target_os = "linux")]
     use super::adjtime_is_utc;
-    #[cfg(target_os = "linux")]
     use crate::common::test_env;
-    #[cfg(target_os = "linux")]
     use std::fs;
 
     fn args(values: &[&str]) -> Vec<String> {
@@ -522,7 +427,6 @@ mod tests {
         );
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
     fn reads_adjtime_utc_marker() {
         let _guard = test_env::lock();

@@ -1,12 +1,9 @@
-#![cfg_attr(not(target_os = "linux"), allow(dead_code, unreachable_code))]
 
-#[cfg(target_os = "linux")]
 use std::ffi::CString;
 
 use crate::common::applet::finish_code;
 use crate::common::error::AppletError;
 use crate::common::fstab;
-#[cfg(target_os = "linux")]
 use crate::common::mounts;
 
 const APPLET: &str = "mount";
@@ -62,8 +59,6 @@ pub fn main(args: &[String]) -> i32 {
 
 fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
     let options = parse_args(args)?;
-    #[cfg(target_os = "linux")]
-    {
     if options.operands.is_empty() && !options.all {
         list_mounts()?;
         return Ok(0);
@@ -74,16 +69,6 @@ fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
         mount_request(&options, &request)?;
     }
     Ok(0)
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = options;
-        Err(vec![AppletError::new(
-            APPLET,
-            "unsupported on this platform",
-        )])
-    }
 }
 
 fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
@@ -134,13 +119,6 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
 }
 
 fn list_mounts() -> Result<(), Vec<AppletError>> {
-    #[cfg(not(target_os = "linux"))]
-    {
-        Err(vec![AppletError::new(APPLET, "unsupported on this platform")])
-    }
-
-    #[cfg(target_os = "linux")]
-    {
     let entries = mounts::read_mountinfo()
         .map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some("/proc/self/mountinfo"), err)])?;
     for entry in entries {
@@ -153,7 +131,6 @@ fn list_mounts() -> Result<(), Vec<AppletError>> {
         );
     }
     Ok(())
-    }
 }
 
 fn mount_requests(options: &Options) -> Result<Vec<MountRequest>, Vec<AppletError>> {
@@ -207,14 +184,6 @@ fn mount_requests(options: &Options) -> Result<Vec<MountRequest>, Vec<AppletErro
 }
 
 fn mount_request(options: &Options, request: &MountRequest) -> Result<(), Vec<AppletError>> {
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = (options, request);
-        Err(vec![AppletError::new(APPLET, "unsupported on this platform")])
-    }
-
-    #[cfg(target_os = "linux")]
-    {
     let mut effective_options = request.options.clone();
     effective_options.extend(options.mount_options.iter().cloned());
     if options.readonly {
@@ -292,7 +261,6 @@ fn mount_request(options: &Options, request: &MountRequest) -> Result<(), Vec<Ap
     }
 
     Ok(())
-    }
 }
 
 fn parse_mount_options(options: &[String]) -> ParsedMountOptions {
@@ -360,8 +328,6 @@ fn resolve_spec(spec: &str) -> String {
     spec.to_string()
 }
 
-#[cfg(target_os = "linux")]
-#[cfg(target_os = "linux")]
 unsafe extern "C" {
     #[link_name = "mount"]
     fn mount_sys(

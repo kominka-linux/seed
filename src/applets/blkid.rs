@@ -1,18 +1,12 @@
-#![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
 use std::fs;
 
 use crate::common::applet::finish;
 use crate::common::error::AppletError;
-#[cfg(target_os = "linux")]
 use crate::common::mounts;
-#[cfg(target_os = "linux")]
 use std::collections::{BTreeMap, BTreeSet};
-#[cfg(target_os = "linux")]
 use std::io::{Read, Seek, SeekFrom};
-#[cfg(target_os = "linux")]
 use std::os::unix::fs::FileTypeExt;
-#[cfg(target_os = "linux")]
 use std::path::{Path, PathBuf};
 
 const APPLET: &str = "blkid";
@@ -34,31 +28,19 @@ pub fn main(args: &[String]) -> i32 {
 
 fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
     let operands = parse_args(args)?;
-    #[cfg(target_os = "linux")]
-    {
-        let mut entries = if operands.is_empty() {
-            discover_entries()?
-        } else {
-            operands
-                .iter()
-                .filter_map(|path| entry_for_path(path))
-                .collect::<Vec<_>>()
-        };
-        entries.sort_by(|left, right| left.path.cmp(&right.path));
-        for entry in entries {
-            println!("{}", format_entry(&entry));
-        }
-        return Ok(());
+    let mut entries = if operands.is_empty() {
+        discover_entries()?
+    } else {
+        operands
+            .iter()
+            .filter_map(|path| entry_for_path(path))
+            .collect::<Vec<_>>()
+    };
+    entries.sort_by(|left, right| left.path.cmp(&right.path));
+    for entry in entries {
+        println!("{}", format_entry(&entry));
     }
-
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = operands;
-        Err(vec![AppletError::new(
-            APPLET,
-            "unsupported on this platform",
-        )])
-    }
+    Ok(())
 }
 
 fn parse_args(args: &[String]) -> Result<Vec<String>, Vec<AppletError>> {
@@ -73,7 +55,6 @@ fn parse_args(args: &[String]) -> Result<Vec<String>, Vec<AppletError>> {
     Ok(args.to_vec())
 }
 
-#[cfg(target_os = "linux")]
 fn discover_entries() -> Result<Vec<Entry>, Vec<AppletError>> {
     if let Some(path) = state_path() {
         return read_state_entries(&path).map_err(|err| {
@@ -132,7 +113,6 @@ fn discover_entries() -> Result<Vec<Entry>, Vec<AppletError>> {
     Ok(entries.into_values().collect())
 }
 
-#[cfg(target_os = "linux")]
 fn entry_for_path(path: &str) -> Option<Entry> {
     if let Some(state_path) = state_path() {
         return read_state_entries(&state_path).ok().and_then(|entries| {
@@ -178,7 +158,6 @@ fn entry_for_path(path: &str) -> Option<Entry> {
     (entry.uuid.is_some() || entry.label.is_some() || entry.fstype.is_some()).then_some(entry)
 }
 
-#[cfg(target_os = "linux")]
 fn base_entry(path: &str, tags: &BTreeMap<String, DeviceTags>) -> Entry {
     let mut entry = Entry {
         path: path.to_string(),
@@ -205,14 +184,12 @@ fn format_entry(entry: &Entry) -> String {
     format!("{}: {}", entry.path, fields.join(" "))
 }
 
-#[cfg(target_os = "linux")]
 #[derive(Clone, Debug, Default)]
 struct DeviceTags {
     uuid: Option<String>,
     label: Option<String>,
 }
 
-#[cfg(target_os = "linux")]
 fn read_device_tags() -> BTreeMap<String, DeviceTags> {
     let mut tags = BTreeMap::<String, DeviceTags>::new();
     load_tag_directory("/dev/disk/by-uuid", true, &mut tags);
@@ -220,7 +197,6 @@ fn read_device_tags() -> BTreeMap<String, DeviceTags> {
     tags
 }
 
-#[cfg(target_os = "linux")]
 fn load_tag_directory(path: &str, is_uuid: bool, tags: &mut BTreeMap<String, DeviceTags>) {
     let Ok(entries) = fs::read_dir(path) else {
         return;
@@ -240,7 +216,6 @@ fn load_tag_directory(path: &str, is_uuid: bool, tags: &mut BTreeMap<String, Dev
     }
 }
 
-#[cfg(target_os = "linux")]
 fn proc_swaps() -> std::io::Result<Vec<(String, String)>> {
     let path = std::env::var_os("SEED_PROC_SWAPS")
         .map(PathBuf::from)
@@ -256,7 +231,6 @@ fn proc_swaps() -> std::io::Result<Vec<(String, String)>> {
         .collect())
 }
 
-#[cfg(target_os = "linux")]
 fn read_swap_tags(path: &Path) -> Option<Entry> {
     let metadata = fs::metadata(path).ok()?;
     if !(metadata.file_type().is_file() || metadata.file_type().is_block_device()) {
@@ -287,7 +261,6 @@ fn read_swap_tags(path: &Path) -> Option<Entry> {
     })
 }
 
-#[cfg(target_os = "linux")]
 fn read_swap_uuid(file: &mut fs::File) -> Option<String> {
     let mut bytes = [0_u8; 16];
     file.seek(SeekFrom::Start(SWAP_UUID_OFFSET)).ok()?;
@@ -301,7 +274,6 @@ fn read_swap_uuid(file: &mut fs::File) -> Option<String> {
     ))
 }
 
-#[cfg(target_os = "linux")]
 fn read_swap_label(file: &mut fs::File) -> Option<String> {
     let mut bytes = [0_u8; 16];
     file.seek(SeekFrom::Start(SWAP_LABEL_OFFSET)).ok()?;
@@ -310,7 +282,6 @@ fn read_swap_label(file: &mut fs::File) -> Option<String> {
     (len > 0).then(|| String::from_utf8_lossy(&bytes[..len]).into_owned())
 }
 
-#[cfg(target_os = "linux")]
 fn page_size() -> Option<usize> {
     // SAFETY: sysconf reads process-global configuration and has no side effects.
     let value = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
@@ -323,12 +294,10 @@ fn normalize_device_path(path: &str) -> String {
         .unwrap_or_else(|_| path.to_string())
 }
 
-#[cfg(target_os = "linux")]
 fn state_path() -> Option<PathBuf> {
     std::env::var_os("SEED_BLKID_CACHE").map(PathBuf::from)
 }
 
-#[cfg(target_os = "linux")]
 fn read_state_entries(path: &Path) -> std::io::Result<Vec<Entry>> {
     let text = fs::read_to_string(path)?;
     let mut seen = BTreeSet::new();
@@ -350,7 +319,6 @@ fn read_state_entries(path: &Path) -> std::io::Result<Vec<Entry>> {
         .collect())
 }
 
-#[cfg(target_os = "linux")]
 fn nonempty(value: &str) -> Option<String> {
     (!value.is_empty()).then(|| value.to_string())
 }
@@ -358,9 +326,7 @@ fn nonempty(value: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{Entry, format_entry, parse_args};
-    #[cfg(target_os = "linux")]
     use super::read_state_entries;
-    #[cfg(target_os = "linux")]
     use std::fs;
 
     fn args(values: &[&str]) -> Vec<String> {
@@ -384,7 +350,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os = "linux")]
     fn reads_state_cache() {
         let path = std::env::temp_dir().join(format!("seed-blkid-{}", std::process::id()));
         fs::write(&path, "/dev/a\tuuid-a\tlabel-a\text4\n/dev/b\t\t\tswap\n").unwrap();

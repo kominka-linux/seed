@@ -1,20 +1,14 @@
-#[cfg(target_os = "linux")]
 use std::fs;
-#[cfg(target_os = "linux")]
 use std::io::Write;
-#[cfg(target_os = "linux")]
 use std::path::{Path, PathBuf};
 
 use crate::common::applet::{AppletResult, finish};
 use crate::common::error::AppletError;
-#[cfg(target_os = "linux")]
 use crate::common::io::stdout;
 
 const APPLET: &str = "rfkill";
-#[cfg(target_os = "linux")]
 const SYS_CLASS_RFKILL: &str = "/sys/class/rfkill";
 
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Command {
     List,
@@ -22,7 +16,6 @@ enum Command {
     Unblock,
 }
 
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Target {
     All,
@@ -30,7 +23,6 @@ enum Target {
     Type(&'static str),
 }
 
-#[cfg(target_os = "linux")]
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct RfkillEntry {
     index: u32,
@@ -47,20 +39,7 @@ pub fn main(args: &[String]) -> i32 {
 
 fn run(args: &[String]) -> AppletResult {
     let (command, target) = parse_args(args)?;
-
-    #[cfg(target_os = "linux")]
-    {
-        return run_linux(command, target);
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    let _ = (command, target);
-
-    #[allow(unreachable_code)]
-    Err(vec![AppletError::new(
-        APPLET,
-        "unsupported on this platform",
-    )])
+    run_linux(command, target)
 }
 
 fn parse_args(args: &[String]) -> Result<(Command, Option<Target>), Vec<AppletError>> {
@@ -108,7 +87,6 @@ fn parse_target(value: &str) -> Result<Target, Vec<AppletError>> {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn run_linux(command: Command, target: Option<Target>) -> AppletResult {
     let entries = read_rfkill_entries()?;
     match command {
@@ -118,7 +96,6 @@ fn run_linux(command: Command, target: Option<Target>) -> AppletResult {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn read_rfkill_entries() -> Result<Vec<RfkillEntry>, Vec<AppletError>> {
     let directory = Path::new(SYS_CLASS_RFKILL);
     if !directory.exists() {
@@ -160,7 +137,6 @@ fn read_rfkill_entries() -> Result<Vec<RfkillEntry>, Vec<AppletError>> {
     Ok(entries)
 }
 
-#[cfg(target_os = "linux")]
 fn read_trimmed(path: PathBuf) -> Result<String, Vec<AppletError>> {
     let path_text = path.to_string_lossy().into_owned();
     fs::read_to_string(&path)
@@ -168,7 +144,6 @@ fn read_trimmed(path: PathBuf) -> Result<String, Vec<AppletError>> {
         .map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some(&path_text), err)])
 }
 
-#[cfg(target_os = "linux")]
 fn normalize_type(kind: &str) -> String {
     if kind == "wlan" {
         String::from("wlan")
@@ -177,7 +152,6 @@ fn normalize_type(kind: &str) -> String {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn matches_target(entry: &RfkillEntry, target: Target) -> bool {
     match target {
         Target::All => true,
@@ -186,7 +160,6 @@ fn matches_target(entry: &RfkillEntry, target: Target) -> bool {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn list_entries(entries: &[RfkillEntry], target: Target) -> AppletResult {
     let mut out = stdout();
     for entry in entries.iter().filter(|entry| matches_target(entry, target)) {
@@ -210,7 +183,6 @@ fn list_entries(entries: &[RfkillEntry], target: Target) -> AppletResult {
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
 fn display_type(kind: &str) -> &'static str {
     match kind {
         "wlan" => "Wireless LAN",
@@ -224,7 +196,6 @@ fn display_type(kind: &str) -> &'static str {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn set_blocked(entries: &[RfkillEntry], target: Target, blocked: bool) -> AppletResult {
     let value = if blocked { "1" } else { "0" };
     for entry in entries.iter().filter(|entry| matches_target(entry, target)) {

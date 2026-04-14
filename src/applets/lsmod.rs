@@ -1,4 +1,3 @@
-#[cfg(target_os = "linux")]
 use std::fs;
 use std::io::Write;
 
@@ -7,9 +6,7 @@ use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET: &str = "lsmod";
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 const PROC_MODULES: &str = "/proc/modules";
-#[cfg(target_os = "linux")]
 const PROC_TAINTED: &str = "/proc/sys/kernel/tainted";
 
 #[derive(Debug, Eq, PartialEq)]
@@ -45,27 +42,17 @@ fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
 }
 
 fn read_modules() -> Result<Vec<ModuleEntry>, Vec<AppletError>> {
-    #[cfg(target_os = "linux")]
-    {
-        let proc_modules = fs::read_to_string(PROC_MODULES).map_err(|err| {
-            vec![AppletError::from_io(
-                APPLET,
-                "reading",
-                Some(PROC_MODULES),
-                err,
-            )]
-        })?;
-        return parse_modules(&proc_modules).map_err(|err| vec![err]);
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    Err(vec![AppletError::new(
-        APPLET,
-        "unsupported on this platform",
-    )])
+    let proc_modules = fs::read_to_string(PROC_MODULES).map_err(|err| {
+        vec![AppletError::from_io(
+            APPLET,
+            "reading",
+            Some(PROC_MODULES),
+            err,
+        )]
+    })?;
+    parse_modules(&proc_modules).map_err(|err| vec![err])
 }
 
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn parse_modules(proc_modules: &str) -> Result<Vec<ModuleEntry>, AppletError> {
     proc_modules
         .lines()
@@ -74,7 +61,6 @@ fn parse_modules(proc_modules: &str) -> Result<Vec<ModuleEntry>, AppletError> {
         .collect()
 }
 
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn parse_module_line(line: &str) -> Result<ModuleEntry, AppletError> {
     let mut fields = line.split_whitespace();
     let name = fields
@@ -101,7 +87,6 @@ fn parse_module_line(line: &str) -> Result<ModuleEntry, AppletError> {
     })
 }
 
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn parse_u64_field(field: Option<&str>, name: &str) -> Result<u64, AppletError> {
     let value = field
         .ok_or_else(|| AppletError::new(APPLET, format!("missing {name} in {PROC_MODULES}")))?;
@@ -113,7 +98,6 @@ fn parse_u64_field(field: Option<&str>, name: &str) -> Result<u64, AppletError> 
     })
 }
 
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn parse_used_by(field: &str) -> Option<String> {
     let value = field.trim_end_matches(',');
     if value == "-" {
@@ -144,15 +128,9 @@ fn header_line() -> String {
 }
 
 fn taint_suffix() -> bool {
-    #[cfg(target_os = "linux")]
-    {
-        return fs::read_to_string(PROC_TAINTED)
-            .map(|value| value.trim() == "0")
-            .unwrap_or(false);
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    false
+    fs::read_to_string(PROC_TAINTED)
+        .map(|value| value.trim() == "0")
+        .unwrap_or(false)
 }
 
 #[cfg(test)]

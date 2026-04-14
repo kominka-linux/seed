@@ -1,13 +1,8 @@
-#[cfg(target_os = "linux")]
 use std::ffi::CString;
-#[cfg(target_os = "linux")]
 use std::os::unix::ffi::OsStrExt;
-#[cfg(target_os = "linux")]
 use std::os::unix::process::CommandExt;
 use std::os::unix::process::ExitStatusExt;
-#[cfg(target_os = "linux")]
 use std::path::Path;
-#[cfg(target_os = "linux")]
 use std::process::Command;
 
 use crate::common::applet::finish_code;
@@ -21,23 +16,9 @@ pub fn main(args: &[String]) -> i32 {
 
 fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
     let (new_root, command, command_args) = parse_args(args)?;
-
-    #[cfg(target_os = "linux")]
-    {
-        return run_linux(&new_root, &command, &command_args);
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    let _ = (new_root, command, command_args);
-
-    #[allow(unreachable_code)]
-    Err(vec![AppletError::new(
-        APPLET,
-        "unsupported on this platform",
-    )])
+    run_linux(&new_root, &command, &command_args)
 }
 
-#[cfg(target_os = "linux")]
 fn run_linux(
     new_root: &str,
     command: &str,
@@ -90,7 +71,6 @@ fn parse_args(args: &[String]) -> Result<(String, String, Vec<String>), Vec<Appl
     Ok((new_root.clone(), args[1].clone(), args[2..].to_vec()))
 }
 
-#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
 fn exit_code(status: std::process::ExitStatus) -> i32 {
     if let Some(code) = status.code() {
         code

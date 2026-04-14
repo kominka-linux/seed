@@ -1,21 +1,15 @@
-#[cfg(target_os = "linux")]
 use std::fs::{self, File, OpenOptions};
-#[cfg(target_os = "linux")]
 use std::io::Write;
-#[cfg(target_os = "linux")]
 use std::os::fd::AsRawFd;
-#[cfg(target_os = "linux")]
 use std::path::Path;
 
 use crate::common::applet::finish;
 use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
-#[cfg(target_os = "linux")]
 use crate::common::io::stdout;
 
 const APPLET: &str = "losetup";
 
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 #[derive(Debug)]
 enum Command {
     List,
@@ -32,14 +26,12 @@ enum Command {
     },
 }
 
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 #[derive(Debug)]
 enum LoopSelector {
     NextFree,
     Device(String),
 }
 
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 #[derive(Debug)]
 struct Options {
     offset: u64,
@@ -54,18 +46,7 @@ pub fn main(args: &[String]) -> i32 {
 
 fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
     let options = parse_args(args)?;
-    #[cfg(target_os = "linux")]
-    {
-        run_linux(options)
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = options;
-        Err(vec![AppletError::new(
-            APPLET,
-            "not supported on this platform",
-        )])
-    }
+    run_linux(options)
 }
 
 fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
@@ -178,7 +159,6 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     })
 }
 
-#[cfg(target_os = "linux")]
 fn run_linux(options: Options) -> Result<(), Vec<AppletError>> {
     match options.command {
         Command::List => list_loop_devices(),
@@ -199,7 +179,6 @@ fn run_linux(options: Options) -> Result<(), Vec<AppletError>> {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn attach_loop_device(
     selector: LoopSelector,
     file: &str,
@@ -271,7 +250,6 @@ fn attach_loop_device(
     }
 }
 
-#[cfg(target_os = "linux")]
 fn set_capacity(device: &str) -> Result<(), Vec<AppletError>> {
     let loop_file = open_loop_device(device)?;
     // SAFETY: `loop_file` is a valid loop-device fd.
@@ -289,7 +267,6 @@ fn set_capacity(device: &str) -> Result<(), Vec<AppletError>> {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn detach_loop_device(device: &str) -> Result<(), Vec<AppletError>> {
     let loop_file = open_loop_device(device)?;
     clear_loop_fd(loop_file.as_raw_fd()).map_err(|err| {
@@ -300,7 +277,6 @@ fn detach_loop_device(device: &str) -> Result<(), Vec<AppletError>> {
     })
 }
 
-#[cfg(target_os = "linux")]
 fn list_loop_devices() -> Result<(), Vec<AppletError>> {
     let mut devices = fs::read_dir("/dev")
         .map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some("/dev"), err)])?
@@ -327,7 +303,6 @@ fn list_loop_devices() -> Result<(), Vec<AppletError>> {
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
 fn loop_device_status(path: &Path) -> Result<Option<String>, Vec<AppletError>> {
     let loop_file = OpenOptions::new()
         .read(true)
@@ -357,7 +332,6 @@ fn loop_device_status(path: &Path) -> Result<Option<String>, Vec<AppletError>> {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn find_free_loop_device() -> Result<String, Vec<AppletError>> {
     let control = File::open("/dev/loop-control").map_err(|err| {
         vec![AppletError::from_io(
@@ -383,7 +357,6 @@ fn find_free_loop_device() -> Result<String, Vec<AppletError>> {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn open_loop_device(path: &str) -> Result<File, Vec<AppletError>> {
     OpenOptions::new()
         .read(true)
@@ -392,7 +365,6 @@ fn open_loop_device(path: &str) -> Result<File, Vec<AppletError>> {
         .map_err(|err| vec![AppletError::from_io(APPLET, "opening", Some(path), err)])
 }
 
-#[cfg(target_os = "linux")]
 fn clear_loop_fd(fd: libc::c_int) -> Result<(), std::io::Error> {
     // SAFETY: `fd` is expected to refer to an open loop device. The ioctl takes no pointer args.
     let status = unsafe { libc::ioctl(fd, LOOP_CLR_FD) };
@@ -403,7 +375,6 @@ fn clear_loop_fd(fd: libc::c_int) -> Result<(), std::io::Error> {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn loop_flags(read_only: bool, partscan: bool) -> u32 {
     let mut flags = 0;
     if read_only {
@@ -415,13 +386,11 @@ fn loop_flags(read_only: bool, partscan: bool) -> u32 {
     flags
 }
 
-#[cfg(target_os = "linux")]
 fn copy_file_name(dest: &mut [u8; LO_NAME_SIZE], bytes: &[u8]) {
     let len = bytes.len().min(dest.len().saturating_sub(1));
     dest[..len].copy_from_slice(&bytes[..len]);
 }
 
-#[cfg(target_os = "linux")]
 fn c_string_from_bytes(bytes: &[u8]) -> String {
     let end = bytes
         .iter()
@@ -430,28 +399,17 @@ fn c_string_from_bytes(bytes: &[u8]) -> String {
     String::from_utf8_lossy(&bytes[..end]).into_owned()
 }
 
-#[cfg(target_os = "linux")]
 const LO_NAME_SIZE: usize = 64;
-#[cfg(target_os = "linux")]
 const LO_KEY_SIZE: usize = 32;
-#[cfg(target_os = "linux")]
 const LOOP_SET_FD: libc::c_int = 0x4C00;
-#[cfg(target_os = "linux")]
 const LOOP_CLR_FD: libc::c_int = 0x4C01;
-#[cfg(target_os = "linux")]
 const LOOP_SET_STATUS64: libc::c_int = 0x4C04;
-#[cfg(target_os = "linux")]
 const LOOP_GET_STATUS64: libc::c_int = 0x4C05;
-#[cfg(target_os = "linux")]
 const LOOP_SET_CAPACITY: libc::c_int = 0x4C07;
-#[cfg(target_os = "linux")]
 const LOOP_CTL_GET_FREE: libc::c_int = 0x4C82;
-#[cfg(target_os = "linux")]
 const LO_FLAGS_READ_ONLY: u32 = 1;
-#[cfg(target_os = "linux")]
 const LO_FLAGS_PARTSCAN: u32 = 8;
 
-#[cfg(target_os = "linux")]
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 struct LoopInfo64 {
@@ -470,7 +428,6 @@ struct LoopInfo64 {
     lo_init: [u64; 2],
 }
 
-#[cfg(target_os = "linux")]
 impl Default for LoopInfo64 {
     fn default() -> Self {
         Self {

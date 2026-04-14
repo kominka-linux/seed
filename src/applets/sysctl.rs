@@ -1,6 +1,5 @@
 use std::io::Write;
 
-#[cfg(target_os = "linux")]
 use std::fs;
 
 use crate::common::applet::finish;
@@ -67,22 +66,9 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
 }
 
 fn read_value(name: &str) -> Result<String, Vec<AppletError>> {
-    #[cfg(target_os = "linux")]
-    {
-        return read_linux_value(name);
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    let _ = name;
-
-    #[allow(unreachable_code)]
-    Err(vec![AppletError::new(
-        APPLET,
-        "unsupported on this platform",
-    )])
+    read_linux_value(name)
 }
 
-#[cfg(target_os = "linux")]
 fn read_linux_value(name: &str) -> Result<String, Vec<AppletError>> {
     let path = linux_sysctl_path(name)?;
     let value = fs::read_to_string(&path)
@@ -90,7 +76,6 @@ fn read_linux_value(name: &str) -> Result<String, Vec<AppletError>> {
     Ok(value.trim_end().to_string())
 }
 
-#[cfg(target_os = "linux")]
 fn linux_sysctl_path(name: &str) -> Result<String, Vec<AppletError>> {
     if name.is_empty()
         || name
@@ -108,8 +93,6 @@ fn linux_sysctl_path(name: &str) -> Result<String, Vec<AppletError>> {
 #[cfg(test)]
 mod tests {
     use super::{Options, parse_args};
-
-    #[cfg(target_os = "linux")]
     use super::linux_sysctl_path;
 
     fn args(values: &[&str]) -> Vec<String> {
@@ -130,7 +113,6 @@ mod tests {
         );
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
     fn maps_linux_keys_to_proc_sys_paths() {
         assert_eq!(

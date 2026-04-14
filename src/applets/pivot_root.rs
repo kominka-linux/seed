@@ -1,10 +1,6 @@
-#![cfg_attr(not(target_os = "linux"), allow(dead_code))]
 
-#[cfg(target_os = "linux")]
 use std::ffi::CString;
-#[cfg(target_os = "linux")]
 use std::os::unix::ffi::OsStrExt;
-#[cfg(target_os = "linux")]
 use std::path::Path;
 
 use crate::common::applet::finish;
@@ -18,20 +14,7 @@ pub fn main(args: &[String]) -> i32 {
 
 fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
     let (new_root, put_old) = parse_args(args)?;
-
-    #[cfg(target_os = "linux")]
-    {
-        return run_linux(&new_root, &put_old);
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    let _ = (new_root, put_old);
-
-    #[allow(unreachable_code)]
-    Err(vec![AppletError::new(
-        APPLET,
-        "unsupported on this platform",
-    )])
+    run_linux(&new_root, &put_old)
 }
 
 fn parse_args(args: &[String]) -> Result<(String, String), Vec<AppletError>> {
@@ -43,7 +26,6 @@ fn parse_args(args: &[String]) -> Result<(String, String), Vec<AppletError>> {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn run_linux(new_root: &str, put_old: &str) -> Result<(), Vec<AppletError>> {
     let new_root = CString::new(Path::new(new_root).as_os_str().as_bytes())
         .map_err(|_| vec![AppletError::new(APPLET, "path contains NUL byte")])?;

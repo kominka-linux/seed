@@ -134,13 +134,13 @@ fn field_to_string(field: &[libc::c_char]) -> String {
 }
 
 fn operating_system_name() -> &'static str {
-    #[cfg(target_os = "linux")]
-    {
-        "GNU/Linux"
-    }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
     {
         std::env::consts::OS
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        "GNU/Linux"
     }
 }
 

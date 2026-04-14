@@ -1,13 +1,9 @@
-#[cfg(target_os = "linux")]
 use std::fs;
-#[cfg(target_os = "linux")]
 use std::io::Write;
 
 use crate::common::applet::{AppletResult, finish};
-#[cfg(target_os = "linux")]
 use crate::common::process::{ProcessInfo, list_processes};
 use crate::common::error::AppletError;
-#[cfg(target_os = "linux")]
 use crate::common::io::stdout;
 
 const APPLET: &str = "lsof";
@@ -18,20 +14,9 @@ pub fn main(args: &[String]) -> i32 {
 
 fn run(args: &[String]) -> AppletResult {
     let _ = args;
-
-    #[cfg(target_os = "linux")]
-    {
-        return run_linux();
-    }
-
-    #[allow(unreachable_code)]
-    Err(vec![AppletError::new(
-        APPLET,
-        "unsupported on this platform",
-    )])
+    run_linux()
 }
 
-#[cfg(target_os = "linux")]
 fn run_linux() -> AppletResult {
     let processes = list_processes().map_err(|message| vec![AppletError::new(APPLET, message)])?;
     let mut out = stdout();
@@ -60,7 +45,6 @@ fn run_linux() -> AppletResult {
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
 fn descriptors_for_process(pid: i32) -> Result<Vec<u32>, Vec<AppletError>> {
     let mut descriptors = Vec::new();
     for entry in fs::read_dir(format!("/proc/{pid}/fd")).map_err(|err| {
@@ -85,7 +69,6 @@ fn descriptors_for_process(pid: i32) -> Result<Vec<u32>, Vec<AppletError>> {
     Ok(descriptors)
 }
 
-#[cfg(target_os = "linux")]
 fn display_command(process: &ProcessInfo) -> &str {
     process
         .command
@@ -97,12 +80,9 @@ fn display_command(process: &ProcessInfo) -> &str {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(target_os = "linux")]
     use super::display_command;
-    #[cfg(target_os = "linux")]
     use crate::common::process::ProcessInfo;
 
-    #[cfg(target_os = "linux")]
     #[test]
     fn prefers_argv0_for_command() {
         let process = ProcessInfo {

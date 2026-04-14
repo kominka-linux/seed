@@ -1,6 +1,4 @@
-#[cfg(target_os = "linux")]
 use std::ffi::CString;
-#[cfg(target_os = "linux")]
 use std::fs;
 
 use crate::common::applet::{AppletResult, finish};
@@ -8,7 +6,6 @@ use crate::common::error::AppletError;
 
 const APPLET: &str = "rmmod";
 
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct Options {
     all_unused: bool,
@@ -23,20 +20,7 @@ pub fn main(args: &[String]) -> i32 {
 
 fn run(args: &[String]) -> AppletResult {
     let options = parse_args(args)?;
-
-    #[cfg(target_os = "linux")]
-    {
-        return run_linux(options);
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    let _ = options;
-
-    #[allow(unreachable_code)]
-    Err(vec![AppletError::new(
-        APPLET,
-        "unsupported on this platform",
-    )])
+    run_linux(options)
 }
 
 fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
@@ -69,7 +53,6 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     Ok(options)
 }
 
-#[cfg(target_os = "linux")]
 fn run_linux(options: Options) -> AppletResult {
     let flags = delete_module_flags(&options);
     let modules = if options.all_unused {
@@ -101,7 +84,6 @@ fn run_linux(options: Options) -> AppletResult {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn delete_module_flags(options: &Options) -> libc::c_int {
     let mut flags = if options.wait { 0 } else { libc::O_NONBLOCK };
     if options.force {
@@ -110,7 +92,6 @@ fn delete_module_flags(options: &Options) -> libc::c_int {
     flags
 }
 
-#[cfg(target_os = "linux")]
 fn delete_module(module: &str, flags: libc::c_int, name: Option<&str>) -> Result<(), AppletError> {
     let module = CString::new(module)
         .map_err(|_| AppletError::new(APPLET, "module name contains NUL byte"))?;
@@ -129,7 +110,6 @@ fn delete_module(module: &str, flags: libc::c_int, name: Option<&str>) -> Result
     }
 }
 
-#[cfg(target_os = "linux")]
 fn unused_modules() -> Result<Vec<String>, Vec<AppletError>> {
     let modules = fs::read_to_string("/proc/modules")
         .map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some("/proc/modules"), err)])?;
@@ -153,7 +133,6 @@ fn unused_modules() -> Result<Vec<String>, Vec<AppletError>> {
 #[cfg(test)]
 mod tests {
     use super::{Options, parse_args};
-    #[cfg(target_os = "linux")]
     use super::delete_module_flags;
 
     fn args(values: &[&str]) -> Vec<String> {
@@ -179,7 +158,6 @@ mod tests {
         assert!(parse_args(&args(&["-a"])).is_ok());
     }
 
-    #[cfg(target_os = "linux")]
     #[test]
     fn maps_delete_module_flags() {
         let options = Options {

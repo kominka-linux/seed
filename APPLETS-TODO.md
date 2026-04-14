@@ -217,7 +217,7 @@ obvious output utilities.
 - [ ] ip
 - [ ] netstat
 - [x] nslookup
-- [ ] ntpd
+- [x] ntpd
 - [ ] ping / ping6
 - [x] rfkill
 - [ ] udhcpc

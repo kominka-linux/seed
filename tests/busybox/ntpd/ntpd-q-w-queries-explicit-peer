@@ -1,0 +1,36 @@
+port="$(python3 - <<'PY'
+import socket
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.bind(("127.0.0.1", 0))
+print(s.getsockname()[1])
+s.close()
+PY
+)"
+
+python3 - <<'PY' "$port" &
+import socket
+import struct
+import sys
+
+port = int(sys.argv[1])
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.bind(("127.0.0.1", port))
+data, addr = s.recvfrom(512)
+orig = data[40:48]
+pkt = bytearray(48)
+pkt[0] = (4 << 3) | 4
+pkt[1] = 2
+pkt[2] = 6
+pkt[3] = 236
+pkt[12:16] = b"TEST"
+pkt[24:32] = orig
+pkt[32:40] = struct.pack("!II", 2208989800, 0)
+pkt[40:48] = struct.pack("!II", 2208989801, 0)
+s.sendto(pkt, addr)
+s.close()
+PY
+server_pid=$!
+trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+
+sleep 0.1
+SEED_NTP_PORT="$port" busybox ntpd -q -w -p 127.0.0.1

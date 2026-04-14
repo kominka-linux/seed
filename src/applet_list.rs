@@ -61,6 +61,7 @@ macro_rules! define_applet_modules {
         pub mod nologin;
         pub mod nproc;
         pub mod nslookup;
+        pub mod ntpd;
         pub mod od;
         pub mod passwd;
         pub mod paste;
@@ -421,6 +422,10 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "nproc",
                 main: applets::nproc::main,
+            },
+            $entry {
+                name: "ntpd",
+                main: applets::ntpd::main,
             },
             $entry {
                 name: "nslookup",

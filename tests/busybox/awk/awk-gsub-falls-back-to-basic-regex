@@ -1,0 +1,10 @@
+tmpdir="${TMPDIR:-/tmp}/seed-awk-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+printf 'Hi\n' >"$tmpdir/input"
+
+awk 'gsub("@(samp|code|file)\\{","");' "$tmpdir/input" >"$tmpdir/actual"
+printf '' >"$tmpdir/expected"
+
+diff -u "$tmpdir/expected" "$tmpdir/actual"

@@ -1,0 +1,9 @@
+tmpdir="${TMPDIR:-/tmp}/seed-awk-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+awk 'BEGIN { if (1) break; else a = 1 }' >"$tmpdir/actual" 2>"$tmpdir/error"
+printf '' >"$tmpdir/expected"
+
+diff -u "$tmpdir/expected" "$tmpdir/actual"
+test ! -s "$tmpdir/error"

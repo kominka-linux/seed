@@ -4,17 +4,17 @@ use std::fs;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::mem::MaybeUninit;
 
-use crate::common::applet::{AppletResult, finish};
+use crate::common::applet::{AppletCodeResult, finish_code};
 use crate::common::error::AppletError;
 
 const APPLET: &str = "awk";
 const MATCH_SLOTS: usize = 1;
 
 pub fn main(args: &[String]) -> i32 {
-    finish(run(args))
+    finish_code(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[String]) -> AppletCodeResult {
     let options = parse_options(args)?;
     let program = parse_program(&options.program)?;
 
@@ -28,36 +28,42 @@ fn run(args: &[String]) -> AppletResult {
     }
 
     let mut out = io::stdout().lock();
-    execute_rules(&program.begin_rules, &mut env, &mut out)?;
-
-    if program.main_rules.is_empty() && program.end_rules.is_empty() {
-        return Ok(());
-    }
-
-    let paths = if options.files.is_empty() {
-        vec![None]
-    } else {
-        options.files.iter().map(|path| Some(path.as_str())).collect()
+    let mut exit_code = match execute_rules(&program.begin_rules, &mut env, &mut out)? {
+        ExecFlow::Exit(code) => Some(code),
+        _ => None,
     };
 
-    for path in paths {
-        env.start_file();
-        let reader: Box<dyn BufRead> = match path {
-            Some(path) => match fs::File::open(path) {
-                Ok(file) => Box::new(BufReader::new(file)),
-                Err(err) => {
-                    return Err(vec![AppletError::from_io(APPLET, "opening", Some(path), err)]);
-                }
-            },
-            None => Box::new(BufReader::new(io::stdin().lock())),
+    if exit_code.is_none() && !program.main_rules.is_empty() {
+        let paths = if options.files.is_empty() {
+            vec![None]
+        } else {
+            options.files.iter().map(|path| Some(path.as_str())).collect()
         };
-        process_reader(reader, &program.main_rules, &mut env, &mut out)?;
+
+        for path in paths {
+            env.start_file();
+            let reader: Box<dyn BufRead> = match path {
+                Some(path) => match fs::File::open(path) {
+                    Ok(file) => Box::new(BufReader::new(file)),
+                    Err(err) => {
+                        return Err(vec![AppletError::from_io(APPLET, "opening", Some(path), err)]);
+                    }
+                },
+                None => Box::new(BufReader::new(io::stdin().lock())),
+            };
+            if let Some(code) = process_reader(reader, &program.main_rules, &mut env, &mut out)? {
+                exit_code = Some(code);
+                break;
+            }
+        }
     }
 
-    execute_rules(&program.end_rules, &mut env, &mut out)?;
+    if let ExecFlow::Exit(code) = execute_rules(&program.end_rules, &mut env, &mut out)? {
+        exit_code = Some(code);
+    }
     out.flush()
         .map_err(|err| vec![AppletError::new(APPLET, format!("writing stdout: {err}"))])?;
-    Ok(())
+    Ok(exit_code.unwrap_or(0))
 }
 
 fn process_reader<R: BufRead>(
@@ -65,7 +71,7 @@ fn process_reader<R: BufRead>(
     rules: &[Rule],
     env: &mut Environment,
     out: &mut dyn Write,
-) -> AppletResult {
+) -> Result<Option<i32>, Vec<AppletError>> {
     let mut line = String::new();
     loop {
         line.clear();
@@ -82,107 +88,207 @@ fn process_reader<R: BufRead>(
             }
         }
         env.set_record(&line)?;
-        execute_rules(rules, env, out)?;
-    }
-    Ok(())
-}
-
-fn execute_rules(rules: &[Rule], env: &mut Environment, out: &mut dyn Write) -> AppletResult {
-    for rule in rules {
-        execute_block(&rule.action, env, out)?;
-    }
-    Ok(())
-}
-
-fn execute_block(block: &[Stmt], env: &mut Environment, out: &mut dyn Write) -> AppletResult {
-    for stmt in block {
-        if execute_stmt(stmt, env, out)?.is_some() {
-            return Ok(());
+        match execute_rules(rules, env, out)? {
+            ExecFlow::Exit(code) => return Ok(Some(code)),
+            ExecFlow::NextRecord => continue,
+            _ => {}
         }
     }
-    Ok(())
+    Ok(None)
+}
+
+fn execute_rules(
+    rules: &[Rule],
+    env: &mut Environment,
+    out: &mut dyn Write,
+) -> Result<ExecFlow, Vec<AppletError>> {
+    for rule in rules {
+        if let Some(pattern) = &rule.pattern
+            && !eval_expr(pattern, env, out)?.is_truthy()
+        {
+            continue;
+        }
+        let flow = if rule.default_print {
+            print_current_record(env, out)?
+        } else {
+            execute_block(&rule.action, env, out)?
+        };
+        if !matches!(flow, ExecFlow::Next) {
+            return Ok(flow);
+        }
+    }
+    Ok(ExecFlow::Next)
+}
+
+fn execute_block(
+    block: &[Stmt],
+    env: &mut Environment,
+    out: &mut dyn Write,
+) -> Result<ExecFlow, Vec<AppletError>> {
+    for stmt in block {
+        let flow = execute_stmt(stmt, env, out)?;
+        if !matches!(flow, ExecFlow::Next) {
+            return Ok(flow);
+        }
+    }
+    Ok(ExecFlow::Next)
 }
 
 fn execute_stmt(
     stmt: &Stmt,
     env: &mut Environment,
     out: &mut dyn Write,
-) -> Result<Option<Value>, Vec<AppletError>> {
+) -> Result<ExecFlow, Vec<AppletError>> {
     match stmt {
         Stmt::Print(exprs) => {
-            let mut line = String::new();
-            if exprs.is_empty() {
-                line.push_str(&env.record_text());
-            } else {
-                let ofs = env.get_var("OFS").as_string();
-                for (index, expr) in exprs.iter().enumerate() {
-                    if index > 0 {
-                        line.push_str(&ofs);
-                    }
-                    line.push_str(&eval_expr(expr, env, out)?.as_string());
-                }
-            }
-            line.push_str(&env.get_var("ORS").as_string());
-            out.write_all(line.as_bytes())
-                .map_err(|err| vec![AppletError::new(APPLET, format!("writing stdout: {err}"))])?;
-            Ok(None)
+            print_exprs(exprs, env, out)?;
+            Ok(ExecFlow::Next)
         }
         Stmt::Printf(format, exprs) => {
             let rendered = render_printf(&eval_expr(format, env, out)?.as_string(), exprs, env, out)?;
             out.write_all(rendered.as_bytes())
                 .map_err(|err| vec![AppletError::new(APPLET, format!("writing stdout: {err}"))])?;
-            Ok(None)
+            Ok(ExecFlow::Next)
         }
-        Stmt::Assign(target, expr) => {
+        Stmt::Assign(target, op, expr) => {
             let value = eval_expr(expr, env, out)?;
-            assign_lvalue(target, value, env, out)?;
-            Ok(None)
+            assign_with_op(target, *op, value, env, out)?;
+            Ok(ExecFlow::Next)
         }
-        Stmt::If(condition, then_branch) => {
+        Stmt::If(condition, then_branch, else_branch) => {
             if eval_expr(condition, env, out)?.is_truthy() {
                 return execute_stmt(then_branch, env, out);
             }
-            Ok(None)
+            if let Some(else_branch) = else_branch {
+                return execute_stmt(else_branch, env, out);
+            }
+            Ok(ExecFlow::Next)
+        }
+        Stmt::While(condition, body) => {
+            while eval_expr(condition, env, out)?.is_truthy() {
+                match execute_stmt(body, env, out)? {
+                    ExecFlow::Next | ExecFlow::Continue => {}
+                    ExecFlow::Break => break,
+                    flow @ (ExecFlow::Return(_) | ExecFlow::Exit(_) | ExecFlow::NextRecord) => {
+                        return Ok(flow)
+                    }
+                }
+            }
+            Ok(ExecFlow::Next)
+        }
+        Stmt::ForLoop(init, condition, step, body) => {
+            if let Some(init) = init {
+                match execute_stmt(init, env, out)? {
+                    ExecFlow::Next => {}
+                    flow => return Ok(flow),
+                }
+            }
+            loop {
+                if let Some(condition) = condition
+                    && !eval_expr(condition, env, out)?.is_truthy()
+                {
+                    break;
+                }
+                match execute_stmt(body, env, out)? {
+                    ExecFlow::Next | ExecFlow::Continue => {}
+                    ExecFlow::Break => break,
+                    flow @ (ExecFlow::Return(_) | ExecFlow::Exit(_) | ExecFlow::NextRecord) => {
+                        return Ok(flow)
+                    }
+                }
+                if let Some(step) = step {
+                    let _ = eval_expr(step, env, out)?;
+                }
+            }
+            Ok(ExecFlow::Next)
         }
         Stmt::ForIn(var, array, body) => {
             for key in env.array_keys(array) {
                 env.set_var(var, Value::String(key));
-                if let Some(value) = execute_stmt(body, env, out)? {
-                    return Ok(Some(value));
+                match execute_stmt(body, env, out)? {
+                    ExecFlow::Next | ExecFlow::Continue => {}
+                    ExecFlow::Break => break,
+                    flow @ (ExecFlow::Return(_) | ExecFlow::Exit(_) | ExecFlow::NextRecord) => {
+                        return Ok(flow)
+                    }
                 }
             }
-            Ok(None)
+            Ok(ExecFlow::Next)
         }
         Stmt::Delete(array, index) => {
             let key = eval_expr(index, env, out)?.as_string();
             env.delete_array_element(array, &key);
-            Ok(None)
+            Ok(ExecFlow::Next)
         }
-        Stmt::Return(expr) => Ok(Some(if let Some(expr) = expr {
+        Stmt::Return(expr) => Ok(ExecFlow::Return(if let Some(expr) = expr {
             eval_expr(expr, env, out)?
         } else {
             Value::String(String::new())
         })),
-        Stmt::Block(stmts) => {
-            for stmt in stmts {
-                if let Some(value) = execute_stmt(stmt, env, out)? {
-                    return Ok(Some(value));
-                }
-            }
-            Ok(None)
+        Stmt::Break => Ok(ExecFlow::Break),
+        Stmt::Continue => Ok(ExecFlow::Continue),
+        Stmt::Exit(expr) => Ok(ExecFlow::Exit(
+            expr.as_ref()
+                .map(|value| eval_expr(value, env, out).map(|value| value.as_number() as i32))
+                .transpose()?
+                .unwrap_or(0),
+        )),
+        Stmt::Next => Ok(ExecFlow::NextRecord),
+        Stmt::Getline(target, source) => {
+            let _ = execute_getline(target.as_deref(), source.as_ref(), env)?;
+            Ok(ExecFlow::Next)
         }
+        Stmt::Block(stmts) => execute_block(stmts, env, out),
         Stmt::Expr(expr) => {
             let _ = eval_expr(expr, env, out)?;
-            Ok(None)
+            Ok(ExecFlow::Next)
         }
     }
+}
+
+fn print_exprs(exprs: &[Expr], env: &mut Environment, out: &mut dyn Write) -> Result<(), Vec<AppletError>> {
+    let mut line = String::new();
+    if exprs.is_empty() {
+        line.push_str(&env.record_text());
+    } else {
+        let ofs = env.get_var("OFS").as_string();
+        for (index, expr) in exprs.iter().enumerate() {
+            if index > 0 {
+                line.push_str(&ofs);
+            }
+            line.push_str(&eval_expr(expr, env, out)?.as_string());
+        }
+    }
+    line.push_str(&env.get_var("ORS").as_string());
+    out.write_all(line.as_bytes())
+        .map_err(|err| vec![AppletError::new(APPLET, format!("writing stdout: {err}"))])?;
+    Ok(())
+}
+
+fn print_current_record(env: &mut Environment, out: &mut dyn Write) -> Result<ExecFlow, Vec<AppletError>> {
+    print_exprs(&[], env, out)?;
+    Ok(ExecFlow::Next)
 }
 
 fn eval_expr(expr: &Expr, env: &mut Environment, out: &mut dyn Write) -> Result<Value, Vec<AppletError>> {
     match expr {
         Expr::Number(value) => Ok(Value::Number(*value)),
         Expr::String(value) => Ok(Value::String(value.clone())),
-        Expr::Var(name) => Ok(env.get_var(name)),
+        Expr::Regex(pattern) => {
+            let regex = Regex::compile_with_fallback(pattern, true)
+                .map_err(|message| vec![AppletError::new(APPLET, message)])?;
+            Ok(Value::Number(if regex.find(&env.record_text(), 0)?.is_some() {
+                1.0
+            } else {
+                0.0
+            }))
+        }
+        Expr::Var(name) => {
+            if name == "length" && !env.has_user_var(name) && !env.has_array(name) {
+                return Ok(Value::Number(env.record_text().chars().count() as f64));
+            }
+            Ok(env.get_var(name))
+        }
         Expr::ArrayGet(name, index) => {
             let key = eval_expr(index, env, out)?.as_string();
             Ok(env.get_array_element(name, &key))
@@ -194,6 +300,11 @@ fn eval_expr(expr: &Expr, env: &mut Environment, out: &mut dyn Write) -> Result<
             }
             Ok(Value::String(env.get_field(field)))
         }
+        Expr::UnaryNot(expr) => Ok(Value::Number(if eval_expr(expr, env, out)?.is_truthy() {
+            0.0
+        } else {
+            1.0
+        })),
         Expr::UnaryMinus(expr) => Ok(Value::Number(-eval_expr(expr, env, out)?.as_number())),
         Expr::UnaryPlus(expr) => Ok(Value::Number(eval_expr(expr, env, out)?.as_number())),
         Expr::PreInc(target) => update_lvalue(target, 1.0, true, env, out),
@@ -208,49 +319,78 @@ fn eval_expr(expr: &Expr, env: &mut Environment, out: &mut dyn Write) -> Result<
             }
         }
         Expr::Binary(op, left, right) => {
-            let left = eval_expr(left, env, out)?;
-            let right = eval_expr(right, env, out)?;
             match op {
-                BinaryOp::Pow => Ok(Value::Number(left.as_number().powf(right.as_number()))),
-                BinaryOp::Add => Ok(Value::Number(left.as_number() + right.as_number())),
-                BinaryOp::Sub => Ok(Value::Number(left.as_number() - right.as_number())),
-                BinaryOp::Mul => Ok(Value::Number(left.as_number() * right.as_number())),
-                BinaryOp::Div => Ok(Value::Number(left.as_number() / right.as_number())),
-                BinaryOp::Mod => Ok(Value::Number(left.as_number() % right.as_number())),
-                BinaryOp::Eq => Ok(Value::Number(if compare_values(&left, &right) == 0 {
-                    1.0
-                } else {
-                    0.0
-                })),
-                BinaryOp::Ne => Ok(Value::Number(if compare_values(&left, &right) != 0 {
-                    1.0
-                } else {
-                    0.0
-                })),
-                BinaryOp::Lt => Ok(Value::Number(if compare_values(&left, &right) < 0 {
-                    1.0
-                } else {
-                    0.0
-                })),
-                BinaryOp::Le => Ok(Value::Number(if compare_values(&left, &right) <= 0 {
-                    1.0
-                } else {
-                    0.0
-                })),
-                BinaryOp::Gt => Ok(Value::Number(if compare_values(&left, &right) > 0 {
-                    1.0
-                } else {
-                    0.0
-                })),
-                BinaryOp::Ge => Ok(Value::Number(if compare_values(&left, &right) >= 0 {
-                    1.0
-                } else {
-                    0.0
-                })),
-                BinaryOp::Concat => {
-                    let mut text = left.as_string();
-                    text.push_str(&right.as_string());
-                    Ok(Value::String(text))
+                BinaryOp::Or => {
+                    let left = eval_expr(left, env, out)?;
+                    if left.is_truthy() {
+                        Ok(Value::Number(1.0))
+                    } else {
+                        Ok(Value::Number(if eval_expr(right, env, out)?.is_truthy() { 1.0 } else { 0.0 }))
+                    }
+                }
+                BinaryOp::And => {
+                    let left = eval_expr(left, env, out)?;
+                    if !left.is_truthy() {
+                        Ok(Value::Number(0.0))
+                    } else {
+                        Ok(Value::Number(if eval_expr(right, env, out)?.is_truthy() { 1.0 } else { 0.0 }))
+                    }
+                }
+                BinaryOp::Match | BinaryOp::NotMatch => {
+                    let left = eval_expr(left, env, out)?.as_string();
+                    let pattern = regex_pattern_from_expr(right, env, out)?;
+                    let regex = Regex::compile_with_fallback(&pattern, true)
+                        .map_err(|message| vec![AppletError::new(APPLET, message)])?;
+                    let matched = regex.find(&left, 0)?.is_some();
+                    Ok(Value::Number(if matches!(op, BinaryOp::Match) == matched { 1.0 } else { 0.0 }))
+                }
+                _ => {
+                    let left = eval_expr(left, env, out)?;
+                    let right = eval_expr(right, env, out)?;
+                    match op {
+                        BinaryOp::Pow => Ok(Value::Number(left.as_number().powf(right.as_number()))),
+                        BinaryOp::Add => Ok(Value::Number(left.as_number() + right.as_number())),
+                        BinaryOp::Sub => Ok(Value::Number(left.as_number() - right.as_number())),
+                        BinaryOp::Mul => Ok(Value::Number(left.as_number() * right.as_number())),
+                        BinaryOp::Div => Ok(Value::Number(left.as_number() / right.as_number())),
+                        BinaryOp::Mod => Ok(Value::Number(left.as_number() % right.as_number())),
+                        BinaryOp::Eq => Ok(Value::Number(if compare_values(&left, &right) == 0 {
+                            1.0
+                        } else {
+                            0.0
+                        })),
+                        BinaryOp::Ne => Ok(Value::Number(if compare_values(&left, &right) != 0 {
+                            1.0
+                        } else {
+                            0.0
+                        })),
+                        BinaryOp::Lt => Ok(Value::Number(if compare_values(&left, &right) < 0 {
+                            1.0
+                        } else {
+                            0.0
+                        })),
+                        BinaryOp::Le => Ok(Value::Number(if compare_values(&left, &right) <= 0 {
+                            1.0
+                        } else {
+                            0.0
+                        })),
+                        BinaryOp::Gt => Ok(Value::Number(if compare_values(&left, &right) > 0 {
+                            1.0
+                        } else {
+                            0.0
+                        })),
+                        BinaryOp::Ge => Ok(Value::Number(if compare_values(&left, &right) >= 0 {
+                            1.0
+                        } else {
+                            0.0
+                        })),
+                        BinaryOp::Concat => {
+                            let mut text = left.as_string();
+                            text.push_str(&right.as_string());
+                            Ok(Value::String(text))
+                        }
+                        BinaryOp::Or | BinaryOp::And | BinaryOp::Match | BinaryOp::NotMatch => unreachable!(),
+                    }
                 }
             }
         }
@@ -275,6 +415,86 @@ fn eval_expr(expr: &Expr, env: &mut Environment, out: &mut dyn Write) -> Result<
                     0.0
                 };
                 Ok(Value::Number(value.trunc()))
+            }
+            "index" => {
+                if args.len() != 2 {
+                    return Err(vec![AppletError::new(APPLET, "index() expects 2 arguments")]);
+                }
+                let haystack = eval_expr(&args[0], env, out)?.as_string();
+                let needle = eval_expr(&args[1], env, out)?.as_string();
+                let index = haystack.find(&needle).map_or(0, |i| i + 1);
+                Ok(Value::Number(index as f64))
+            }
+            "substr" => {
+                if args.len() < 2 || args.len() > 3 {
+                    return Err(vec![AppletError::new(APPLET, "substr() expects 2 or 3 arguments")]);
+                }
+                let text = eval_expr(&args[0], env, out)?.as_string();
+                let start = eval_expr(&args[1], env, out)?.as_number().max(1.0) as usize;
+                let len = if let Some(arg) = args.get(2) {
+                    Some(eval_expr(arg, env, out)?.as_number().max(0.0) as usize)
+                } else {
+                    None
+                };
+                let chars = text.chars().collect::<Vec<_>>();
+                if start == 0 || start > chars.len() + 1 {
+                    return Ok(Value::String(String::new()));
+                }
+                let start_index = start - 1;
+                let end_index = len.map_or(chars.len(), |len| (start_index + len).min(chars.len()));
+                Ok(Value::String(chars[start_index..end_index].iter().collect()))
+            }
+            "sprintf" => {
+                if args.is_empty() {
+                    return Err(vec![AppletError::new(APPLET, "sprintf() expects a format string")]);
+                }
+                let rendered = render_printf(&eval_expr(&args[0], env, out)?.as_string(), &args[1..], env, out)?;
+                Ok(Value::String(rendered))
+            }
+            "close" => {
+                if let Some(arg) = args.first() {
+                    let path = eval_expr(arg, env, out)?.as_string();
+                    env.close_path(&path);
+                }
+                Ok(Value::Number(0.0))
+            }
+            "sub" => execute_substitution(args, env, out, false),
+            "gsub" => execute_substitution(args, env, out, true),
+            "match" => {
+                if args.len() != 2 {
+                    return Err(vec![AppletError::new(APPLET, "match() expects 2 arguments")]);
+                }
+                let text = eval_expr(&args[0], env, out)?.as_string();
+                let pattern = regex_pattern_from_expr(&args[1], env, out)?;
+                let regex = Regex::compile_with_fallback(&pattern, true)
+                    .map_err(|message| vec![AppletError::new(APPLET, message)])?;
+                if let Some((start, end)) = regex.find(&text, 0)? {
+                    env.set_match_info(start + 1, end - start);
+                    Ok(Value::Number((start + 1) as f64))
+                } else {
+                    env.set_match_info(0, 0);
+                    Ok(Value::Number(0.0))
+                }
+            }
+            "split" => {
+                if args.len() < 2 || args.len() > 3 {
+                    return Err(vec![AppletError::new(APPLET, "split() expects 2 or 3 arguments")]);
+                }
+                let text = eval_expr(&args[0], env, out)?.as_string();
+                let Some(Expr::Var(array_name)) = args.get(1) else {
+                    return Err(vec![AppletError::new(APPLET, "split() expects an array variable")]);
+                };
+                let separator = if let Some(arg) = args.get(2) {
+                    regex_pattern_from_expr(arg, env, out)?
+                } else {
+                    env.get_var("FS").as_string()
+                };
+                let fields = split_fields(&text, &separator)?;
+                env.clear_array(array_name);
+                for (index, field) in fields.iter().enumerate() {
+                    env.set_array_element(array_name, (index + 1).to_string(), Value::String(field.clone()));
+                }
+                Ok(Value::Number(fields.len() as f64))
             }
             "or" => {
                 if args.len() != 2 {
@@ -308,6 +528,29 @@ fn assign_lvalue(
     Ok(())
 }
 
+fn assign_with_op(
+    target: &LValue,
+    op: AssignOp,
+    value: Value,
+    env: &mut Environment,
+    out: &mut dyn Write,
+) -> Result<(), Vec<AppletError>> {
+    if matches!(op, AssignOp::Set) {
+        return assign_lvalue(target, value, env, out);
+    }
+    let current = get_lvalue_value(target, env, out)?;
+    let next = match op {
+        AssignOp::Set => value,
+        AssignOp::Add => Value::Number(current.as_number() + value.as_number()),
+        AssignOp::Sub => Value::Number(current.as_number() - value.as_number()),
+        AssignOp::Mul => Value::Number(current.as_number() * value.as_number()),
+        AssignOp::Div => Value::Number(current.as_number() / value.as_number()),
+        AssignOp::Mod => Value::Number(current.as_number() % value.as_number()),
+        AssignOp::Pow => Value::Number(current.as_number().powf(value.as_number())),
+    };
+    assign_lvalue(target, next, env, out)
+}
+
 fn update_lvalue(
     target: &LValue,
     delta: f64,
@@ -331,6 +574,17 @@ fn update_lvalue(
     }
 }
 
+fn get_lvalue_value(
+    target: &LValue,
+    env: &mut Environment,
+    out: &mut dyn Write,
+) -> Result<Value, Vec<AppletError>> {
+    Ok(match resolve_lvalue(target, env, out)? {
+        ResolvedLValue::Var(name) => env.get_var(&name),
+        ResolvedLValue::Array(name, key) => env.get_array_element(&name, &key),
+    })
+}
+
 fn resolve_lvalue(
     target: &LValue,
     env: &mut Environment,
@@ -342,6 +596,79 @@ fn resolve_lvalue(
             ResolvedLValue::Array(name.clone(), eval_expr(index, env, out)?.as_string())
         }
     })
+}
+
+fn execute_getline(
+    target: Option<&str>,
+    source: Option<&Expr>,
+    env: &mut Environment,
+) -> Result<i32, Vec<AppletError>> {
+    let line = if let Some(source) = source {
+        let path = match source {
+            Expr::String(path) => path.clone(),
+            Expr::Var(name) => env.get_var(name).as_string(),
+            _ => return Err(vec![AppletError::new(APPLET, "unsupported getline source")]),
+        };
+        match env.get_line_from_path(&path) {
+            Ok(line) => line,
+            Err(_) => return Ok(-1),
+        }
+    } else {
+        return Err(vec![AppletError::new(APPLET, "getline without source not yet supported")]);
+    };
+
+    match line {
+        Some(line) => {
+            if let Some(target) = target {
+                env.set_var(target, Value::String(line));
+            } else {
+                env.set_record(&line)?;
+            }
+            Ok(1)
+        }
+        None => Ok(0),
+    }
+}
+
+fn execute_substitution(
+    args: &[Expr],
+    env: &mut Environment,
+    out: &mut dyn Write,
+    global: bool,
+) -> Result<Value, Vec<AppletError>> {
+    if args.len() < 2 || args.len() > 3 {
+        return Err(vec![AppletError::new(APPLET, "gsub() expects 2 or 3 arguments")]);
+    }
+    let pattern = regex_pattern_from_expr(&args[0], env, out)?;
+    let replacement = eval_expr(&args[1], env, out)?.as_string();
+    let mut text = if let Some(target) = args.get(2) {
+        eval_expr(target, env, out)?.as_string()
+    } else {
+        env.record_text()
+    };
+    let regex = Regex::compile_with_fallback(&pattern, true)
+        .map_err(|message| vec![AppletError::new(APPLET, message)])?;
+    let count = regex.replace_all(&mut text, &replacement, global)?;
+    if let Some(target) = args.get(2) {
+        let Some(lvalue) = expr_to_lvalue(target) else {
+            return Err(vec![AppletError::new(APPLET, "expected substitution target")]);
+        };
+        assign_lvalue(&lvalue, Value::String(text), env, out)?;
+    } else {
+        env.set_record(&text)?;
+    }
+    Ok(Value::Number(count as f64))
+}
+
+fn regex_pattern_from_expr(
+    expr: &Expr,
+    env: &mut Environment,
+    out: &mut dyn Write,
+) -> Result<String, Vec<AppletError>> {
+    match expr {
+        Expr::Regex(pattern) => Ok(pattern.clone()),
+        _ => Ok(eval_expr(expr, env, out)?.as_string()),
+    }
 }
 
 fn render_printf(
@@ -418,6 +745,16 @@ fn compare_values(left: &Value, right: &Value) -> i32 {
     }
 }
 
+#[derive(Debug)]
+enum ExecFlow {
+    Next,
+    NextRecord,
+    Return(Value),
+    Break,
+    Continue,
+    Exit(i32),
+}
+
 #[derive(Clone, Debug)]
 enum Value {
     String(String),
@@ -480,6 +817,7 @@ struct Environment {
     arrays: HashMap<String, ArrayValue>,
     functions: HashMap<String, Function>,
     frames: Vec<HashMap<String, Value>>,
+    readers: HashMap<String, BufReader<fs::File>>,
     record: String,
     fields: Vec<String>,
     nr: usize,
@@ -497,6 +835,7 @@ impl Environment {
             arrays: HashMap::new(),
             functions,
             frames: Vec::new(),
+            readers: HashMap::new(),
             record: String::new(),
             fields: Vec::new(),
             nr: 0,
@@ -583,9 +922,24 @@ impl Environment {
         self.frames.push(frame);
         let mut return_value = Value::String(String::new());
         for stmt in &function.body {
-            if let Some(value) = execute_stmt(stmt, self, out)? {
-                return_value = value;
-                break;
+            match execute_stmt(stmt, self, out)? {
+                ExecFlow::Next | ExecFlow::Break | ExecFlow::Continue => {}
+                ExecFlow::NextRecord => {
+                    return Err(vec![AppletError::new(
+                        APPLET,
+                        "next from function not yet supported",
+                    )]);
+                }
+                ExecFlow::Return(value) => {
+                    return_value = value;
+                    break;
+                }
+                ExecFlow::Exit(code) => {
+                    return Err(vec![AppletError::new(
+                        APPLET,
+                        format!("exit from function not yet supported: {code}"),
+                    )]);
+                }
             }
         }
         self.frames.pop();
@@ -614,6 +968,10 @@ impl Environment {
             .set(key, value);
     }
 
+    fn clear_array(&mut self, name: &str) {
+        self.arrays.remove(name);
+    }
+
     fn delete_array_element(&mut self, name: &str, key: &str) {
         if let Some(array) = self.arrays.get_mut(name) {
             array.remove(key);
@@ -624,6 +982,49 @@ impl Environment {
         self.arrays
             .get(name)
             .map_or_else(Vec::new, ArrayValue::keys)
+    }
+
+    fn get_line_from_path(&mut self, path: &str) -> Result<Option<String>, Vec<AppletError>> {
+        if !self.readers.contains_key(path) {
+            let file = fs::File::open(path).map_err(|err| {
+                self.set_errno(err.raw_os_error().unwrap_or(1));
+                vec![AppletError::from_io(APPLET, "opening", Some(path), err)]
+            })?;
+            self.readers.insert(path.to_owned(), BufReader::new(file));
+        }
+        let reader = self.readers.get_mut(path).expect("reader inserted");
+        let mut line = String::new();
+        let read = reader
+            .read_line(&mut line)
+            .map_err(|err| vec![AppletError::new(APPLET, format!("reading {path}: {err}"))])?;
+        self.set_errno(0);
+        if read == 0 {
+            return Ok(None);
+        }
+        if line.ends_with('\n') {
+            line.pop();
+            if line.ends_with('\r') {
+                line.pop();
+            }
+        }
+        Ok(Some(line))
+    }
+
+    fn close_path(&mut self, path: &str) {
+        self.readers.remove(path);
+    }
+
+    fn set_errno(&mut self, code: i32) {
+        self.set_var("ERRNO", Value::Number(code as f64));
+    }
+
+    fn set_match_info(&mut self, start: usize, len: usize) {
+        self.set_var("RSTART", Value::Number(start as f64));
+        self.set_var("RLENGTH", Value::Number(len as f64));
+    }
+
+    fn has_user_var(&self, name: &str) -> bool {
+        self.frames.iter().rev().any(|frame| frame.contains_key(name)) || self.vars.contains_key(name)
     }
 }
 
@@ -693,10 +1094,22 @@ struct Regex {
 
 impl Regex {
     fn compile(pattern: &str) -> Result<Self, String> {
+        Self::compile_inner(pattern, libc::REG_EXTENDED)
+    }
+
+    fn compile_with_fallback(pattern: &str, fallback_basic: bool) -> Result<Self, String> {
+        match Self::compile_inner(pattern, libc::REG_EXTENDED) {
+            Ok(regex) => Ok(regex),
+            Err(err) if fallback_basic => Self::compile_inner(pattern, 0).or(Err(err)),
+            Err(err) => Err(err),
+        }
+    }
+
+    fn compile_inner(pattern: &str, flags: libc::c_int) -> Result<Self, String> {
         let c_pattern = CString::new(pattern)
             .map_err(|_| format!("field separator contains NUL byte: {pattern:?}"))?;
         let mut raw = MaybeUninit::<libc::regex_t>::zeroed();
-        let rc = unsafe { libc::regcomp(raw.as_mut_ptr(), c_pattern.as_ptr(), libc::REG_EXTENDED) };
+        let rc = unsafe { libc::regcomp(raw.as_mut_ptr(), c_pattern.as_ptr(), flags) };
         if rc != 0 {
             return Err(format!("invalid regular expression: {pattern}"));
         }
@@ -733,6 +1146,64 @@ impl Regex {
             start + matches[0].rm_eo as usize,
         )))
     }
+
+    fn replace_all(
+        &self,
+        text: &mut String,
+        replacement: &str,
+        global: bool,
+    ) -> Result<usize, Vec<AppletError>> {
+        let original = text.clone();
+        let mut result = String::new();
+        let mut start = 0usize;
+        let mut count = 0usize;
+        while let Some((match_start, match_end)) = self.find(&original, start)? {
+            count += 1;
+            result.push_str(&original[start..match_start]);
+            result.push_str(&expand_replacement(replacement, &original[match_start..match_end]));
+            if match_end == match_start {
+                if let Some(next) = original[match_end..].chars().next() {
+                    result.push(next);
+                    start = match_end + next.len_utf8();
+                } else {
+                    start = match_end;
+                    break;
+                }
+            } else {
+                start = match_end;
+            }
+            if !global {
+                break;
+            }
+        }
+        if count == 0 {
+            return Ok(0);
+        }
+        result.push_str(&original[start..]);
+        *text = result;
+        Ok(count)
+    }
+}
+
+fn expand_replacement(replacement: &str, matched: &str) -> String {
+    let mut result = String::new();
+    let mut escaped = false;
+    for ch in replacement.chars() {
+        if escaped {
+            result.push(ch);
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' => escaped = true,
+            '&' => result.push_str(matched),
+            other => result.push(other),
+        }
+    }
+    if escaped {
+        result.push('\\');
+    }
+    result
 }
 
 impl Drop for Regex {
@@ -877,6 +1348,8 @@ struct Program {
 
 #[derive(Debug)]
 struct Rule {
+    pattern: Option<Expr>,
+    default_print: bool,
     action: Vec<Stmt>,
 }
 
@@ -884,11 +1357,18 @@ struct Rule {
 enum Stmt {
     Print(Vec<Expr>),
     Printf(Expr, Vec<Expr>),
-    Assign(LValue, Expr),
-    If(Expr, Box<Stmt>),
+    Assign(LValue, AssignOp, Expr),
+    If(Expr, Box<Stmt>, Option<Box<Stmt>>),
+    While(Expr, Box<Stmt>),
+    ForLoop(Option<Box<Stmt>>, Option<Expr>, Option<Expr>, Box<Stmt>),
     ForIn(String, String, Box<Stmt>),
     Delete(String, Expr),
     Return(Option<Expr>),
+    Break,
+    Continue,
+    Exit(Option<Expr>),
+    Next,
+    Getline(Option<String>, Option<Expr>),
     Block(Vec<Stmt>),
     Expr(Expr),
 }
@@ -897,9 +1377,11 @@ enum Stmt {
 enum Expr {
     Number(f64),
     String(String),
+    Regex(String),
     Var(String),
     ArrayGet(String, Box<Expr>),
     Field(Box<Expr>),
+    UnaryNot(Box<Expr>),
     UnaryMinus(Box<Expr>),
     UnaryPlus(Box<Expr>),
     PreInc(LValue),
@@ -925,6 +1407,8 @@ struct Function {
 
 #[derive(Debug, Clone, Copy)]
 enum BinaryOp {
+    Or,
+    And,
     Pow,
     Add,
     Sub,
@@ -937,7 +1421,20 @@ enum BinaryOp {
     Le,
     Gt,
     Ge,
+    Match,
+    NotMatch,
     Concat,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum AssignOp {
+    Set,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    Pow,
 }
 
 #[derive(Debug, Clone)]
@@ -947,6 +1444,13 @@ enum Token {
     Function,
     Return,
     If,
+    While,
+    Else,
+    Break,
+    Continue,
+    Exit,
+    Next,
+    Getline,
     For,
     In,
     Delete,
@@ -967,8 +1471,18 @@ enum Token {
     Colon,
     Dollar,
     Assign,
+    AddAssign,
+    SubAssign,
+    MulAssign,
+    DivAssign,
+    ModAssign,
+    PowAssign,
     Eq,
     Ne,
+    Match,
+    NotMatch,
+    AndAnd,
+    OrOr,
     Lt,
     Le,
     Gt,
@@ -1007,23 +1521,40 @@ fn parse_program(source: &str) -> Result<Program, Vec<AppletError>> {
             Token::Begin => {
                 parser.bump()?;
                 begin_rules.push(Rule {
+                    pattern: None,
+                    default_print: false,
                     action: parser.parse_block()?,
                 });
             }
             Token::End => {
                 parser.bump()?;
                 end_rules.push(Rule {
+                    pattern: None,
+                    default_print: false,
                     action: parser.parse_block()?,
                 });
             }
             Token::LBrace => {
                 main_rules.push(Rule {
+                    pattern: None,
+                    default_print: false,
                     action: parser.parse_block()?,
                 });
             }
             Token::Eof => break,
             _ => {
-                return Err(vec![AppletError::new(APPLET, "unexpected token")]);
+                let pattern = parser.parse_expr()?;
+                let default_print = !matches!(parser.current, Token::LBrace);
+                let action = if default_print {
+                    Vec::new()
+                } else {
+                    parser.parse_block()?
+                };
+                main_rules.push(Rule {
+                    pattern: Some(pattern),
+                    default_print,
+                    action,
+                });
             }
         }
         parser.skip_separators()?;
@@ -1079,7 +1610,18 @@ impl<'a> Parser<'a> {
             Token::Print => {
                 self.bump()?;
                 let mut exprs = Vec::new();
-                if !matches!(self.current, Token::Semicolon | Token::RBrace | Token::Eof) {
+                if matches!(self.current, Token::LParen) {
+                    self.bump()?;
+                    if matches!(self.current, Token::RParen) {
+                        return Err(vec![AppletError::new(APPLET, "empty sequence")]);
+                    }
+                    exprs.push(self.parse_expr()?);
+                    self.expect(Token::RParen)?;
+                    while matches!(self.current, Token::Comma) {
+                        self.bump()?;
+                        exprs.push(self.parse_expr()?);
+                    }
+                } else if !matches!(self.current, Token::Semicolon | Token::RBrace | Token::Eof) {
                     loop {
                         exprs.push(self.parse_expr()?);
                         if !matches!(self.current, Token::Comma) {
@@ -1106,24 +1648,116 @@ impl<'a> Parser<'a> {
                 let condition = self.parse_expr()?;
                 self.expect(Token::RParen)?;
                 let then_branch = self.parse_stmt()?;
-                Ok(Stmt::If(condition, Box::new(then_branch)))
+                self.skip_separators()?;
+                let else_branch = if matches!(self.current, Token::Else) {
+                    self.bump()?;
+                    Some(Box::new(self.parse_stmt()?))
+                } else {
+                    None
+                };
+                Ok(Stmt::If(condition, Box::new(then_branch), else_branch))
+            }
+            Token::While => {
+                self.bump()?;
+                self.expect(Token::LParen)?;
+                let condition = self.parse_expr()?;
+                self.expect(Token::RParen)?;
+                Ok(Stmt::While(condition, Box::new(self.parse_stmt()?)))
+            }
+            Token::Break => {
+                self.bump()?;
+                Ok(Stmt::Break)
+            }
+            Token::Continue => {
+                self.bump()?;
+                Ok(Stmt::Continue)
+            }
+            Token::Next => {
+                self.bump()?;
+                Ok(Stmt::Next)
+            }
+            Token::Exit => {
+                self.bump()?;
+                if matches!(self.current, Token::Semicolon | Token::RBrace | Token::Eof) {
+                    Ok(Stmt::Exit(None))
+                } else {
+                    Ok(Stmt::Exit(Some(self.parse_expr()?)))
+                }
+            }
+            Token::Getline => {
+                self.bump()?;
+                let target = match &self.current {
+                    Token::Ident(name) => {
+                        let name = name.clone();
+                        self.bump()?;
+                        Some(name)
+                    }
+                    _ => None,
+                };
+                let source = if matches!(self.current, Token::Lt) {
+                    self.bump()?;
+                    Some(self.parse_expr()?)
+                } else {
+                    None
+                };
+                Ok(Stmt::Getline(target, source))
             }
             Token::For => {
                 self.bump()?;
                 self.expect(Token::LParen)?;
-                let Token::Ident(var) = &self.current else {
-                    return Err(vec![AppletError::new(APPLET, "unexpected token")]);
+                if let Token::Ident(var) = &self.current {
+                    let var = var.clone();
+                    self.bump()?;
+                    if matches!(self.current, Token::In) {
+                        self.bump()?;
+                        let Token::Ident(array) = &self.current else {
+                            return Err(vec![AppletError::new(APPLET, "unexpected token")]);
+                        };
+                        let array = array.clone();
+                        self.bump()?;
+                        self.expect(Token::RParen)?;
+                        return Ok(Stmt::ForIn(var, array, Box::new(self.parse_stmt()?)));
+                    }
+                    let init_stmt = self.parse_stmt_with_ident(var)?;
+                    self.expect(Token::Semicolon)?;
+                    let condition = if matches!(self.current, Token::Semicolon) {
+                        None
+                    } else {
+                        Some(self.parse_expr()?)
+                    };
+                    self.expect(Token::Semicolon)?;
+                    let step = if matches!(self.current, Token::RParen) {
+                        None
+                    } else {
+                        Some(self.parse_expr()?)
+                    };
+                    self.expect(Token::RParen)?;
+                    return Ok(Stmt::ForLoop(
+                        Some(Box::new(init_stmt)),
+                        condition,
+                        step,
+                        Box::new(self.parse_stmt()?),
+                    ));
+                }
+                let init = if matches!(self.current, Token::Semicolon) {
+                    None
+                } else {
+                    Some(Box::new(Stmt::Expr(self.parse_expr()?)))
                 };
-                let var = var.clone();
-                self.bump()?;
-                self.expect(Token::In)?;
-                let Token::Ident(array) = &self.current else {
-                    return Err(vec![AppletError::new(APPLET, "unexpected token")]);
+                self.expect(Token::Semicolon)?;
+                let condition = if matches!(self.current, Token::Semicolon) {
+                    None
+                } else {
+                    Some(self.parse_expr()?)
                 };
-                let array = array.clone();
-                self.bump()?;
+                self.expect(Token::Semicolon)?;
+                let step = if matches!(self.current, Token::RParen) {
+                    None
+                } else {
+                    Some(self.parse_expr()?)
+                };
                 self.expect(Token::RParen)?;
-                Ok(Stmt::ForIn(var, array, Box::new(self.parse_stmt()?)))
+                Ok(Stmt::ForLoop(init, condition, step, Box::new(self.parse_stmt()?)))
             }
             Token::Delete => {
                 self.bump()?;
@@ -1149,17 +1783,7 @@ impl<'a> Parser<'a> {
             Token::Ident(name) => {
                 let name = name.clone();
                 self.bump()?;
-                let prefix = self.parse_postfix_expr(Expr::Var(name))?;
-                if matches!(self.current, Token::Assign) {
-                    let Some(target) = expr_to_lvalue(&prefix) else {
-                        return Err(vec![AppletError::new(APPLET, "unexpected token")]);
-                    };
-                    self.bump()?;
-                    Ok(Stmt::Assign(target, self.parse_expr()?))
-                } else {
-                    let expr = self.parse_expr_with_prefix(prefix)?;
-                    Ok(Stmt::Expr(expr))
-                }
+                self.parse_stmt_with_ident(name)
             }
             _ => Ok(Stmt::Expr(self.parse_expr()?)),
         }
@@ -1169,15 +1793,30 @@ impl<'a> Parser<'a> {
         self.parse_conditional()
     }
 
+    fn parse_stmt_with_ident(&mut self, name: String) -> Result<Stmt, Vec<AppletError>> {
+        let prefix = self.parse_postfix_expr(Expr::Var(name))?;
+        if let Some(assign_op) = assign_token_to_op(&self.current) {
+            let Some(target) = expr_to_lvalue(&prefix) else {
+                return Err(vec![AppletError::new(APPLET, "unexpected token")]);
+            };
+            self.bump()?;
+            Ok(Stmt::Assign(target, assign_op, self.parse_expr()?))
+        } else {
+            let expr = self.parse_expr_with_prefix(prefix)?;
+            Ok(Stmt::Expr(expr))
+        }
+    }
+
     fn parse_expr_with_prefix(&mut self, prefix: Expr) -> Result<Expr, Vec<AppletError>> {
         let left = self.parse_concat_tail(prefix)?;
         let left = self.parse_comparison_tail(left)?;
+        let left = self.parse_logical_and_tail(left)?;
+        let left = self.parse_logical_or_tail(left)?;
         self.parse_conditional_tail(left)
     }
 
     fn parse_conditional(&mut self) -> Result<Expr, Vec<AppletError>> {
-        let left = self.parse_concat()?;
-        let left = self.parse_comparison_tail(left)?;
+        let left = self.parse_logical_or()?;
         self.parse_conditional_tail(left)
     }
 
@@ -1192,6 +1831,36 @@ impl<'a> Parser<'a> {
         Ok(Expr::Conditional(Box::new(left), Box::new(yes), Box::new(no)))
     }
 
+    fn parse_logical_or(&mut self) -> Result<Expr, Vec<AppletError>> {
+        let left = self.parse_logical_and()?;
+        self.parse_logical_or_tail(left)
+    }
+
+    fn parse_logical_or_tail(&mut self, mut left: Expr) -> Result<Expr, Vec<AppletError>> {
+        while matches!(self.current, Token::OrOr) {
+            self.bump()?;
+            let right = self.parse_logical_and()?;
+            left = Expr::Binary(BinaryOp::Or, Box::new(left), Box::new(right));
+        }
+        Ok(left)
+    }
+
+    fn parse_logical_and(&mut self) -> Result<Expr, Vec<AppletError>> {
+        let left = self.parse_concat()?;
+        let left = self.parse_comparison_tail(left)?;
+        self.parse_logical_and_tail(left)
+    }
+
+    fn parse_logical_and_tail(&mut self, mut left: Expr) -> Result<Expr, Vec<AppletError>> {
+        while matches!(self.current, Token::AndAnd) {
+            self.bump()?;
+            let right = self.parse_concat()?;
+            let right = self.parse_comparison_tail(right)?;
+            left = Expr::Binary(BinaryOp::And, Box::new(left), Box::new(right));
+        }
+        Ok(left)
+    }
+
     fn parse_comparison_tail(&mut self, mut left: Expr) -> Result<Expr, Vec<AppletError>> {
         loop {
             let op = match self.current {
@@ -1201,6 +1870,8 @@ impl<'a> Parser<'a> {
                 Token::Le => BinaryOp::Le,
                 Token::Gt => BinaryOp::Gt,
                 Token::Ge => BinaryOp::Ge,
+                Token::Match => BinaryOp::Match,
+                Token::NotMatch => BinaryOp::NotMatch,
                 _ => break,
             };
             self.bump()?;
@@ -1267,6 +1938,10 @@ impl<'a> Parser<'a> {
 
     fn parse_unary(&mut self) -> Result<Expr, Vec<AppletError>> {
         match self.current {
+            Token::Ne => {
+                self.bump()?;
+                Ok(Expr::UnaryNot(Box::new(self.parse_unary()?)))
+            }
             Token::PlusPlus => {
                 self.bump()?;
                 let expr = self.parse_unary()?;
@@ -1362,6 +2037,13 @@ impl<'a> Parser<'a> {
                 self.bump()?;
                 Expr::String(value)
             }
+            Token::Slash => {
+                let pattern = self.lexer.read_regex_literal()?;
+                let (current, had_space) = self.lexer.next_token()?;
+                self.current = current;
+                self.current_had_space = had_space;
+                Expr::Regex(pattern)
+            }
             Token::Ident(name) => {
                 let name = name.clone();
                 self.bump()?;
@@ -1425,7 +2107,9 @@ fn token_starts_expr(token: &Token) -> bool {
             | Token::String(_)
             | Token::Ident(_)
             | Token::LParen
+            | Token::Slash
             | Token::Dollar
+            | Token::Ne
             | Token::Plus
             | Token::Minus
             | Token::PlusPlus
@@ -1439,6 +2123,19 @@ fn expr_to_lvalue(expr: &Expr) -> Option<LValue> {
         Expr::ArrayGet(name, index) => Some(LValue::Array(name.clone(), index.clone())),
         _ => None,
     }
+}
+
+fn assign_token_to_op(token: &Token) -> Option<AssignOp> {
+    Some(match token {
+        Token::Assign => AssignOp::Set,
+        Token::AddAssign => AssignOp::Add,
+        Token::SubAssign => AssignOp::Sub,
+        Token::MulAssign => AssignOp::Mul,
+        Token::DivAssign => AssignOp::Div,
+        Token::ModAssign => AssignOp::Mod,
+        Token::PowAssign => AssignOp::Pow,
+        _ => return None,
+    })
 }
 
 struct Lexer<'a> {
@@ -1507,13 +2204,21 @@ impl<'a> Lexer<'a> {
             }
             '^' => {
                 self.index += 1;
-                Ok((Token::Caret, had_space))
+                if self.peek() == Some('=') {
+                    self.index += 1;
+                    Ok((Token::PowAssign, had_space))
+                } else {
+                    Ok((Token::Caret, had_space))
+                }
             }
             '+' => {
                 self.index += 1;
                 if self.peek() == Some('+') {
                     self.index += 1;
                     Ok((Token::PlusPlus, had_space))
+                } else if self.peek() == Some('=') {
+                    self.index += 1;
+                    Ok((Token::AddAssign, had_space))
                 } else {
                     Ok((Token::Plus, had_space))
                 }
@@ -1523,21 +2228,61 @@ impl<'a> Lexer<'a> {
                 if self.peek() == Some('-') {
                     self.index += 1;
                     Ok((Token::MinusMinus, had_space))
+                } else if self.peek() == Some('=') {
+                    self.index += 1;
+                    Ok((Token::SubAssign, had_space))
                 } else {
                     Ok((Token::Minus, had_space))
                 }
             }
             '*' => {
                 self.index += 1;
-                Ok((Token::Star, had_space))
+                if self.peek() == Some('=') {
+                    self.index += 1;
+                    Ok((Token::MulAssign, had_space))
+                } else {
+                    Ok((Token::Star, had_space))
+                }
             }
             '/' => {
                 self.index += 1;
-                Ok((Token::Slash, had_space))
+                if self.peek() == Some('=') {
+                    self.index += 1;
+                    Ok((Token::DivAssign, had_space))
+                } else {
+                    Ok((Token::Slash, had_space))
+                }
             }
             '%' => {
                 self.index += 1;
-                Ok((Token::Percent, had_space))
+                if self.peek() == Some('=') {
+                    self.index += 1;
+                    Ok((Token::ModAssign, had_space))
+                } else {
+                    Ok((Token::Percent, had_space))
+                }
+            }
+            '&' => {
+                self.index += 1;
+                if self.peek() == Some('&') {
+                    self.index += 1;
+                    Ok((Token::AndAnd, had_space))
+                } else {
+                    Err(vec![AppletError::new(APPLET, "unsupported operator")])
+                }
+            }
+            '|' => {
+                self.index += 1;
+                if self.peek() == Some('|') {
+                    self.index += 1;
+                    Ok((Token::OrOr, had_space))
+                } else {
+                    Err(vec![AppletError::new(APPLET, "unsupported operator")])
+                }
+            }
+            '~' => {
+                self.index += 1;
+                Ok((Token::Match, had_space))
             }
             '=' => {
                 self.index += 1;
@@ -1553,8 +2298,11 @@ impl<'a> Lexer<'a> {
                 if self.peek() == Some('=') {
                     self.index += 1;
                     Ok((Token::Ne, had_space))
+                } else if self.peek() == Some('~') {
+                    self.index += 1;
+                    Ok((Token::NotMatch, had_space))
                 } else {
-                    Err(vec![AppletError::new(APPLET, "unsupported operator")])
+                    Ok((Token::Ne, had_space))
                 }
             }
             '<' => {
@@ -1585,6 +2333,13 @@ impl<'a> Lexer<'a> {
                     "function" | "func" => (Token::Function, had_space),
                     "return" => (Token::Return, had_space),
                     "if" => (Token::If, had_space),
+                    "while" => (Token::While, had_space),
+                    "else" => (Token::Else, had_space),
+                    "break" => (Token::Break, had_space),
+                    "continue" => (Token::Continue, had_space),
+                    "exit" => (Token::Exit, had_space),
+                    "next" => (Token::Next, had_space),
+                    "getline" => (Token::Getline, had_space),
                     "for" => (Token::For, had_space),
                     "in" => (Token::In, had_space),
                     "delete" => (Token::Delete, had_space),
@@ -1631,6 +2386,25 @@ impl<'a> Lexer<'a> {
             }
         }
         Err(vec![AppletError::new(APPLET, "unterminated string")])
+    }
+
+    fn read_regex_literal(&mut self) -> Result<String, Vec<AppletError>> {
+        let mut value = String::new();
+        while let Some(ch) = self.peek() {
+            self.index += ch.len_utf8();
+            match ch {
+                '/' => return Ok(value),
+                '\\' => {
+                    let escaped = self
+                        .next_char()
+                        .ok_or_else(|| vec![AppletError::new(APPLET, "unterminated regex")])?;
+                    value.push('\\');
+                    value.push(escaped);
+                }
+                _ => value.push(ch),
+            }
+        }
+        Err(vec![AppletError::new(APPLET, "unterminated regex")])
     }
 
     fn read_number(&mut self) -> Result<f64, Vec<AppletError>> {

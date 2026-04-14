@@ -1,0 +1,13 @@
+tmpdir="${TMPDIR:-/tmp}/seed-awk-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+awk 'BEGIN{x=5; exit 7}' >"$tmpdir/actual" 2>"$tmpdir/error"
+status=$?
+if [ "$status" -eq 0 ]; then
+	exit 1
+fi
+
+test "$status" -eq 7
+test ! -s "$tmpdir/actual"
+test ! -s "$tmpdir/error"

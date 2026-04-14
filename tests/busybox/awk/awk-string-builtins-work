@@ -1,0 +1,8 @@
+tmpdir="${TMPDIR:-/tmp}/seed-awk-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+awk 'BEGIN{s="abc123"; sub(/[0-9]+/,"X",s); print s; s="abc123123"; gsub(/123/,"X",s); print s; print split("a:b:c", a, ":"); print a[2]; print match("abc123", /[0-9]+/); print RSTART; print RLENGTH; print index("banana","na"); print substr("banana",2,3); print sprintf("%d-%s", 7, "ok")}' >"$tmpdir/actual"
+printf 'abcX\nabcXX\n3\nb\n4\n4\n3\n3\nana\n7-ok\n' >"$tmpdir/expected"
+
+diff -u "$tmpdir/expected" "$tmpdir/actual"

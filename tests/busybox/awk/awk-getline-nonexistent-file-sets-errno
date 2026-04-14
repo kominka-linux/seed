@@ -1,0 +1,8 @@
+tmpdir="${TMPDIR:-/tmp}/seed-awk-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+awk 'BEGIN { getline line <"doesnt_exist"; print ERRNO; ERRNO=0; close("doesnt_exist"); print ERRNO; print "Ok" }' >"$tmpdir/actual"
+printf '2\n0\nOk\n' >"$tmpdir/expected"
+
+diff -u "$tmpdir/expected" "$tmpdir/actual"

@@ -1,0 +1,10 @@
+tmpdir="${TMPDIR:-/tmp}/seed-awk-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+printf 'qwe\n' >"$tmpdir/input"
+
+awk '{print length; print length(); print length("qwe"); print length(99+9)}' "$tmpdir/input" >"$tmpdir/actual"
+printf '3\n3\n3\n3\n' >"$tmpdir/expected"
+
+diff -u "$tmpdir/expected" "$tmpdir/actual"

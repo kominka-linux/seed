@@ -1,0 +1,13 @@
+state=$PWD/net.state
+cat > "$state" <<'EOF'
+iface	1	lo	9	65536	00:00:00:00:00:00	0	0	0	0
+addr	lo	inet	127.0.0.1	8		
+iface	2	eth0	67	1500	02:00:00:00:00:01	0	0	0	0
+addr	eth0	inet	10.0.0.2	24		10.0.0.255
+EOF
+
+SEED_NET_STATE="$state" busybox ip addr show > out
+
+grep '1: lo: <UP,LOOPBACK> mtu 65536' out
+grep '2: eth0: <UP,BROADCAST,RUNNING> mtu 1500' out
+grep 'inet 10.0.0.2/24' out

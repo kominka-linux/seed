@@ -1,0 +1,10 @@
+state=$PWD/net.state
+cat > "$state" <<'EOF'
+iface	1	eth0	2	1500	02:00:00:00:00:01	0	0	0	0
+EOF
+
+SEED_NET_STATE="$state" busybox ifconfig eth0 10.0.0.2/24 mtu 1400 up
+SEED_NET_STATE="$state" busybox ifconfig eth0 > out
+
+grep 'inet addr:10.0.0.2  Mask:255.255.255.0  Bcast:10.0.0.255' out
+grep 'UP BROADCAST  MTU:1400' out

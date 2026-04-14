@@ -1,0 +1,10 @@
+state=$PWD/net.state
+cat > "$state" <<'EOF'
+iface	2	eth0	2	1500	02:00:00:00:00:01	0	0	0	0
+EOF
+
+SEED_NET_STATE="$state" busybox ip link set dev eth0 mtu 1400 up address 02:00:00:00:00:02
+SEED_NET_STATE="$state" busybox ip link show dev eth0 > out
+
+grep 'eth0: <UP,BROADCAST> mtu 1400' out
+grep 'link/ether 02:00:00:00:00:02' out

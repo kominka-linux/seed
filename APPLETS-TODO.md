@@ -213,8 +213,8 @@ obvious output utilities.
 
 - [x] wget
 - [x] hostname
-- [ ] ifconfig
-- [ ] ip
+- [x] ifconfig
+- [x] ip
 - [ ] netstat
 - [x] nslookup
 - [x] ntpd

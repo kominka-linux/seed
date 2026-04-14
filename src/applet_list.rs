@@ -42,8 +42,10 @@ macro_rules! define_applet_modules {
         pub mod hostname;
         pub mod hwclock;
         pub mod id;
+        pub mod ifconfig;
         pub mod insmod;
         pub mod install;
+        pub mod ip;
         pub mod kill;
         pub mod killall;
         pub mod killall5;
@@ -360,6 +362,14 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "id",
                 main: applets::id::main,
+            },
+            $entry {
+                name: "ifconfig",
+                main: applets::ifconfig::main,
+            },
+            $entry {
+                name: "ip",
+                main: applets::ip::main,
             },
             $entry {
                 name: "insmod",

@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in addgroup adduser blkid busybox bunzip2 bzip2 bzcat cat chattr chmod chgrp chown chroot cmp cp cpio date dd delgroup deluser df diff dmesg du egrep env expr find flock free fsck getopt getty grep gunzip gzip halt hexdump hwclock insmod install killall killall5 less ln login ls lsattr lsmod lsof lzcat lzma man mkdir mkfifo mkswap mount mountpoint mv nologin nslookup ntpd od passwd paste patch pidof pgrep pivot_root pkill poweroff printf ps pstree readlink realpath reboot rfkill rm rmdir rmmod run-parts setsid sleep sort split stat stty su sulogin swapoff swapon switch_root sysctl tar tee test time touch timeout tr tree udhcpc udhcpd umount uname unlzma unxz unzip uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
+for applet in addgroup adduser blkid busybox bunzip2 bzip2 bzcat cat chattr chmod chgrp chown chroot cmp cp cpio date dd delgroup deluser df diff dmesg du egrep env expr find flock free fsck getopt getty grep gunzip gzip halt hexdump hwclock ifconfig insmod install ip killall killall5 less ln login ls lsattr lsmod lsof lzcat lzma man mkdir mkfifo mkswap mount mountpoint mv nologin nslookup ntpd od passwd paste patch pidof pgrep pivot_root pkill poweroff printf ps pstree readlink realpath reboot rfkill rm rmdir rmmod run-parts setsid sleep sort split stat stty su sulogin swapoff swapon switch_root sysctl tar tee test time touch timeout tr tree udhcpc udhcpd umount uname unlzma unxz unzip uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -290,6 +290,11 @@ run_old_style tests/busybox/hexdump/hexdump-C-reads-stdin
 run_old_style tests/busybox/hexdump/hexdump-C-renders-file
 run_old_style tests/busybox/hexdump/hexdump-squeezes-repeated-lines
 run_old_style tests/busybox/hexdump/hexdump-v-disables-squeezing
+run_old_style tests/busybox/ifconfig/ifconfig-lists-state-backed-interface
+run_old_style tests/busybox/ifconfig/ifconfig-updates-address-and-mtu
+run_old_style tests/busybox/ip/ip-addr-show-prints-state
+run_old_style tests/busybox/ip/ip-link-set-updates-state
+run_old_style tests/busybox/ip/ip-route-add-updates-state
 
 run_old_style tests/busybox/stat/stat-c-prints-size-mode-and-name
 run_old_style tests/busybox/stat/stat-c-reports-hard-links

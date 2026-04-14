@@ -1,6 +1,7 @@
 pub mod account;
 pub mod applet;
 pub mod args;
+pub mod dhcp;
 pub mod error;
 pub mod fs;
 pub mod io;

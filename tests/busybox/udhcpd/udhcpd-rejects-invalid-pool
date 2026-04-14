@@ -1,0 +1,16 @@
+tmpdir="${TMPDIR:-/tmp}/seed-udhcpd-invalid-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+cat >"$tmpdir/udhcpd.conf" <<'EOF'
+start 127.0.0.60
+end 127.0.0.50
+interface lo
+EOF
+
+if busybox udhcpd -f "$tmpdir/udhcpd.conf" >/dev/null 2>"$tmpdir/stderr"; then
+	echo "udhcpd unexpectedly accepted invalid pool" >&2
+	exit 1
+fi
+
+grep "lease pool start exceeds end" "$tmpdir/stderr"

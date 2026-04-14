@@ -1,0 +1,56 @@
+tmpdir="${TMPDIR:-/tmp}/seed-udhcpc-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+server_port="$(python3 - <<'PY'
+import socket
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.bind(("127.0.0.1", 0))
+print(s.getsockname()[1])
+s.close()
+PY
+)"
+
+client_port="$(python3 - <<'PY'
+import socket
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.bind(("127.0.0.1", 0))
+print(s.getsockname()[1])
+s.close()
+PY
+)"
+
+cat >"$tmpdir/udhcpd.conf" <<EOF
+start 127.0.0.50
+end 127.0.0.50
+interface lo
+server 127.0.0.1
+option subnet 255.0.0.0
+option router 127.0.0.1
+option dns 1.1.1.1 8.8.8.8
+option lease 30
+lease_file $tmpdir/leases
+EOF
+
+cat >"$tmpdir/script" <<EOF
+#!/bin/sh
+printf '%s %s %s %s %s\n' "\$1" "\$ip" "\$subnet" "\$router" "\$dns" > "$tmpdir/out"
+EOF
+chmod +x "$tmpdir/script"
+
+SEED_DHCP_SERVER_PORT="$server_port" \
+SEED_DHCP_CLIENT_PORT="$client_port" \
+SEED_UDHCPD_MAX_PACKETS=2 \
+busybox udhcpd -f "$tmpdir/udhcpd.conf" &
+server_pid=$!
+trap 'kill "$server_pid" 2>/dev/null || true; rm -rf "$tmpdir"' EXIT
+
+sleep 0.1
+SEED_DHCP_SERVER_ADDR="127.0.0.1:$server_port" \
+SEED_DHCP_SERVER_PORT="$server_port" \
+SEED_DHCP_CLIENT_PORT="$client_port" \
+SEED_DHCP_CLIENT_MAC="02:00:00:00:00:01" \
+busybox udhcpc -q -n -i lo -s "$tmpdir/script"
+
+wait "$server_pid"
+grep '^bound 127.0.0.50 255.0.0.0 127.0.0.1 1.1.1.1 8.8.8.8$' "$tmpdir/out"

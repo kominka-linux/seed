@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in addgroup adduser busybox bunzip2 bzip2 bzcat cat chmod chgrp chown chroot cmp cp date dd delgroup deluser df diff dmesg du egrep env expr find flock free getopt getty grep gunzip gzip halt hexdump insmod install killall killall5 less ln login ls lsmod lsof lzcat lzma man mkdir mkfifo mountpoint mv nologin nslookup ntpd od passwd paste patch pgrep pkill poweroff printf ps readlink realpath reboot rfkill rm rmdir rmmod run-parts setsid sleep sort split stat su sulogin sysctl tar tee test time touch timeout tr tree uname unlzma unxz unzip uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
+for applet in addgroup adduser busybox bunzip2 bzip2 bzcat cat chmod chgrp chown chroot cmp cp date dd delgroup deluser df diff dmesg du egrep env expr find flock free getopt getty grep gunzip gzip halt hexdump insmod install killall killall5 less ln login ls lsmod lsof lzcat lzma man mkdir mkfifo mountpoint mv nologin nslookup ntpd od passwd paste patch pgrep pkill poweroff printf ps readlink realpath reboot rfkill rm rmdir rmmod run-parts setsid sleep sort split stat su sulogin sysctl tar tee test time touch timeout tr tree udhcpc udhcpd uname unlzma unxz unzip uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -205,6 +205,10 @@ run_old_style tests/busybox/sulogin/sulogin-eof-continues-boot
 run_old_style tests/busybox/ntpd/ntpd-q-w-queries-explicit-peer
 run_old_style tests/busybox/ntpd/ntpd-q-w-loads-peers-from-config
 run_old_style tests/busybox/ntpd/ntpd-runs-script-after-sync
+run_old_style tests/busybox/udhcpc/udhcpc-acquires-lease-and-runs-script
+run_old_style tests/busybox/udhcpc/udhcpc-r-requests-specific-address
+run_old_style tests/busybox/udhcpc/udhcpc-R-releases-lease
+run_old_style tests/busybox/udhcpd/udhcpd-rejects-invalid-pool
 
 run_old_style tests/busybox/basename/basename-strips-suffix
 run_old_style tests/busybox/basename/basename-multiple-names

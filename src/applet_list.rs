@@ -105,6 +105,8 @@ macro_rules! define_applet_modules {
         pub mod true_false;
         pub mod truncate;
         pub mod tty;
+        pub mod udhcpc;
+        pub mod udhcpd;
         pub mod uname;
         pub mod uniq;
         pub mod unzip;
@@ -426,6 +428,14 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "ntpd",
                 main: applets::ntpd::main,
+            },
+            $entry {
+                name: "udhcpc",
+                main: applets::udhcpc::main,
+            },
+            $entry {
+                name: "udhcpd",
+                main: applets::udhcpd::main,
             },
             $entry {
                 name: "nslookup",

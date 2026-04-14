@@ -220,8 +220,8 @@ obvious output utilities.
 - [x] ntpd
 - [ ] ping / ping6
 - [x] rfkill
-- [ ] udhcpc
-- [ ] udhcpd
+- [x] udhcpc
+- [x] udhcpd
 
 ## Process Utilities
 

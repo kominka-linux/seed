@@ -1,0 +1,16 @@
+tmpdir="${TMPDIR:-/tmp}/seed-awk-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+cat >"$tmpdir/script.awk" <<'EOF'
+BEGIN { print "begin" }
+{ print $1 }
+END { print "end" }
+EOF
+
+printf 'alpha beta\ngamma\n' >"$tmpdir/input"
+
+awk -f "$tmpdir/script.awk" "$tmpdir/input" >"$tmpdir/actual"
+printf 'begin\nalpha\ngamma\nend\n' >"$tmpdir/expected"
+
+diff -u "$tmpdir/expected" "$tmpdir/actual"

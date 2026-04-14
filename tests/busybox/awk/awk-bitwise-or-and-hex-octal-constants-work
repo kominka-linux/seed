@@ -1,0 +1,10 @@
+tmpdir="${TMPDIR:-/tmp}/seed-awk-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+printf '\n' >"$tmpdir/input"
+
+awk '{ print or(0xffffffff,1); print or(0x80000000,1); print or(01234,1) }' "$tmpdir/input" >"$tmpdir/actual"
+printf '4294967295\n2147483649\n669\n' >"$tmpdir/expected"
+
+diff -u "$tmpdir/expected" "$tmpdir/actual"

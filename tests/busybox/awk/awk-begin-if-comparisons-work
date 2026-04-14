@@ -1,0 +1,8 @@
+tmpdir="${TMPDIR:-/tmp}/seed-awk-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+awk 'BEGIN{if(23==23) print "eq"; if(2<13) print "lt"; if("a"=="ab") print "no"}' >"$tmpdir/actual"
+printf 'eq\nlt\n' >"$tmpdir/expected"
+
+diff -u "$tmpdir/expected" "$tmpdir/actual"

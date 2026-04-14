@@ -70,6 +70,8 @@ mod tests {
     fn does_not_match_later_command_tokens() {
         let process = ProcessInfo {
             pid: 1,
+            ppid: 0,
+            uid: 0,
             tty: String::from("??"),
             cpu_time_ns: 0,
             name: String::from("sh"),

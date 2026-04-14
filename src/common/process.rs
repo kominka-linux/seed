@@ -6,6 +6,8 @@ use std::fs;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ProcessInfo {
     pub(crate) pid: i32,
+    pub(crate) ppid: i32,
+    pub(crate) uid: u32,
     pub(crate) tty: String,
     pub(crate) cpu_time_ns: u64,
     pub(crate) name: String,
@@ -70,9 +72,12 @@ pub(crate) fn list_processes() -> Result<Vec<ProcessInfo>, String> {
 fn process_info_linux(pid: i32) -> Option<ProcessInfo> {
     let stat = parse_linux_stat(pid)?;
     let command = command_line_for_pid_linux(pid).unwrap_or_else(|| stat.name.clone());
+    let uid = uid_for_pid_linux(pid)?;
 
     Some(ProcessInfo {
         pid,
+        ppid: stat.ppid,
+        uid,
         tty: tty_for_pid_linux(pid),
         cpu_time_ns: stat.cpu_time_ns,
         name: stat.name,
@@ -83,6 +88,7 @@ fn process_info_linux(pid: i32) -> Option<ProcessInfo> {
 #[cfg(target_os = "linux")]
 struct LinuxStat {
     name: String,
+    ppid: i32,
     cpu_time_ns: u64,
 }
 
@@ -103,6 +109,7 @@ fn parse_linux_stat_text(stat: &str) -> Option<LinuxStat> {
     let name = stat[open + 1..close].to_string();
     let rest = &stat[close + 2..];
     let fields = rest.split_whitespace().collect::<Vec<_>>();
+    let ppid = fields.get(1)?.parse::<i32>().ok()?;
     let utime = fields.get(11)?.parse::<u64>().ok()?;
     let stime = fields.get(12)?.parse::<u64>().ok()?;
     let ticks = utime.saturating_add(stime);
@@ -112,7 +119,11 @@ fn parse_linux_stat_text(stat: &str) -> Option<LinuxStat> {
         .checked_div(ticks_per_second)
         .unwrap_or(0);
 
-    Some(LinuxStat { name, cpu_time_ns })
+    Some(LinuxStat {
+        name,
+        ppid,
+        cpu_time_ns,
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -157,6 +168,15 @@ fn tty_for_pid_linux(pid: i32) -> String {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn uid_for_pid_linux(pid: i32) -> Option<u32> {
+    let status = fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    status.lines().find_map(|line| {
+        let value = line.strip_prefix("Uid:")?;
+        value.split_whitespace().next()?.parse::<u32>().ok()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::ProcessInfo;
@@ -184,6 +204,8 @@ mod tests {
     fn pattern_matching_uses_name_and_argv0_only() {
         let process = ProcessInfo {
             pid: 1,
+            ppid: 0,
+            uid: 0,
             tty: String::from("??"),
             cpu_time_ns: 0,
             name: String::from("match-proc"),

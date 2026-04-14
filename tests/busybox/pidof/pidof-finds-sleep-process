@@ -1,0 +1,5 @@
+sleep 30 &
+pid=$!
+trap 'kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true' EXIT
+
+busybox pidof sleep | grep -w "$pid"

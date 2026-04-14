@@ -6,6 +6,7 @@ macro_rules! define_applet_modules {
         pub mod basename;
         pub mod bzip2;
         pub mod cat;
+        pub mod chattr;
         pub mod chgrp;
         pub mod chmod;
         pub mod chown;
@@ -51,6 +52,7 @@ macro_rules! define_applet_modules {
         pub mod login;
         pub mod losetup;
         pub mod ls;
+        pub mod lsattr;
         pub mod lsmod;
         pub mod lsof;
         pub mod man;
@@ -72,10 +74,12 @@ macro_rules! define_applet_modules {
         pub mod paste;
         pub mod patch;
         pub mod pgrep;
+        pub mod pidof;
         pub mod pkill;
         pub mod printenv;
         pub mod printf;
         pub mod ps;
+        pub mod pstree;
         pub mod pwd;
         pub mod readlink;
         pub mod realpath;
@@ -169,6 +173,10 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "cat",
                 main: applets::cat::main,
+            },
+            $entry {
+                name: "chattr",
+                main: applets::chattr::main,
             },
             $entry {
                 name: "chgrp",
@@ -391,6 +399,10 @@ macro_rules! define_applet_entries {
                 main: applets::ls::main,
             },
             $entry {
+                name: "lsattr",
+                main: applets::lsattr::main,
+            },
+            $entry {
                 name: "lsmod",
                 main: applets::lsmod::main,
             },
@@ -487,6 +499,10 @@ macro_rules! define_applet_entries {
                 main: applets::patch::main,
             },
             $entry {
+                name: "pidof",
+                main: applets::pidof::main,
+            },
+            $entry {
                 name: "pgrep",
                 main: applets::pgrep::main,
             },
@@ -509,6 +525,10 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "ps",
                 main: applets::ps::main,
+            },
+            $entry {
+                name: "pstree",
+                main: applets::pstree::main,
             },
             $entry {
                 name: "pwd",

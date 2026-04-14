@@ -1,0 +1,12 @@
+state=$PWD/attrs.tsv
+: > "$state"
+: > file
+file=$PWD/file
+
+SEED_EXTATTR_STATE="$state" busybox chattr +ia "$file"
+SEED_EXTATTR_STATE="$state" busybox lsattr "$file" > out
+grep '^-----ia------ ' out
+
+SEED_EXTATTR_STATE="$state" busybox chattr -a "$file"
+SEED_EXTATTR_STATE="$state" busybox lsattr "$file" > out2
+grep '^-----i------- ' out2

@@ -3,6 +3,7 @@ pub mod applet;
 pub mod args;
 pub mod dhcp;
 pub mod error;
+pub mod extattr;
 pub mod fs;
 pub mod fstab;
 pub mod io;

@@ -58,6 +58,8 @@ mod tests {
     fn matches_name_or_command() {
         let process = ProcessInfo {
             pid: 1,
+            ppid: 0,
+            uid: 0,
             tty: String::from("??"),
             cpu_time_ns: 0,
             name: String::from("seed"),

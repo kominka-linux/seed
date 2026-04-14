@@ -1,0 +1,9 @@
+sleep 30 &
+pid1=$!
+sleep 30 &
+pid2=$!
+trap 'kill "$pid1" "$pid2" 2>/dev/null || true; wait "$pid1" "$pid2" 2>/dev/null || true' EXIT
+
+set -- $(busybox pidof -s sleep)
+test $# -eq 1
+test "$1" = "$pid1" || test "$1" = "$pid2"

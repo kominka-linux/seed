@@ -203,7 +203,7 @@ obvious output utilities.
 ## Miscellaneous Utilities
 
 - [x] less
-- [ ] lsattr / chattr
+- [x] lsattr / chattr
 - [x] man
 - [x] run-parts
 - [x] time
@@ -289,8 +289,8 @@ Useful for specific but not unusual tasks — implement after Tier 1.
 - [ ] chrt
 - [ ] fuser
 - [ ] ionice
-- [ ] pidof
-- [ ] pstree
+- [x] pidof
+- [x] pstree
 - [ ] taskset
 
 ### System Logging Utilities

@@ -1,0 +1,13 @@
+state=$PWD/attrs.tsv
+: > "$state"
+mkdir -p tree/sub
+: > tree/sub/file
+tree=$PWD/tree
+file=$PWD/tree/sub/file
+
+SEED_EXTATTR_STATE="$state" busybox chattr -R -v 12 +i "$tree"
+SEED_EXTATTR_STATE="$state" busybox lsattr -dv "$tree" > dir.out
+SEED_EXTATTR_STATE="$state" busybox lsattr -v "$file" > file.out
+
+grep '^   12 -----i------- ' dir.out
+grep '^   12 -----i------- ' file.out

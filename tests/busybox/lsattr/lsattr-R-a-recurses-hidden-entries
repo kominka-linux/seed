@@ -1,0 +1,13 @@
+state=$PWD/attrs.tsv
+mkdir -p tree/sub
+: > tree/.hidden
+: > tree/sub/file
+hidden=$PWD/tree/.hidden
+child=$PWD/tree/sub/file
+printf '%s\t128\t0\n%s\t16\t0\n' "$hidden" "$child" > "$state"
+
+SEED_EXTATTR_STATE="$state" busybox lsattr -Ra "$PWD/tree" > out
+
+grep "$hidden" out
+grep "$child" out
+grep "^$PWD/tree/sub:$" out

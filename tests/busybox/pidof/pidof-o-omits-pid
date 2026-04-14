@@ -1,0 +1,12 @@
+sleep 30 &
+pid1=$!
+sleep 30 &
+pid2=$!
+trap 'kill "$pid1" "$pid2" 2>/dev/null || true; wait "$pid1" "$pid2" 2>/dev/null || true' EXIT
+
+result=$(busybox pidof -o "$pid1" sleep)
+echo "$result" | grep -w "$pid2"
+if echo "$result" | grep -w "$pid1" >/dev/null; then
+	echo "pidof unexpectedly included omitted pid" >&2
+	exit 1
+fi

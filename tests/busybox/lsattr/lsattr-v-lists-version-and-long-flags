@@ -1,0 +1,11 @@
+state=$PWD/attrs.tsv
+mkdir tree
+: > tree/file
+file=$PWD/tree/file
+printf '%s\t48\t9\n' "$file" > "$state"
+
+SEED_EXTATTR_STATE="$state" busybox lsattr -vl "$file" > out
+
+grep '^    9 ' out
+grep 'Immutable, Append_Only' out
+grep "$file" out

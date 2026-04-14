@@ -1,0 +1,17 @@
+tmpdir="${TMPDIR:-/tmp}/seed-pstree-$$"
+trap 'rm -rf "$tmpdir"; [ -n "${parent-}" ] && kill "$parent" 2>/dev/null || true; [ -n "${child-}" ] && kill "$child" 2>/dev/null || true; [ -n "${parent-}" ] && wait "$parent" 2>/dev/null || true' EXIT
+mkdir -p "$tmpdir"
+
+sh -c 'sleep 30 & echo $! >"$1"; wait' sh "$tmpdir/child" &
+parent=$!
+
+i=0
+while [ ! -f "$tmpdir/child" ] && [ "$i" -lt 50 ]; do
+	sleep 0.1
+	i=$((i + 1))
+done
+
+child=$(cat "$tmpdir/child")
+busybox pstree -p "$parent" >"$tmpdir/tree"
+grep "($parent)" "$tmpdir/tree"
+grep "sleep($child)" "$tmpdir/tree"

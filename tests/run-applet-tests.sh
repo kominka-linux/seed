@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in addgroup adduser busybox bunzip2 bzip2 bzcat cat chmod chgrp chown chroot cmp cp cpio date dd delgroup deluser df diff dmesg du egrep env expr find flock free fsck getopt getty grep gunzip gzip halt hexdump hwclock insmod install killall killall5 less ln login ls lsmod lsof lzcat lzma man mkdir mkfifo mkswap mount mountpoint mv nologin nslookup ntpd od passwd paste patch pgrep pkill poweroff printf ps readlink realpath reboot rfkill rm rmdir rmmod run-parts setsid sleep sort split stat stty su sulogin swapoff swapon sysctl tar tee test time touch timeout tr tree udhcpc udhcpd umount uname unlzma unxz unzip uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
+for applet in addgroup adduser busybox bunzip2 bzip2 bzcat cat chattr chmod chgrp chown chroot cmp cp cpio date dd delgroup deluser df diff dmesg du egrep env expr find flock free fsck getopt getty grep gunzip gzip halt hexdump hwclock insmod install killall killall5 less ln login ls lsattr lsmod lsof lzcat lzma man mkdir mkfifo mkswap mount mountpoint mv nologin nslookup ntpd od passwd paste patch pidof pgrep pkill poweroff printf ps pstree readlink realpath reboot rfkill rm rmdir rmmod run-parts setsid sleep sort split stat stty su sulogin swapoff swapon sysctl tar tee test time touch timeout tr tree udhcpc udhcpd umount uname unlzma unxz unzip uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -197,6 +197,8 @@ run_old_style tests/busybox/getty/getty-n-uses-custom-login-and-term
 run_old_style tests/busybox/getty/getty-prompts-and-passes-username
 run_old_style tests/busybox/login/login-force-uses-user-shell-and-home
 run_old_style tests/busybox/login/login-p-preserves-home
+run_old_style tests/busybox/lsattr/lsattr-v-lists-version-and-long-flags
+run_old_style tests/busybox/lsattr/lsattr-R-a-recurses-hidden-entries
 run_old_style tests/busybox/su/su-runs-command-as-target-user
 run_old_style tests/busybox/su/su-login-mode-sets-home
 run_old_style tests/busybox/su/su-preserve-env-keeps-home
@@ -214,6 +216,8 @@ run_old_style tests/busybox/basename/basename-strips-suffix
 run_old_style tests/busybox/basename/basename-multiple-names
 run_old_style tests/busybox/basename/dirname-basic
 
+run_old_style tests/busybox/chattr/chattr-sets-and-clears-flags
+run_old_style tests/busybox/chattr/chattr-R-sets-version-on-descendants
 run_old_style tests/busybox/chmod/chmod-R-descends-before-changing-directory
 run_old_style tests/busybox/chgrp/chgrp-sets-group
 run_old_style tests/busybox/chown/chown-sets-owner
@@ -326,6 +330,9 @@ run_old_style tests/busybox/pgrep/pgrep-finds-child-process
 run_old_style tests/busybox/pgrep/pgrep-does-not-match-script-name-in-wrapper-argv
 run_old_style tests/busybox/pgrep/pgrep-exits-one-when-no-match
 run_old_style tests/busybox/pgrep/pgrep-rejects-missing-pattern
+run_old_style tests/busybox/pidof/pidof-finds-sleep-process
+run_old_style tests/busybox/pidof/pidof-s-prints-one-pid
+run_old_style tests/busybox/pidof/pidof-o-omits-pid
 
 run_old_style tests/busybox/poweroff/poweroff-w-exits-zero
 
@@ -333,6 +340,7 @@ run_old_style tests/busybox/pkill/pkill-terminates-matching-child
 run_old_style tests/busybox/pkill/pkill-does-not-kill-wrapper-shell-by-script-argv
 run_old_style tests/busybox/pkill/pkill-exits-one-when-no-match
 run_old_style tests/busybox/pkill/pkill-rejects-missing-pattern
+run_old_style tests/busybox/pstree/pstree-p-shows-child-processes
 
 run_old_style tests/busybox/fsck/fsck-N-A-prints-delegated-checks
 run_old_style tests/busybox/hwclock/hwclock-rejects-unsupported-param-access

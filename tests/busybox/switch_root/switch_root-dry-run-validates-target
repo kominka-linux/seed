@@ -1,0 +1,11 @@
+mkdir -p newroot/sbin
+printf '#!/bin/sh\nexit 0\n' > newroot/sbin/init
+chmod +x newroot/sbin/init
+printf '#!/bin/sh\nexit 0\n' > host-init
+
+SEED_SWITCH_ROOT_TEST_DRY_RUN=1 \
+SEED_SWITCH_ROOT_TEST_PID=1 \
+SEED_SWITCH_ROOT_TEST_ROOTFS=tmpfs \
+SEED_SWITCH_ROOT_TEST_INIT="$PWD/host-init" \
+SEED_SWITCH_ROOT_TEST_ALLOW_SAME_DEV=1 \
+busybox switch_root "$PWD/newroot" /sbin/init

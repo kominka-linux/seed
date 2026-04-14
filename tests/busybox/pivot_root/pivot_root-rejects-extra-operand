@@ -1,0 +1,5 @@
+if busybox pivot_root newroot putold extra 2>stderr; then
+	exit 1
+fi
+
+grep 'extra operand' stderr

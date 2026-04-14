@@ -1,0 +1,10 @@
+cache=$PWD/blkid.cache
+cat > "$cache" <<'EOF'
+/dev/test0	uuid-0	label-0	ext4
+/dev/test1			swap
+EOF
+
+SEED_BLKID_CACHE="$cache" busybox blkid > out
+
+grep '/dev/test0: UUID="uuid-0" LABEL="label-0" TYPE="ext4"' out
+grep '/dev/test1: TYPE="swap"' out

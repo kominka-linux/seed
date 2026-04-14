@@ -1,0 +1,7 @@
+truncate -s 65536 swap.img
+busybox mkswap -L seedswap swap.img >/dev/null
+busybox blkid swap.img > out
+
+grep 'TYPE="swap"' out
+grep 'LABEL="seedswap"' out
+grep 'UUID="' out

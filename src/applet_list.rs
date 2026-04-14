@@ -4,6 +4,7 @@ macro_rules! define_applet_modules {
         pub mod adduser;
         pub mod base64;
         pub mod basename;
+        pub mod blkid;
         pub mod bzip2;
         pub mod cat;
         pub mod chattr;
@@ -75,6 +76,7 @@ macro_rules! define_applet_modules {
         pub mod patch;
         pub mod pgrep;
         pub mod pidof;
+        pub mod pivot_root;
         pub mod pkill;
         pub mod printenv;
         pub mod printf;
@@ -103,6 +105,7 @@ macro_rules! define_applet_modules {
         pub mod sulogin;
         pub mod swapoff;
         pub mod swapon;
+        pub mod switch_root;
         pub mod sync;
         pub mod sysctl;
         pub mod tail;
@@ -157,6 +160,10 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "basename",
                 main: applets::basename::main_basename,
+            },
+            $entry {
+                name: "blkid",
+                main: applets::blkid::main,
             },
             $entry {
                 name: "bunzip2",
@@ -499,16 +506,20 @@ macro_rules! define_applet_entries {
                 main: applets::patch::main,
             },
             $entry {
-                name: "pidof",
-                main: applets::pidof::main,
-            },
-            $entry {
                 name: "pgrep",
                 main: applets::pgrep::main,
             },
             $entry {
+                name: "pidof",
+                main: applets::pidof::main,
+            },
+            $entry {
                 name: "pkill",
                 main: applets::pkill::main,
+            },
+            $entry {
+                name: "pivot_root",
+                main: applets::pivot_root::main,
             },
             $entry {
                 name: "printenv",
@@ -613,6 +624,10 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "swapon",
                 main: applets::swapon::main,
+            },
+            $entry {
+                name: "switch_root",
+                main: applets::switch_root::main,
             },
             $entry {
                 name: "su",

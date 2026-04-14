@@ -1,0 +1,9 @@
+mkdir -p newroot/sbin
+printf '#!/bin/sh\nexit 0\n' > newroot/sbin/init
+chmod +x newroot/sbin/init
+
+if busybox switch_root "$PWD/newroot" /sbin/init 2>stderr; then
+	exit 1
+fi
+
+grep 'PID must be 1' stderr

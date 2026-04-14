@@ -182,7 +182,7 @@ obvious output utilities.
 
 - [x] losetup
 - [ ] acpid
-- [ ] blkid
+- [x] blkid
 - [x] dmesg
 - [ ] fdisk
 - [x] flock
@@ -192,11 +192,11 @@ obvious output utilities.
 - [x] mkswap
 - [x] mount
 - [x] mountpoint
-- [ ] pivot_root
+- [x] pivot_root
 - [x] setsid
 - [x] swapoff
 - [x] swapon
-- [ ] switch_root
+- [x] switch_root
 - [x] sysctl
 - [x] umount
 

@@ -246,7 +246,7 @@ fn get_groups_for_user(c_name: &CString, primary_gid: u32) -> Vec<u32> {
             }
         }
         groups.truncate(ngroups.max(0) as usize);
-        groups.into_iter().map(|g| g as u32).collect()
+        groups
     }
     #[cfg(target_os = "macos")]
     {

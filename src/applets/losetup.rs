@@ -224,9 +224,11 @@ fn attach_loop_device(
         )]);
     }
 
-    let mut info = LoopInfo64::default();
-    info.lo_offset = offset;
-    info.lo_flags = loop_flags(read_only, partscan);
+    let mut info = LoopInfo64 {
+        lo_offset: offset,
+        lo_flags: loop_flags(read_only, partscan),
+        ..LoopInfo64::default()
+    };
     copy_file_name(&mut info.lo_file_name, file.as_bytes());
 
     // SAFETY: `info` points to a valid `loop_info64` value for the duration

@@ -552,7 +552,7 @@ fn convert_ifaddr(ifa: &libc::ifaddrs, family: i32) -> Option<InterfaceAddress> 
             } else {
                 ipv4_from_sockaddr(ifa.ifa_ifu as *const libc::sockaddr)
             };
-            let flags = ifa.ifa_flags as u32;
+            let flags = ifa.ifa_flags;
             Some(InterfaceAddress {
                 family: AddressFamily::Inet4,
                 address: address.to_string(),
@@ -757,14 +757,14 @@ fn live_route_change(route: &RouteInfo, request: libc::c_ulong) -> io::Result<()
         ));
     }
     let mut entry = unsafe { mem::zeroed::<libc::rtentry>() };
-    entry.rt_flags = (libc::RTF_UP
+    entry.rt_flags = libc::RTF_UP
         | if route.gateway.is_some() {
             libc::RTF_GATEWAY
         } else {
             0
-        }) as u16;
+        };
     if route.prefix_len == 32 {
-        entry.rt_flags |= libc::RTF_HOST as u16;
+        entry.rt_flags |= libc::RTF_HOST;
     }
     entry.rt_dst = sockaddr_from_ipv4(route.destination.parse().unwrap_or(Ipv4Addr::UNSPECIFIED));
     entry.rt_genmask = sockaddr_from_ipv4(prefix_to_netmask(route.prefix_len));

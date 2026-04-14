@@ -141,7 +141,7 @@ pub(crate) fn get_flags(path: &Path) -> io::Result<u32> {
 
     #[cfg(target_os = "linux")]
     {
-        return ioctl_get_u32(path, fs_ioc_getflags());
+        ioctl_get_u32(path, fs_ioc_getflags())
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -163,7 +163,7 @@ pub(crate) fn set_flags(path: &Path, flags: u32) -> io::Result<()> {
 
     #[cfg(target_os = "linux")]
     {
-        return ioctl_set_u32(path, fs_ioc_setflags(), flags);
+        ioctl_set_u32(path, fs_ioc_setflags(), flags)
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -185,7 +185,7 @@ pub(crate) fn get_version(path: &Path) -> io::Result<u32> {
 
     #[cfg(target_os = "linux")]
     {
-        return ioctl_get_u32(path, fs_ioc_getversion());
+        ioctl_get_u32(path, fs_ioc_getversion())
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -207,7 +207,7 @@ pub(crate) fn set_version(path: &Path, version: u32) -> io::Result<()> {
 
     #[cfg(target_os = "linux")]
     {
-        return ioctl_set_u32(path, fs_ioc_setversion(), version);
+        ioctl_set_u32(path, fs_ioc_setversion(), version)
     }
 
     #[cfg(not(target_os = "linux"))]

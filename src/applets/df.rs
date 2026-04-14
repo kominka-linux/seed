@@ -95,7 +95,10 @@ fn stat_filesystem(path: &str) -> Result<FsStats, AppletError> {
     // SAFETY: libc initialized `stats` on success.
     let stats = unsafe { stats.assume_init() };
 
-    let block_size = stats.f_bsize as u64;
+    #[cfg(target_os = "linux")]
+    let block_size: u64 = stats.f_bsize;
+    #[cfg(target_os = "macos")]
+    let block_size = u64::try_from(stats.f_bsize).unwrap_or_default();
     let blocks = stats.f_blocks * block_size / 1024;
     let used = (stats.f_blocks - stats.f_bfree) * block_size / 1024;
     let available = stats.f_bavail * block_size / 1024;

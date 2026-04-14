@@ -109,8 +109,8 @@ fn print_sockets(options: &Options) -> Result<(), Vec<AppletError>> {
 
     println!("Active Internet connections");
     println!(
-        "{:<5} {:>6} {:>6} {:<23} {:<23} {}",
-        "Proto", "Recv-Q", "Send-Q", "Local Address", "Foreign Address", "State"
+        "{:<5} {:>6} {:>6} {:<23} {:<23} State",
+        "Proto", "Recv-Q", "Send-Q", "Local Address", "Foreign Address"
     );
     for entry in entries {
         println!(
@@ -129,8 +129,8 @@ fn print_sockets(options: &Options) -> Result<(), Vec<AppletError>> {
 fn print_routes() -> Result<(), Vec<AppletError>> {
     println!("Kernel IP routing table");
     println!(
-        "{:<18} {:<18} {:<18} {:<5} {}",
-        "Destination", "Gateway", "Genmask", "Flags", "Iface"
+        "{:<18} {:<18} {:<18} {:<5} Iface",
+        "Destination", "Gateway", "Genmask", "Flags"
     );
     let mut routes = list_routes().map_err(io_error("listing routes", None))?;
     routes.sort_by(|left, right| left.dev.cmp(&right.dev).then(left.destination.cmp(&right.destination)));

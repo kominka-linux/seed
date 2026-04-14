@@ -449,15 +449,34 @@ fn basename_for_match(display: &str) -> String {
 fn file_type_matches(metadata: &fs::Metadata, kind: FileTypeMatch) -> bool {
     let file_type = metadata.file_type();
     let mode = metadata.mode();
+    #[cfg(target_os = "linux")]
+    let file_mask: u32 = libc::S_IFMT;
+    #[cfg(target_os = "macos")]
     let file_mask = u32::from(libc::S_IFMT);
+    #[cfg(target_os = "linux")]
+    let block_mask: u32 = libc::S_IFBLK;
+    #[cfg(target_os = "macos")]
+    let block_mask = u32::from(libc::S_IFBLK);
+    #[cfg(target_os = "linux")]
+    let char_mask: u32 = libc::S_IFCHR;
+    #[cfg(target_os = "macos")]
+    let char_mask = u32::from(libc::S_IFCHR);
+    #[cfg(target_os = "linux")]
+    let socket_mask: u32 = libc::S_IFSOCK;
+    #[cfg(target_os = "macos")]
+    let socket_mask = u32::from(libc::S_IFSOCK);
+    #[cfg(target_os = "linux")]
+    let fifo_mask: u32 = libc::S_IFIFO;
+    #[cfg(target_os = "macos")]
+    let fifo_mask = u32::from(libc::S_IFIFO);
     match kind {
         FileTypeMatch::Regular => file_type.is_file(),
         FileTypeMatch::Directory => file_type.is_dir(),
         FileTypeMatch::Symlink => file_type.is_symlink(),
-        FileTypeMatch::Block => mode & file_mask == u32::from(libc::S_IFBLK),
-        FileTypeMatch::Character => mode & file_mask == u32::from(libc::S_IFCHR),
-        FileTypeMatch::Socket => mode & file_mask == u32::from(libc::S_IFSOCK),
-        FileTypeMatch::Fifo => mode & file_mask == u32::from(libc::S_IFIFO),
+        FileTypeMatch::Block => mode & file_mask == block_mask,
+        FileTypeMatch::Character => mode & file_mask == char_mask,
+        FileTypeMatch::Socket => mode & file_mask == socket_mask,
+        FileTypeMatch::Fifo => mode & file_mask == fifo_mask,
     }
 }
 

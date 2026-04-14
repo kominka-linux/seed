@@ -67,6 +67,7 @@ macro_rules! define_applet_modules {
         pub mod readlink;
         pub mod realpath;
         pub mod rev;
+        pub mod rfkill;
         pub mod rm;
         pub mod rmdir;
         pub mod rmmod;
@@ -439,6 +440,10 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "realpath",
                 main: applets::realpath::main,
+            },
+            $entry {
+                name: "rfkill",
+                main: applets::rfkill::main,
             },
             $entry {
                 name: "reboot",

@@ -1,0 +1,5 @@
+if busybox rfkill list >actual 2>stderr; then
+	test ! -s stderr
+else
+	grep '/dev/rfkill' stderr
+fi

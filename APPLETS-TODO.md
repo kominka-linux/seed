@@ -219,7 +219,7 @@ obvious output utilities.
 - [x] nslookup
 - [ ] ntpd
 - [ ] ping / ping6
-- [ ] rfkill
+- [x] rfkill
 - [ ] udhcpc
 - [ ] udhcpd
 

@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown chroot cmp cp date dd df diff dmesg du egrep env expr find flock free getopt grep gunzip gzip halt hexdump insmod install killall killall5 less ln ls lsmod lsof lzcat lzma man mkdir mkfifo mountpoint mv nologin nslookup od paste patch pgrep pkill poweroff printf ps readlink realpath reboot rm rmdir rmmod run-parts setsid sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz unzip uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown chroot cmp cp date dd df diff dmesg du egrep env expr find flock free getopt grep gunzip gzip halt hexdump insmod install killall killall5 less ln ls lsmod lsof lzcat lzma man mkdir mkfifo mountpoint mv nologin nslookup od paste patch pgrep pkill poweroff printf ps readlink realpath reboot rfkill rm rmdir rmmod run-parts setsid sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz unzip uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -468,6 +468,9 @@ run_old_style tests/busybox/readlink/readlink-f-canonicalizes
 run_old_style tests/busybox/readlink/readlink-f-normalizes-dotdot-after-missing-component
 run_old_style tests/busybox/realpath/realpath-canonicalizes-existing-path
 run_old_style tests/busybox/realpath/realpath-fails-for-missing-path
+run_old_style tests/busybox/rfkill/rfkill-list-reports-missing-device-or-lists
+run_old_style tests/busybox/rfkill/rfkill-list-rejects-invalid-target
+run_old_style tests/busybox/rfkill/rfkill-block-requires-target
 run_old_style tests/busybox/reboot/reboot-w-exits-zero
 run_old_style tests/busybox/reboot/reboot-d-requires-argument
 

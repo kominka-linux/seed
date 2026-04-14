@@ -39,7 +39,6 @@ This file tracks applet-specific limitations that are important to keep visible 
   - direct probes now cover common filesystems
   - still not a full libblkid-style probe matrix
 - `udhcpc`
-  - `-a` ARP offer validation is still unsupported
 - `udhcpd`
   - config surface is still a BusyBox-style subset
   - several common directives are accepted and ignored

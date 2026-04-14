@@ -1,0 +1,15 @@
+modules="$PWD/lib/modules/1.0"
+conf="$PWD/modprobe.d"
+mkdir -p "$modules/kernel/net" "$conf"
+
+printf '\0license=GPL\0' > "$modules/kernel/net/driver.ko"
+
+cat > "$conf/install.conf" <<'EOF'
+install driver printf 'install:#%s\n' "$MODPROBE_MODULE" >> "$PWD/cmd.log" # trailing comment
+EOF
+
+SEED_MODULES_DIR="$modules" \
+SEED_MODPROBE_DIRS="$conf" \
+	busybox modprobe driver
+
+grep '^install:#driver$' "$PWD/cmd.log"

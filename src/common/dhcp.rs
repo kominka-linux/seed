@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 use std::env;
+#[cfg(target_os = "linux")]
+use std::ffi::CString;
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs, UdpSocket};
 #[cfg(target_os = "linux")]
@@ -33,6 +35,7 @@ pub(crate) const OPTION_END: u8 = 255;
 pub(crate) const MESSAGE_DISCOVER: u8 = 1;
 pub(crate) const MESSAGE_OFFER: u8 = 2;
 pub(crate) const MESSAGE_REQUEST: u8 = 3;
+pub(crate) const MESSAGE_DECLINE: u8 = 4;
 pub(crate) const MESSAGE_ACK: u8 = 5;
 pub(crate) const MESSAGE_NAK: u8 = 6;
 pub(crate) const MESSAGE_RELEASE: u8 = 7;
@@ -439,13 +442,227 @@ pub(crate) fn send_packet(
         .map_err(|err| AppletError::from_io("dhcp", "sending", None, err))
 }
 
+pub(crate) fn probe_arp_conflict(
+    interface: &str,
+    target_ip: Ipv4Addr,
+    mac: [u8; 6],
+    timeout_ms: u32,
+) -> Result<bool, AppletError> {
+    if timeout_ms == 0 {
+        return Ok(false);
+    }
+    if arp_conflict_from_env(target_ip) {
+        return Ok(true);
+    }
+    #[cfg(target_os = "linux")]
+    {
+        probe_arp_conflict_linux(interface, target_ip, mac, timeout_ms)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (interface, target_ip, mac, timeout_ms);
+        Ok(false)
+    }
+}
+
+fn arp_conflict_from_env(target_ip: Ipv4Addr) -> bool {
+    let Some(value) = env::var_os("SEED_UDHCPC_ARP_CONFLICT") else {
+        return false;
+    };
+    value
+        .to_string_lossy()
+        .split([',', ' ', '\t', '\n'])
+        .filter(|entry| !entry.is_empty())
+        .filter_map(|entry| entry.parse::<Ipv4Addr>().ok())
+        .any(|entry| entry == target_ip)
+}
+
+#[cfg(target_os = "linux")]
+fn probe_arp_conflict_linux(
+    interface: &str,
+    target_ip: Ipv4Addr,
+    mac: [u8; 6],
+    timeout_ms: u32,
+) -> Result<bool, AppletError> {
+    struct SocketGuard(libc::c_int);
+
+    impl Drop for SocketGuard {
+        fn drop(&mut self) {
+            // SAFETY: `self.0` is a socket descriptor created by `socket`.
+            unsafe {
+                libc::close(self.0);
+            }
+        }
+    }
+
+    let interface_c = CString::new(interface)
+        .map_err(|_| AppletError::new("dhcp", format!("invalid interface '{interface}'")))?;
+    let ifindex = unsafe { libc::if_nametoindex(interface_c.as_ptr()) };
+    if ifindex == 0 {
+        return Err(AppletError::from_io(
+            "dhcp",
+            "resolving interface",
+            Some(interface),
+            io::Error::last_os_error(),
+        ));
+    }
+
+    let fd = unsafe {
+        libc::socket(
+            libc::AF_PACKET,
+            libc::SOCK_RAW | libc::SOCK_CLOEXEC,
+            u16::to_be(libc::ETH_P_ARP as u16) as libc::c_int,
+        )
+    };
+    if fd < 0 {
+        return Err(AppletError::from_io(
+            "dhcp",
+            "creating ARP socket",
+            None,
+            io::Error::last_os_error(),
+        ));
+    }
+    let socket = SocketGuard(fd);
+
+    let enable_broadcast: libc::c_int = 1;
+    let broadcast_rc = unsafe {
+        libc::setsockopt(
+            socket.0,
+            libc::SOL_SOCKET,
+            libc::SO_BROADCAST,
+            (&enable_broadcast as *const libc::c_int).cast(),
+            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+        )
+    };
+    if broadcast_rc != 0 {
+        return Err(AppletError::from_io(
+            "dhcp",
+            "configuring ARP socket",
+            None,
+            io::Error::last_os_error(),
+        ));
+    }
+
+    let mut timeout = unsafe { std::mem::zeroed::<libc::timeval>() };
+    timeout.tv_sec = (timeout_ms / 1000).into();
+    timeout.tv_usec = ((timeout_ms % 1000) * 1000).into();
+    let timeout_rc = unsafe {
+        libc::setsockopt(
+            socket.0,
+            libc::SOL_SOCKET,
+            libc::SO_RCVTIMEO,
+            (&timeout as *const libc::timeval).cast(),
+            std::mem::size_of::<libc::timeval>() as libc::socklen_t,
+        )
+    };
+    if timeout_rc != 0 {
+        return Err(AppletError::from_io(
+            "dhcp",
+            "configuring ARP socket",
+            None,
+            io::Error::last_os_error(),
+        ));
+    }
+
+    let mut destination = unsafe { std::mem::zeroed::<libc::sockaddr_ll>() };
+    destination.sll_family = libc::AF_PACKET as libc::c_ushort;
+    destination.sll_protocol = u16::to_be(libc::ETH_P_ARP as u16);
+    destination.sll_ifindex = ifindex as libc::c_int;
+    destination.sll_halen = 6;
+    destination.sll_addr[..6].copy_from_slice(&[0xff; 6]);
+
+    let packet = build_arp_request(target_ip, mac);
+    let send_rc = unsafe {
+        libc::sendto(
+            socket.0,
+            packet.as_ptr().cast(),
+            packet.len(),
+            0,
+            (&destination as *const libc::sockaddr_ll).cast(),
+            std::mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t,
+        )
+    };
+    if send_rc < 0 {
+        return Err(AppletError::from_io(
+            "dhcp",
+            "sending ARP probe",
+            None,
+            io::Error::last_os_error(),
+        ));
+    }
+
+    let mut buffer = [0_u8; 1500];
+    loop {
+        let read = unsafe { libc::recv(socket.0, buffer.as_mut_ptr().cast(), buffer.len(), 0) };
+        if read < 0 {
+            let err = io::Error::last_os_error();
+            return if matches!(
+                err.kind(),
+                io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+            ) {
+                Ok(false)
+            } else {
+                Err(AppletError::from_io(
+                    "dhcp",
+                    "receiving ARP reply",
+                    None,
+                    err,
+                ))
+            };
+        }
+        if arp_reply_conflicts(&buffer[..read as usize], target_ip, mac) {
+            return Ok(true);
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn build_arp_request(target_ip: Ipv4Addr, mac: [u8; 6]) -> [u8; 42] {
+    let mut packet = [0_u8; 42];
+    packet[..6].copy_from_slice(&[0xff; 6]);
+    packet[6..12].copy_from_slice(&mac);
+    packet[12..14].copy_from_slice(&0x0806_u16.to_be_bytes());
+    packet[14..16].copy_from_slice(&1_u16.to_be_bytes());
+    packet[16..18].copy_from_slice(&0x0800_u16.to_be_bytes());
+    packet[18] = 6;
+    packet[19] = 4;
+    packet[20..22].copy_from_slice(&1_u16.to_be_bytes());
+    packet[22..28].copy_from_slice(&mac);
+    packet[28..32].copy_from_slice(&Ipv4Addr::UNSPECIFIED.octets());
+    packet[32..38].fill(0);
+    packet[38..42].copy_from_slice(&target_ip.octets());
+    packet
+}
+
+#[cfg(target_os = "linux")]
+fn arp_reply_conflicts(frame: &[u8], target_ip: Ipv4Addr, mac: [u8; 6]) -> bool {
+    if frame.len() < 42 {
+        return false;
+    }
+    if frame[12..14] != 0x0806_u16.to_be_bytes() {
+        return false;
+    }
+    if frame[20..22] != 2_u16.to_be_bytes() {
+        return false;
+    }
+    if frame[28..32] != target_ip.octets() {
+        return false;
+    }
+    if frame[22..28] == mac {
+        return false;
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        DhcpPacket, MESSAGE_DISCOVER, OPTION_DNS, OPTION_HOSTNAME, OPTION_MESSAGE_TYPE,
-        decode_ipv4, decode_ipv4_list, default_client_mac, encode_ipv4, encode_ipv4_list,
-        encode_option_value, format_mac, option_code, parse_mac,
+        DhcpPacket, MESSAGE_DECLINE, MESSAGE_DISCOVER, OPTION_DNS, OPTION_HOSTNAME,
+        OPTION_MESSAGE_TYPE, arp_conflict_from_env, decode_ipv4, decode_ipv4_list,
+        default_client_mac, encode_ipv4, encode_ipv4_list, encode_option_value, format_mac,
+        option_code, parse_mac,
     };
+    use std::env;
     use std::net::Ipv4Addr;
 
     #[test]
@@ -495,5 +712,22 @@ mod tests {
         let mac = default_client_mac("missing0").expect("default MAC");
         assert_eq!(mac[0] & 0x02, 0x02);
         assert_eq!(mac[0] & 0x01, 0);
+    }
+
+    #[test]
+    fn decline_message_type_constant_matches_dhcp() {
+        assert_eq!(MESSAGE_DECLINE, 4);
+    }
+
+    #[test]
+    fn arp_conflict_test_hook_matches_configured_ip() {
+        unsafe {
+            env::set_var("SEED_UDHCPC_ARP_CONFLICT", "127.0.0.50,127.0.0.60");
+        }
+        assert!(arp_conflict_from_env(Ipv4Addr::new(127, 0, 0, 50)));
+        assert!(!arp_conflict_from_env(Ipv4Addr::new(127, 0, 0, 51)));
+        unsafe {
+            env::remove_var("SEED_UDHCPC_ARP_CONFLICT");
+        }
     }
 }

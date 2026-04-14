@@ -10,13 +10,14 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::common::applet::finish_code;
 use crate::common::args::{ArgCursor, ArgToken};
 use crate::common::dhcp::{
-    BOOTREQUEST, DhcpPacket, MESSAGE_ACK, MESSAGE_DISCOVER, MESSAGE_NAK, MESSAGE_OFFER,
-    MESSAGE_RELEASE, MESSAGE_REQUEST, OPTION_CLIENT_ID, OPTION_DNS, OPTION_HOSTNAME,
-    OPTION_LEASE_TIME, OPTION_MESSAGE_TYPE, OPTION_PARAMETER_REQUEST_LIST, OPTION_REQUESTED_IP,
-    OPTION_REBINDING_TIME, OPTION_RENEWAL_TIME, OPTION_ROUTER, OPTION_SERVER_ID,
-    OPTION_SUBNET_MASK, OPTION_VENDOR_CLASS_ID, client_port, decode_ipv4, decode_ipv4_list,
-    decode_u32, default_client_mac, default_server_addr, encode_ipv4, encode_u32, option_code,
-    prepare_socket, receive_packet, send_packet, server_port,
+    BOOTREQUEST, DhcpPacket, MESSAGE_ACK, MESSAGE_DECLINE, MESSAGE_DISCOVER, MESSAGE_NAK,
+    MESSAGE_OFFER, MESSAGE_RELEASE, MESSAGE_REQUEST, OPTION_CLIENT_ID, OPTION_DNS,
+    OPTION_HOSTNAME, OPTION_LEASE_TIME, OPTION_MESSAGE_TYPE, OPTION_PARAMETER_REQUEST_LIST,
+    OPTION_REQUESTED_IP, OPTION_REBINDING_TIME, OPTION_RENEWAL_TIME, OPTION_ROUTER,
+    OPTION_SERVER_ID, OPTION_SUBNET_MASK, OPTION_VENDOR_CLASS_ID, client_port, decode_ipv4,
+    decode_ipv4_list, decode_u32, default_client_mac, default_server_addr, encode_ipv4,
+    encode_u32, option_code, prepare_socket, probe_arp_conflict, receive_packet, send_packet,
+    server_port,
 };
 use crate::common::error::AppletError;
 
@@ -26,6 +27,7 @@ const DEFAULT_SCRIPT: &str = "/usr/share/udhcpc/default.script";
 const DEFAULT_DISCOVER_ATTEMPTS: u32 = 3;
 const DEFAULT_RETRY_INTERVAL_SECS: u64 = 5;
 const DEFAULT_RETRY_WAIT_SECS: u64 = 20;
+const DEFAULT_ARP_TIMEOUT_MILLIS: u32 = 2000;
 const BROADCAST_FLAG: u16 = 0x8000;
 
 pub fn main(args: &[String]) -> i32 {
@@ -79,6 +81,7 @@ struct Options {
     exit_if_no_lease: bool,
     quit_after_lease: bool,
     release_on_exit: bool,
+    arp_probe_timeout_ms: Option<u32>,
     request_ip: Option<Ipv4Addr>,
     request_options: Vec<u8>,
     send_options: BTreeMap<u8, Vec<u8>>,
@@ -111,6 +114,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     let mut exit_if_no_lease = false;
     let mut quit_after_lease = false;
     let mut release_on_exit = false;
+    let mut arp_probe_timeout_ms = None;
     let mut request_ip = None;
     let mut request_options = Vec::new();
     let mut suppress_default_request_options = false;
@@ -226,10 +230,19 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
                             break;
                         }
                         'a' => {
-                            return Err(vec![AppletError::new(
-                                APPLET,
-                                "ARP address validation is not supported",
-                            )]);
+                            let attached = &flags[offset + flag.len_utf8()..];
+                            arp_probe_timeout_ms = Some(if attached.is_empty() {
+                                DEFAULT_ARP_TIMEOUT_MILLIS
+                            } else if attached.bytes().all(|byte| byte.is_ascii_digit()) {
+                                parse_u32(attached, "a")?
+                            } else {
+                                DEFAULT_ARP_TIMEOUT_MILLIS
+                            });
+                            if !attached.is_empty()
+                                && attached.bytes().all(|byte| byte.is_ascii_digit())
+                            {
+                                break;
+                            }
                         }
                         other => return Err(vec![AppletError::invalid_option(APPLET, other)]),
                     }
@@ -260,6 +273,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
         exit_if_no_lease,
         quit_after_lease,
         release_on_exit,
+        arp_probe_timeout_ms,
         request_ip,
         request_options,
         send_options,
@@ -308,6 +322,12 @@ fn obtain_lease(
                 if reply.message_type() == Some(MESSAGE_NAK) {
                     continue;
                 }
+                if let Some(conflict_ip) = nonzero_ip(reply.yiaddr)
+                    && offered_address_is_in_use(options, mac, conflict_ip)
+                {
+                    send_decline(socket, mac, conflict_ip, &reply, reply_from)?;
+                    continue;
+                }
                 return lease_from_ack(&reply, reply_from);
             }
         }
@@ -335,6 +355,15 @@ fn renew_lease(
     if reply.message_type() == Some(MESSAGE_NAK) {
         return Err(vec![AppletError::new(APPLET, "renewal rejected")]);
     }
+    if let Some(conflict_ip) = nonzero_ip(reply.yiaddr)
+        && offered_address_is_in_use(options, mac, conflict_ip)
+    {
+        send_decline(socket, mac, conflict_ip, &reply, from)?;
+        return Err(vec![AppletError::new(
+            APPLET,
+            "renewal declined after ARP conflict check",
+        )]);
+    }
     lease_from_ack(&reply, from)
 }
 
@@ -349,6 +378,28 @@ fn release_lease(
     packet.set_option(OPTION_MESSAGE_TYPE, vec![MESSAGE_RELEASE]);
     packet.set_option(OPTION_SERVER_ID, encode_ipv4(lease.server_id));
     send_packet(socket, &packet, lease.server_addr)
+        .map_err(|err| vec![AppletError::new(APPLET, err.to_string())])?;
+    Ok(())
+}
+
+fn send_decline(
+    socket: &UdpSocket,
+    mac: [u8; 6],
+    requested_ip: Ipv4Addr,
+    reply: &DhcpPacket,
+    target: SocketAddr,
+) -> Result<(), Vec<AppletError>> {
+    let mut packet = DhcpPacket::new(BOOTREQUEST, reply.xid, mac);
+    packet.set_option(OPTION_MESSAGE_TYPE, vec![MESSAGE_DECLINE]);
+    packet.set_option(OPTION_REQUESTED_IP, encode_ipv4(requested_ip));
+    if let Some(server_id) = reply
+        .option(OPTION_SERVER_ID)
+        .and_then(decode_ipv4)
+        .or_else(|| ipv4_from_socket_addr(target))
+    {
+        packet.set_option(OPTION_SERVER_ID, encode_ipv4(server_id));
+    }
+    send_packet(socket, &packet, target)
         .map_err(|err| vec![AppletError::new(APPLET, err.to_string())])?;
     Ok(())
 }
@@ -388,6 +439,13 @@ fn build_request(
     packet.set_option(OPTION_SERVER_ID, encode_ipv4(server_id));
     packet.set_option(OPTION_MESSAGE_TYPE, vec![MESSAGE_REQUEST]);
     packet
+}
+
+fn offered_address_is_in_use(options: &Options, mac: [u8; 6], address: Ipv4Addr) -> bool {
+    let Some(timeout_ms) = options.arp_probe_timeout_ms else {
+        return false;
+    };
+    probe_arp_conflict(&options.interface, address, mac, timeout_ms).unwrap_or(false)
 }
 
 fn apply_client_options(options: &Options, packet: &mut DhcpPacket, mac: [u8; 6]) {
@@ -629,7 +687,7 @@ impl Drop for PidFileGuard {
 
 #[cfg(test)]
 mod tests {
-    use super::{OPTION_HOSTNAME, parse_args, parse_extra_option};
+    use super::{DEFAULT_ARP_TIMEOUT_MILLIS, OPTION_HOSTNAME, parse_args, parse_extra_option};
     use std::path::PathBuf;
 
     fn args(values: &[&str]) -> Vec<String> {
@@ -657,6 +715,16 @@ mod tests {
         assert_eq!(options.script.as_deref(), Some("/tmp/script"));
         assert_eq!(options.pidfile, Some(PathBuf::from("/tmp/pid")));
         assert_eq!(options.request_ip.unwrap().to_string(), "10.0.0.10");
+    }
+
+    #[test]
+    fn parses_arp_validation_option() {
+        let options = parse_args(&args(&["-aq"])).unwrap();
+        assert_eq!(options.arp_probe_timeout_ms, Some(DEFAULT_ARP_TIMEOUT_MILLIS));
+        assert!(options.quit_after_lease);
+
+        let options = parse_args(&args(&["-a1500"])).unwrap();
+        assert_eq!(options.arp_probe_timeout_ms, Some(1500));
     }
 
     #[test]

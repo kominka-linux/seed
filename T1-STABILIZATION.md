@@ -87,6 +87,10 @@ Status:
   - `cargo test --quiet`
   - `cargo clippy --all-targets --all-features --quiet -- -D warnings`
   - `tests/run-applet-tests.sh`
+- Full Tier 1 gate is now green:
+  - `bin/alpine-stabilization`
+  - privileged `tests/run-linux-init.sh`
+  - privileged `tests/run-linux-phase7b.sh --privileged`
 
 ## P0: Boot, Storage, and Recovery Closure
 
@@ -117,7 +121,8 @@ Status:
   - Decide whether the current small daemon is sufficient or whether clock discipline needs another step up.
 
 Status:
-- Not started as a dedicated stabilization pass
+- In progress
+- `udhcpc -a` now validates DHCPACK addresses, sends `DHCPDECLINE` on conflict, and retries acquisition.
 
 ## P0: Differential and Edge-Case Coverage
 
@@ -215,3 +220,5 @@ That gate is expected to cover:
   - tightened `ls` block accounting and long-format rendering to match the Alpine `/bin/ls` oracle more closely
   - converted several shell tests to use explicit system-tool oracles where the previous failures were in the oracle applet rather than the applet under test
   - cleared the unprivileged Alpine quick gate end to end
+  - cleared the full Tier 1 stabilization gate end to end, including the privileged PID 1 and phase7b checks
+  - closed the `udhcpc -a` gap with DHCPACK ARP validation, `DHCPDECLINE`, and reacquisition coverage

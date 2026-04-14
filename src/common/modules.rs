@@ -369,7 +369,7 @@ fn parse_modprobe_config_file(config: &mut ModprobeConfig, text: &str) {
 }
 
 fn parse_modprobe_config_line(config: &mut ModprobeConfig, line: &str) {
-    let line = line.split('#').next().unwrap_or("").trim();
+    let line = strip_modprobe_comment(line).trim();
     if line.is_empty() {
         return;
     }
@@ -451,6 +451,24 @@ fn parse_modprobe_config_line(config: &mut ModprobeConfig, line: &str) {
         }
         _ => {}
     }
+}
+
+fn strip_modprobe_comment(line: &str) -> &str {
+    let bytes = line.as_bytes();
+    let mut index = 0;
+    let mut in_single = false;
+    let mut in_double = false;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\'' if !in_double => in_single = !in_single,
+            b'"' if !in_single => in_double = !in_double,
+            b'\\' if !in_single => index = index.saturating_add(1),
+            b'#' if !in_single && !in_double => return &line[..index],
+            _ => {}
+        }
+        index += 1;
+    }
+    line
 }
 
 pub(crate) fn finit_module(path: &Path, params: &[String]) -> Result<(), AppletError> {
@@ -592,7 +610,10 @@ fn fnmatch(pattern: &str, value: &str) -> Result<bool, ()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ModuleMetadata, module_name_from_path, normalize_module_name};
+    use super::{
+        ModprobeConfig, ModuleMetadata, module_name_from_path, normalize_module_name,
+        parse_modprobe_config_line, strip_modprobe_comment,
+    };
 
     #[test]
     fn parses_modinfo_fields_from_binary_blob() {
@@ -618,6 +639,35 @@ mod tests {
         assert_eq!(
             module_name_from_path("kernel/drivers/net/virtio-net.ko"),
             "virtio_net"
+        );
+    }
+
+    #[test]
+    fn strips_comments_only_outside_quotes() {
+        assert_eq!(
+            strip_modprobe_comment(r##"install foo echo "# not comment""##),
+            r##"install foo echo "# not comment""##
+        );
+        assert_eq!(
+            strip_modprobe_comment("install foo echo '# still command'"),
+            "install foo echo '# still command'"
+        );
+        assert_eq!(
+            strip_modprobe_comment(r#"install foo echo \#still-command # comment"#),
+            r#"install foo echo \#still-command "#
+        );
+    }
+
+    #[test]
+    fn parses_install_command_with_hash_in_quotes() {
+        let mut config = ModprobeConfig::default();
+        parse_modprobe_config_line(
+            &mut config,
+            r#"install driver printf 'install:#%s\n' "$MODPROBE_MODULE" # comment"#,
+        );
+        assert_eq!(
+            config.install_command("driver"),
+            Some(r#"printf 'install:#%s\n' "$MODPROBE_MODULE""#),
         );
     }
 }

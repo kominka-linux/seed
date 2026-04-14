@@ -324,6 +324,7 @@ run_old_style tests/busybox/ntpd/ntpd-runs-script-after-sync
 run_old_style tests/busybox/udhcpc/udhcpc-acquires-lease-and-runs-script
 run_old_style tests/busybox/udhcpc/udhcpc-r-requests-specific-address
 run_old_style tests/busybox/udhcpc/udhcpc-R-releases-lease
+run_old_style tests/busybox/udhcpc/udhcpc-a-declines-conflicting-lease
 run_old_style tests/busybox/udhcpd/udhcpd-rejects-invalid-pool
 
 run_old_style tests/busybox/basename/basename-strips-suffix
@@ -337,6 +338,7 @@ if [ "$is_linux" -eq 1 ]; then
 	run_old_style tests/busybox/modprobe/modprobe-honors-softdep-options-and-install-command
 	run_old_style tests/busybox/modprobe/modprobe-honors-remove-directive
 	run_old_style tests/busybox/modprobe/modprobe-blacklist-blocks-alias-but-not-explicit-module
+	run_old_style tests/busybox/modprobe/modprobe-install-command-keeps-hash-inside-quotes
 	run_old_style tests/busybox/acpid/acpid-runs-direct-handler-from-proc-events
 	run_old_style tests/busybox/acpid/acpid-directory-handler-uses-run-parts
 	run_old_style tests/busybox/init/init-runs-sysinit-and-respawns

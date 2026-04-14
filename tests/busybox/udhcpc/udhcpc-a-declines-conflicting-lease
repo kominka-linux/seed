@@ -1,0 +1,120 @@
+tmpdir="${TMPDIR:-/tmp}/seed-udhcpc-arp-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+server_port="$(python3 - <<'PY'
+import socket
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.bind(("127.0.0.1", 0))
+print(s.getsockname()[1])
+s.close()
+PY
+)"
+
+client_port="$(python3 - <<'PY'
+import socket
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.bind(("127.0.0.1", 0))
+print(s.getsockname()[1])
+s.close()
+PY
+)"
+
+cat >"$tmpdir/script" <<EOF
+#!/bin/sh
+printf '%s %s\n' "\$1" "\$ip" > "$tmpdir/out"
+EOF
+chmod +x "$tmpdir/script"
+
+cat >"$tmpdir/server.py" <<'PY'
+import socket
+import struct
+import sys
+
+server_port = int(sys.argv[1])
+log_path = sys.argv[2]
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.bind(("127.0.0.1", server_port))
+conflicted = False
+
+
+def parse_options(packet):
+    options = {}
+    index = 240
+    while index < len(packet):
+        code = packet[index]
+        index += 1
+        if code == 0:
+            continue
+        if code == 255:
+            break
+        length = packet[index]
+        index += 1
+        options[code] = packet[index:index + length]
+        index += length
+    return options
+
+
+def build_reply(request, message_type, yiaddr):
+    packet = bytearray(240)
+    packet[0] = 2
+    packet[1] = request[1]
+    packet[2] = request[2]
+    packet[4:8] = request[4:8]
+    packet[10:12] = request[10:12]
+    packet[16:20] = socket.inet_aton(yiaddr)
+    packet[28:44] = request[28:44]
+    packet[236:240] = b"\x63\x82\x53\x63"
+    options = [
+        (53, bytes([message_type])),
+        (54, socket.inet_aton("127.0.0.1")),
+        (51, struct.pack("!I", 30)),
+    ]
+    for code, value in options:
+        packet.extend(bytes([code, len(value)]))
+        packet.extend(value)
+    packet.append(255)
+    return packet
+
+
+with open(log_path, "w", encoding="utf-8") as log:
+    while True:
+        packet, addr = sock.recvfrom(1500)
+        options = parse_options(packet)
+        message_type = options.get(53, b"\x00")[0]
+        requested = socket.inet_ntoa(options.get(50, b"\x00\x00\x00\x00"))
+
+        if message_type == 1:
+            offer_ip = "127.0.0.51" if conflicted else "127.0.0.50"
+            log.write(f"DISCOVER {offer_ip}\n")
+            log.flush()
+            sock.sendto(build_reply(packet, 2, offer_ip), addr)
+        elif message_type == 3:
+            log.write(f"REQUEST {requested}\n")
+            log.flush()
+            sock.sendto(build_reply(packet, 5, requested), addr)
+            if requested == "127.0.0.51":
+                break
+        elif message_type == 4:
+            log.write(f"DECLINE {requested}\n")
+            log.flush()
+            if requested == "127.0.0.50":
+                conflicted = True
+PY
+
+python3 "$tmpdir/server.py" "$server_port" "$tmpdir/server.log" &
+server_pid=$!
+trap 'kill "$server_pid" 2>/dev/null || true; rm -rf "$tmpdir"' EXIT
+
+sleep 0.1
+SEED_DHCP_SERVER_ADDR="127.0.0.1:$server_port" \
+SEED_DHCP_SERVER_PORT="$server_port" \
+SEED_DHCP_CLIENT_PORT="$client_port" \
+SEED_DHCP_CLIENT_MAC="02:00:00:00:00:03" \
+SEED_UDHCPC_ARP_CONFLICT="127.0.0.50" \
+busybox udhcpc -q -n -a -i lo -s "$tmpdir/script"
+
+wait "$server_pid"
+grep '^bound 127.0.0.51$' "$tmpdir/out"
+grep '^DECLINE 127.0.0.50$' "$tmpdir/server.log"

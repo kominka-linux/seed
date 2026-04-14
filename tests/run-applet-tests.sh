@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown chroot cmp cp date dd df diff dmesg du egrep env expr find flock free getopt grep gunzip gzip halt hexdump insmod install killall less ln ls lsmod lzcat lzma man mkdir mkfifo mountpoint mv nologin nslookup od paste patch pgrep pkill poweroff printf ps readlink realpath reboot rm rmdir run-parts setsid sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz unzip uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
+for applet in busybox bunzip2 bzip2 bzcat cat chmod chgrp chown chroot cmp cp date dd df diff dmesg du egrep env expr find flock free getopt grep gunzip gzip halt hexdump insmod install killall less ln ls lsmod lzcat lzma man mkdir mkfifo mountpoint mv nologin nslookup od paste patch pgrep pkill poweroff printf ps readlink realpath reboot rm rmdir rmmod run-parts setsid sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz unzip uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -512,6 +512,9 @@ run_old_style tests/busybox/nologin/nologin-rejects-extra-operand
 
 run_old_style tests/busybox/rm/rm-removes-file
 run_old_style tests/busybox/rmdir/rmdir-removes-parent-directories
+run_old_style tests/busybox/rmmod/rmmod-rejects-missing-module
+run_old_style tests/busybox/rmmod/rmmod-rejects-invalid-option
+run_old_style tests/busybox/rmmod/rmmod-a-fails-cleanly-without-privilege
 run_old_style tests/busybox/sleep/sleep-rejects-invalid-interval
 run_old_style tests/busybox/sleep/sleep-sums-arguments
 run_old_style tests/busybox/tee/tee-appends-input

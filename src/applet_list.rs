@@ -67,6 +67,7 @@ macro_rules! define_applet_modules {
         pub mod rev;
         pub mod rm;
         pub mod rmdir;
+        pub mod rmmod;
         pub mod run_parts;
         pub mod seq;
         pub mod setsid;
@@ -440,6 +441,10 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "rm",
                 main: applets::rm::main,
+            },
+            $entry {
+                name: "rmmod",
+                main: applets::rmmod::main,
             },
             $entry {
                 name: "rmdir",

@@ -1,0 +1,4 @@
+if busybox rmmod -a >/dev/null 2>stderr; then
+	exit 0
+fi
+grep 'rmmod' stderr

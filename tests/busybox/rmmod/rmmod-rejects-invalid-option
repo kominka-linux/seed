@@ -1,0 +1,4 @@
+if busybox rmmod -z >/dev/null 2>stderr; then
+	exit 1
+fi
+grep 'unrecognized option' stderr

@@ -176,7 +176,7 @@ obvious output utilities.
 - [x] lsmod
 - [ ] modinfo
 - [ ] modprobe
-- [ ] rmmod
+- [x] rmmod
 
 ## Linux System Utilities
 

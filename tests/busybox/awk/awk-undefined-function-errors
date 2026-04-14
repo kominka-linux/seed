@@ -1,0 +1,20 @@
+tmpdir="${TMPDIR:-/tmp}/seed-awk-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+cat >"$tmpdir/script.awk" <<'EOF'
+END {
+  i=1
+  print "L" i "\n"
+  i + trigger_error_fun()
+  print "L" i "\n"
+}
+EOF
+
+if awk -f "$tmpdir/script.awk" >"$tmpdir/actual" 2>"$tmpdir/error"; then
+    exit 1
+fi
+
+printf 'L1\n\n' >"$tmpdir/expected"
+diff -u "$tmpdir/expected" "$tmpdir/actual"
+grep -F 'undefined function' "$tmpdir/error" >/dev/null

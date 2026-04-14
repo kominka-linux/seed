@@ -1,0 +1,20 @@
+tmpdir="${TMPDIR:-/tmp}/seed-awk-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+cat >"$tmpdir/script.awk" <<'EOF'
+function outer_fun() {
+  return 1
+}
+END {
+  i=1
+  print "L" i "\n"
+  i = i + outer_fun()
+  print "L" i "\n"
+}
+EOF
+
+awk -f "$tmpdir/script.awk" >"$tmpdir/actual"
+printf 'L1\n\nL2\n\n' >"$tmpdir/expected"
+
+diff -u "$tmpdir/expected" "$tmpdir/actual"

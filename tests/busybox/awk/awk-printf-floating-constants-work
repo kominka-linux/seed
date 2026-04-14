@@ -1,0 +1,10 @@
+tmpdir="${TMPDIR:-/tmp}/seed-awk-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+printf '\n' >"$tmpdir/input"
+
+awk '{ printf "%f %f\n", "000.123", "009.123" }' "$tmpdir/input" >"$tmpdir/actual"
+printf '0.123000 9.123000\n' >"$tmpdir/expected"
+
+diff -u "$tmpdir/expected" "$tmpdir/actual"

@@ -212,6 +212,7 @@ run_old_style tests/busybox/awk/awk-field-separator-regex-counts-fields
 run_old_style tests/busybox/awk/awk-begin-if-comparisons-work
 run_old_style tests/busybox/awk/awk-input-is-never-octal
 run_old_style tests/busybox/awk/awk-bitwise-or-and-hex-octal-constants-work
+run_old_style tests/busybox/awk/awk-printf-floating-constants-work
 run_old_style tests/busybox/awk/awk-long-field-separator-and-length-work
 run_old_style tests/busybox/awk/awk-field-separator-handles-hex-escape
 run_old_style tests/busybox/awk/awk-begin-sees-empty-record-fields
@@ -219,6 +220,10 @@ run_old_style tests/busybox/awk/awk-concatenation-is-not-a-function-call
 run_old_style tests/busybox/awk/awk-v-sets-variables-before-begin
 run_old_style tests/busybox/awk/awk-e-loads-program-snippet
 run_old_style tests/busybox/awk/awk-f-loads-program-file
+run_old_style tests/busybox/awk/awk-empty-function-noargs-works
+run_old_style tests/busybox/awk/awk-function-return-value-works
+run_old_style tests/busybox/awk/awk-undefined-function-errors
+run_old_style tests/busybox/awk/awk-string-cast-and-ternary-work
 run_old_style tests/busybox/sed/sed-substitutes-and-prints-lines
 run_old_style tests/busybox/sed/sed-accepts-blanks-before-command
 run_old_style tests/busybox/sed/sed-append-autoinserts-newline

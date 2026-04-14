@@ -1,5 +1,8 @@
 
+use std::env;
 use std::ffi::CString;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use crate::common::applet::finish_code;
 use crate::common::error::AppletError;
@@ -24,6 +27,7 @@ const MS_PRIVATE: libc::c_ulong = 1 << 18;
 const MS_SLAVE: libc::c_ulong = 1 << 19;
 const MS_SHARED: libc::c_ulong = 1 << 20;
 const MS_RELATIME: libc::c_ulong = 1 << 21;
+const HELPER_PATHS: [&str; 2] = ["/sbin", "/usr/sbin"];
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct Options {
@@ -203,6 +207,10 @@ fn mount_request(options: &Options, request: &MountRequest) -> Result<(), Vec<Ap
         return Ok(());
     }
 
+    if let Some(helper) = mount_helper_path(options, request, &parsed) {
+        return run_mount_helper(&helper, request, &effective_options);
+    }
+
     let source = CString::new(request.source.as_str())
         .map_err(|_| vec![AppletError::new(APPLET, "source contains NUL byte")])?;
     let target = CString::new(request.target.as_str())
@@ -261,6 +269,60 @@ fn mount_request(options: &Options, request: &MountRequest) -> Result<(), Vec<Ap
     }
 
     Ok(())
+}
+
+fn mount_helper_path(
+    options: &Options,
+    request: &MountRequest,
+    parsed: &ParsedMountOptions,
+) -> Option<PathBuf> {
+    if options.ignore_helpers || uses_direct_syscall_only(parsed) {
+        return None;
+    }
+    let fstype = request.fstype.as_deref()?;
+    helper_search_paths()
+        .into_iter()
+        .map(|dir| dir.join(format!("mount.{fstype}")))
+        .find(|path| path.is_file())
+}
+
+fn helper_search_paths() -> Vec<PathBuf> {
+    env::var_os("SEED_MOUNT_HELPERS")
+        .map(|value| env::split_paths(&value).collect())
+        .filter(|paths: &Vec<PathBuf>| !paths.is_empty())
+        .unwrap_or_else(|| HELPER_PATHS.iter().map(PathBuf::from).collect())
+}
+
+fn uses_direct_syscall_only(parsed: &ParsedMountOptions) -> bool {
+    parsed.flags & (MS_BIND | MS_MOVE | MS_REMOUNT) != 0 || !parsed.propagation_flags.is_empty()
+}
+
+fn run_mount_helper(
+    helper: &Path,
+    request: &MountRequest,
+    options: &[String],
+) -> Result<(), Vec<AppletError>> {
+    let mut command = Command::new(helper);
+    command.arg(&request.source).arg(&request.target);
+    if !options.is_empty() {
+        command.arg("-o").arg(options.join(","));
+    }
+    let status = command.status().map_err(|err| {
+        vec![AppletError::from_io(
+            APPLET,
+            "executing",
+            Some(&helper.to_string_lossy()),
+            err,
+        )]
+    })?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(vec![AppletError::new(
+            APPLET,
+            format!("helper '{}' exited with status {}", helper.display(), status),
+        )])
+    }
 }
 
 fn parse_mount_options(options: &[String]) -> ParsedMountOptions {
@@ -341,7 +403,10 @@ unsafe extern "C" {
 
 #[cfg(test)]
 mod tests {
-    use super::{MS_BIND, MS_NOEXEC, Options, mount_requests, parse_args, parse_mount_options};
+    use super::{
+        MS_BIND, MS_NOEXEC, Options, ParsedMountOptions, helper_search_paths, mount_helper_path,
+        mount_requests, parse_args, parse_mount_options, uses_direct_syscall_only,
+    };
     use crate::common::test_env;
     use std::fs;
 
@@ -392,5 +457,70 @@ mod tests {
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].target, "/run");
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn uses_env_helper_search_path() {
+        let _guard = test_env::lock();
+        let helper_dir =
+            std::env::temp_dir().join(format!("seed-mount-helper-{}", std::process::id()));
+        fs::create_dir_all(&helper_dir).unwrap();
+        unsafe {
+            std::env::set_var("SEED_MOUNT_HELPERS", &helper_dir);
+        }
+        assert_eq!(helper_search_paths(), vec![helper_dir.clone()]);
+        unsafe {
+            std::env::remove_var("SEED_MOUNT_HELPERS");
+        }
+        let _ = fs::remove_dir_all(helper_dir);
+    }
+
+    #[test]
+    fn helper_only_used_for_regular_filesystem_mounts() {
+        let _guard = test_env::lock();
+        let helper_dir =
+            std::env::temp_dir().join(format!("seed-mount-helper-{}", std::process::id()));
+        fs::create_dir_all(&helper_dir).unwrap();
+        let helper = helper_dir.join("mount.testfs");
+        fs::write(&helper, "#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&helper).unwrap().permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&helper, perms).unwrap();
+        }
+        unsafe {
+            std::env::set_var("SEED_MOUNT_HELPERS", &helper_dir);
+        }
+
+        let request = super::MountRequest {
+            source: String::from("/dev/fake"),
+            target: String::from("/mnt"),
+            fstype: Some(String::from("testfs")),
+            options: Vec::new(),
+        };
+        assert_eq!(
+            mount_helper_path(&Options::default(), &request, &ParsedMountOptions::default()),
+            Some(helper.clone())
+        );
+        assert!(mount_helper_path(
+            &Options {
+                ignore_helpers: true,
+                ..Options::default()
+            },
+            &request,
+            &ParsedMountOptions::default(),
+        )
+        .is_none());
+        assert!(uses_direct_syscall_only(&parse_mount_options(&[
+            String::from("bind"),
+            String::from("noexec"),
+        ])));
+
+        unsafe {
+            std::env::remove_var("SEED_MOUNT_HELPERS");
+        }
+        let _ = fs::remove_dir_all(helper_dir);
     }
 }

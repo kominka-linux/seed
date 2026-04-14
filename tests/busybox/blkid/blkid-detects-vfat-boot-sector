@@ -1,0 +1,16 @@
+python3 - <<'PY'
+from pathlib import Path
+
+image = bytearray(1024)
+image[54:62] = b"FAT16   "
+image[39:43] = (0x1234ABCD).to_bytes(4, "little")
+image[43:54] = b"EFI        "
+image[510] = 0x55
+image[511] = 0xAA
+Path("vfat.img").write_bytes(image)
+PY
+
+busybox blkid vfat.img > out
+grep 'TYPE="vfat"' out
+grep 'LABEL="EFI"' out
+grep 'UUID="1234-ABCD"' out

@@ -216,6 +216,7 @@ run_old_style tests/busybox/sulogin/sulogin-force-runs-root-shell
 run_old_style tests/busybox/sulogin/sulogin-eof-continues-boot
 run_old_style tests/busybox/ntpd/ntpd-q-w-queries-explicit-peer
 run_old_style tests/busybox/ntpd/ntpd-q-w-loads-peers-from-config
+run_old_style tests/busybox/ntpd/ntpd-q-w-authenticates-explicit-keyed-peer
 run_old_style tests/busybox/ntpd/ntpd-runs-script-after-sync
 run_old_style tests/busybox/udhcpc/udhcpc-acquires-lease-and-runs-script
 run_old_style tests/busybox/udhcpc/udhcpc-r-requests-specific-address
@@ -235,8 +236,10 @@ if [ "$is_linux" -eq 1 ]; then
 	run_old_style tests/busybox/modprobe/modprobe-blacklist-blocks-alias-but-not-explicit-module
 	run_old_style tests/busybox/acpid/acpid-runs-direct-handler-from-proc-events
 	run_old_style tests/busybox/acpid/acpid-directory-handler-uses-run-parts
-	run_old_style tests/busybox/blkid/blkid-lists-cache-backed-devices
-	run_old_style tests/busybox/blkid/blkid-detects-swap-header
+run_old_style tests/busybox/blkid/blkid-lists-cache-backed-devices
+run_old_style tests/busybox/blkid/blkid-detects-swap-header
+run_old_style tests/busybox/blkid/blkid-detects-ext-superblock
+run_old_style tests/busybox/blkid/blkid-detects-vfat-boot-sector
 	run_old_style tests/busybox/fdisk/fdisk-l-prints-mbr-partition-table
 	run_old_style tests/busybox/fdisk/fdisk-s-prints-image-size-in-kib
 	run_old_style tests/busybox/fdisk/fdisk-script-creates-dos-partition
@@ -400,12 +403,15 @@ if [ "$is_linux" -eq 1 ]; then
 fi
 
 run_old_style tests/busybox/fsck/fsck-N-A-prints-delegated-checks
+run_old_style tests/busybox/fsck/fsck-P-runs-same-pass-checks-in-parallel
 if [ "$is_linux" -eq 1 ]; then
 	run_old_style tests/busybox/hwclock/hwclock-rejects-unsupported-param-access
 fi
 run_old_style tests/busybox/mkswap/mkswap-writes-swapspace2-magic
 if [ "$is_linux" -eq 1 ]; then
 	run_old_style tests/busybox/mount/mount-f-a-reads-fstab
+	run_old_style tests/busybox/mount/mount-runs-filesystem-helper-when-available
+	run_old_style tests/busybox/mount/mount-i-skips-filesystem-helper
 fi
 
 run_old_style tests/busybox/killall/killall-terminates-exact-name-match

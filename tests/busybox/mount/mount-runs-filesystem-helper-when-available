@@ -1,0 +1,18 @@
+tmpdir="${TMPDIR:-/tmp}/seed-mount-helper-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+helpers="$tmpdir/helpers"
+mnt="$tmpdir/mnt"
+mkdir -p "$helpers" "$mnt"
+
+cat >"$helpers/mount.testfs" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >>"$SEED_MOUNT_HELPER_LOG"
+exit 0
+EOF
+chmod +x "$helpers/mount.testfs"
+
+SEED_MOUNT_HELPERS="$helpers" \
+SEED_MOUNT_HELPER_LOG="$tmpdir/log" \
+busybox mount -t testfs -o ro,noatime /dev/fake "$mnt"
+
+grep -F -- "/dev/fake $mnt -o ro,noatime" "$tmpdir/log"

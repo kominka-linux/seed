@@ -1,3 +1,4 @@
+use std::collections::{BTreeSet, HashMap};
 use std::env;
 use std::fs;
 use std::io;
@@ -11,6 +12,7 @@ use std::time::Duration;
 use crate::common::applet::{AppletCodeResult, finish_code};
 use crate::common::args::{ArgCursor, ArgToken};
 use crate::common::error::AppletError;
+use md5::Digest as _;
 
 const APPLET: &str = "ntpd";
 const DEFAULT_CONF: &str = "/etc/ntp.conf";
@@ -28,6 +30,7 @@ struct Options {
     peers: Vec<String>,
     listen: bool,
     interface: Option<String>,
+    keyfile: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug)]
@@ -57,27 +60,56 @@ struct NtpPacket {
     transmit_timestamp: NtpTimestamp,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct ConfigFile {
+    peers: Vec<PeerSpec>,
+    keyfile: Option<PathBuf>,
+    trusted_keys: BTreeSet<u32>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PeerSpec {
+    address: String,
+    key_id: Option<u32>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct AuthConfig {
+    keys: HashMap<u32, AuthKey>,
+    trusted_keys: BTreeSet<u32>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct AuthKey {
+    id: u32,
+    algorithm: AuthAlgorithm,
+    secret: Vec<u8>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AuthAlgorithm {
+    Md5,
+    Sha1,
+}
+
 pub fn main(args: &[String]) -> i32 {
     finish_code(run(args))
 }
 
 fn run(args: &[String]) -> AppletCodeResult {
     let options = parse_args(args)?;
-    if options.peers.is_empty() && !options.listen {
-        let peers = read_configured_peers()?;
-        if peers.is_empty() {
-            return Err(vec![AppletError::new(APPLET, "no peers specified")]);
-        }
-        return run_with_options(Options { peers, ..options });
+    let (peers, auth) = load_runtime_config(&options)?;
+    if peers.is_empty() && !options.listen {
+        return Err(vec![AppletError::new(APPLET, "no peers specified")]);
     }
-    run_with_options(options)
+    run_with_options(options, peers, auth)
 }
 
-fn run_with_options(options: Options) -> AppletCodeResult {
-    let mut last_sync = if options.peers.is_empty() {
+fn run_with_options(options: Options, peers: Vec<PeerSpec>, auth: AuthConfig) -> AppletCodeResult {
+    let mut last_sync = if peers.is_empty() {
         None
     } else {
-        Some(sync_once(&options)?)
+        Some(sync_once(&options, &peers, &auth)?)
     };
 
     if let Some(sync) = &last_sync {
@@ -93,8 +125,8 @@ fn run_with_options(options: Options) -> AppletCodeResult {
 
     let server_socket = bind_server_socket(options.interface.as_deref())?;
     loop {
-        if !options.peers.is_empty() {
-            match sync_once(&options) {
+        if !peers.is_empty() {
+            match sync_once(&options, &peers, &auth) {
                 Ok(sync) => {
                     if !options.query_only {
                         step_time(sync.offset_seconds)?;
@@ -111,7 +143,7 @@ fn run_with_options(options: Options) -> AppletCodeResult {
             }
         }
 
-        serve_once(&server_socket, last_sync.as_ref(), options.verbose)?;
+        serve_once(&server_socket, last_sync.as_ref(), options.verbose, &auth)?;
         thread::sleep(Duration::from_secs(DEFAULT_POLL_SECS));
     }
 }
@@ -126,6 +158,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
         peers: Vec::new(),
         listen: false,
         interface: None,
+        keyfile: None,
     };
 
     while let Some(arg) = cursor.next_arg() {
@@ -176,10 +209,11 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
                             break;
                         }
                         'k' => {
-                            return Err(vec![AppletError::new(
-                                APPLET,
-                                "keyfile authentication is not supported",
-                            )]);
+                            let attached = &flags[offset + flag.len_utf8()..];
+                            options.keyfile = Some(PathBuf::from(
+                                cursor.next_value_or_attached(attached, APPLET, "k")?,
+                            ));
+                            break;
                         }
                         other => return Err(vec![AppletError::invalid_option(APPLET, other)]),
                     }
@@ -192,35 +226,103 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     Ok(options)
 }
 
-fn read_configured_peers() -> Result<Vec<String>, Vec<AppletError>> {
+fn load_runtime_config(options: &Options) -> Result<(Vec<PeerSpec>, AuthConfig), Vec<AppletError>> {
+    let file_config = if options.peers.is_empty() && !options.listen {
+        read_configured_state()?
+    } else {
+        ConfigFile::default()
+    };
+    let peers = if options.peers.is_empty() && !options.listen {
+        file_config.peers.clone()
+    } else {
+        options
+            .peers
+            .iter()
+            .map(|peer| parse_peer_spec(peer))
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    let auth = load_auth_config(options.keyfile.as_deref(), &file_config)?;
+    Ok((peers, auth))
+}
+
+fn read_configured_state() -> Result<ConfigFile, Vec<AppletError>> {
     let path = env::var_os("SEED_NTP_CONF")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(DEFAULT_CONF));
-    read_configured_peers_from_path(&path)
+    read_configured_state_from_path(&path)
 }
 
-fn read_configured_peers_from_path(path: &Path) -> Result<Vec<String>, Vec<AppletError>> {
+fn read_configured_state_from_path(path: &Path) -> Result<ConfigFile, Vec<AppletError>> {
     let path_text = path.to_string_lossy().into_owned();
     let text = fs::read_to_string(path)
         .map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some(&path_text), err)])?;
-    let mut peers = Vec::new();
+    let mut config = ConfigFile::default();
     for line in text.lines() {
         let line = line.split('#').next().unwrap_or("").trim();
         if line.is_empty() {
             continue;
         }
-        let mut parts = line.split_whitespace();
-        if matches!(parts.next(), Some("server")) && let Some(peer) = parts.next() {
-            peers.push(peer.to_string());
+        let parts = line.split_whitespace().collect::<Vec<_>>();
+        match parts.first().copied() {
+            Some("server") | Some("peer") => {
+                if parts.len() < 2 {
+                    continue;
+                }
+                let mut peer = PeerSpec {
+                    address: parts[1].to_string(),
+                    key_id: None,
+                };
+                let mut index = 2;
+                while index < parts.len() {
+                    if parts[index] == "key" {
+                        if let Some(value) = parts.get(index + 1) {
+                            peer.key_id = Some(parse_key_id(value)?);
+                        }
+                        break;
+                    }
+                    index += 1;
+                }
+                config.peers.push(peer);
+            }
+            Some("keys") => {
+                if let Some(value) = parts.get(1) {
+                    config.keyfile = Some(PathBuf::from(value));
+                }
+            }
+            Some("trustedkey") => {
+                for value in &parts[1..] {
+                    config.trusted_keys.insert(parse_key_id(value)?);
+                }
+            }
+            _ => {}
         }
     }
-    Ok(peers)
+    Ok(config)
 }
 
-fn sync_once(options: &Options) -> Result<SyncResult, Vec<AppletError>> {
+fn load_auth_config(
+    cli_keyfile: Option<&Path>,
+    file_config: &ConfigFile,
+) -> Result<AuthConfig, Vec<AppletError>> {
+    let path = cli_keyfile.or(file_config.keyfile.as_deref());
+    let keys = match path {
+        Some(path) => read_keys_from_path(path)?,
+        None => HashMap::new(),
+    };
+    Ok(AuthConfig {
+        keys,
+        trusted_keys: file_config.trusted_keys.clone(),
+    })
+}
+
+fn sync_once(
+    options: &Options,
+    peers: &[PeerSpec],
+    auth: &AuthConfig,
+) -> Result<SyncResult, Vec<AppletError>> {
     let mut errors = Vec::new();
-    for peer in &options.peers {
-        match query_peer(peer, options.interface.as_deref()) {
+    for peer in peers {
+        match query_peer(peer, options.interface.as_deref(), auth) {
             Ok(result) => return Ok(result),
             Err(err) => errors.extend(err),
         }
@@ -228,8 +330,13 @@ fn sync_once(options: &Options) -> Result<SyncResult, Vec<AppletError>> {
     Err(errors)
 }
 
-fn query_peer(peer: &str, interface: Option<&str>) -> Result<SyncResult, Vec<AppletError>> {
-    let peer_addr = resolve_peer(peer)?;
+fn query_peer(
+    peer: &PeerSpec,
+    interface: Option<&str>,
+    auth: &AuthConfig,
+) -> Result<SyncResult, Vec<AppletError>> {
+    let peer_addr = resolve_peer(&peer.address)?;
+    let auth_key = peer_auth_key(peer, auth)?;
     let socket = UdpSocket::bind(("0.0.0.0", 0))
         .map_err(|err| vec![AppletError::from_io(APPLET, "binding", None, err)])?;
     maybe_bind_to_device(&socket, interface)?;
@@ -238,7 +345,10 @@ fn query_peer(peer: &str, interface: Option<&str>) -> Result<SyncResult, Vec<App
         .map_err(|err| vec![AppletError::from_io(APPLET, "configuring", None, err)])?;
 
     let transmit_time = now_ntp_timestamp()?;
-    let request = NtpPacket::client_request(transmit_time).encode();
+    let request = encode_packet(
+        &NtpPacket::client_request(transmit_time),
+        auth_key.map(|key| (key.id, auth_digest(key, &NtpPacket::client_request(transmit_time).encode()))),
+    );
     socket
         .send_to(&request, peer_addr)
         .map_err(|err| vec![AppletError::from_io(APPLET, "sending", None, err)])?;
@@ -249,7 +359,7 @@ fn query_peer(peer: &str, interface: Option<&str>) -> Result<SyncResult, Vec<App
         .map_err(|err| vec![AppletError::from_io(APPLET, "receiving", None, err)])?;
     let destination_time = now_ntp_timestamp()?;
     let packet = NtpPacket::decode(&buffer[..read])?;
-    validate_response(&packet, transmit_time)?;
+    validate_response(&packet, &buffer[..read], transmit_time, auth_key)?;
     let (offset_seconds, delay_seconds) = compute_offset_delay(
         transmit_time,
         packet.receive_timestamp,
@@ -268,7 +378,9 @@ fn query_peer(peer: &str, interface: Option<&str>) -> Result<SyncResult, Vec<App
 
 fn validate_response(
     packet: &NtpPacket,
+    raw_packet: &[u8],
     originate_timestamp: NtpTimestamp,
+    auth_key: Option<&AuthKey>,
 ) -> Result<(), Vec<AppletError>> {
     let mode = packet.li_vn_mode & 0x7;
     if mode != 4 && mode != 5 {
@@ -282,6 +394,9 @@ fn validate_response(
             APPLET,
             "invalid NTP originate timestamp",
         )]);
+    }
+    if let Some(key) = auth_key {
+        validate_packet_auth(raw_packet, key)?;
     }
     Ok(())
 }
@@ -333,6 +448,7 @@ fn serve_once(
     socket: &UdpSocket,
     last_sync: Option<&SyncResult>,
     verbose: u8,
+    auth: &AuthConfig,
 ) -> Result<(), Vec<AppletError>> {
     let mut buffer = [0_u8; 512];
     let (read, from) = match socket.recv_from(&mut buffer) {
@@ -349,13 +465,18 @@ fn serve_once(
     if request.li_vn_mode & 0x7 != 3 {
         return Ok(());
     }
+    let auth_key = if read > 48 {
+        Some(validate_incoming_auth(&buffer[..read], auth)?)
+    } else {
+        None
+    };
 
     let receive_time = now_ntp_timestamp()?;
     let transmit_time = now_ntp_timestamp()?;
     let stratum = last_sync
         .map(|sync| sync.stratum.saturating_add(1).min(16))
         .unwrap_or(1);
-    let response = NtpPacket::server_response(
+    let response_packet = NtpPacket::server_response(
         request.transmit_timestamp,
         receive_time,
         transmit_time,
@@ -363,8 +484,11 @@ fn serve_once(
             .map(|sync| sync.transmit_timestamp)
             .unwrap_or(transmit_time),
         stratum,
-    )
-    .encode();
+    );
+    let response = encode_packet(
+        &response_packet,
+        auth_key.map(|key| (key.id, auth_digest(key, &response_packet.encode()))),
+    );
     socket
         .send_to(&response, from)
         .map_err(|err| vec![AppletError::from_io(APPLET, "sending", None, err)])?;
@@ -494,6 +618,199 @@ fn compute_offset_delay(
     (((t2 - t1) + (t3 - t4)) / 2.0, (t4 - t1) - (t3 - t2))
 }
 
+fn parse_peer_spec(value: &str) -> Result<PeerSpec, Vec<AppletError>> {
+    if let Some(rest) = value.strip_prefix("keyno:") {
+        let Some((key_id, address)) = rest.split_once(':') else {
+            return Err(vec![AppletError::new(APPLET, "expected 'keyno:ID:HOST'")]);
+        };
+        return Ok(PeerSpec {
+            address: address.to_string(),
+            key_id: Some(parse_key_id(key_id)?),
+        });
+    }
+    Ok(PeerSpec {
+        address: value.to_string(),
+        key_id: None,
+    })
+}
+
+fn parse_key_id(value: &str) -> Result<u32, Vec<AppletError>> {
+    value
+        .parse::<u32>()
+        .ok()
+        .filter(|key| (1..=65535).contains(key))
+        .ok_or_else(|| vec![AppletError::new(APPLET, format!("invalid key id '{value}'"))])
+}
+
+fn read_keys_from_path(path: &Path) -> Result<HashMap<u32, AuthKey>, Vec<AppletError>> {
+    let path_text = path.to_string_lossy().into_owned();
+    let text = fs::read_to_string(path)
+        .map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some(&path_text), err)])?;
+    let mut keys = HashMap::new();
+    for (line_number, line) in text.lines().enumerate() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+        let parts = line.split_whitespace().collect::<Vec<_>>();
+        if parts.len() < 3 {
+            return Err(vec![AppletError::new(
+                APPLET,
+                format!("malformed key at line {}", line_number + 1),
+            )]);
+        }
+        let id = parse_key_id(parts[0])?;
+        let algorithm = parse_key_algorithm(parts[1], line_number + 1)?;
+        let secret = parse_key_secret(algorithm, parts[2], line_number + 1)?;
+        keys.insert(
+            id,
+            AuthKey {
+                id,
+                algorithm,
+                secret,
+            },
+        );
+    }
+    Ok(keys)
+}
+
+fn parse_key_algorithm(value: &str, line_number: usize) -> Result<AuthAlgorithm, Vec<AppletError>> {
+    if value.eq_ignore_ascii_case("m") || value.eq_ignore_ascii_case("md5") {
+        Ok(AuthAlgorithm::Md5)
+    } else if value.eq_ignore_ascii_case("sha") || value.eq_ignore_ascii_case("sha1") {
+        Ok(AuthAlgorithm::Sha1)
+    } else {
+        Err(vec![AppletError::new(
+            APPLET,
+            format!("unsupported key type '{}' at line {}", value, line_number),
+        )])
+    }
+}
+
+fn parse_key_secret(
+    algorithm: AuthAlgorithm,
+    value: &str,
+    line_number: usize,
+) -> Result<Vec<u8>, Vec<AppletError>> {
+    match algorithm {
+        AuthAlgorithm::Md5 => {
+            if value.is_empty() || value.len() > 16 {
+                return Err(vec![AppletError::new(
+                    APPLET,
+                    format!("malformed key at line {}", line_number),
+                )]);
+            }
+            Ok(value.as_bytes().to_vec())
+        }
+        AuthAlgorithm::Sha1 => decode_hex(value).ok_or_else(|| {
+            vec![AppletError::new(
+                APPLET,
+                format!("malformed key at line {}", line_number),
+            )]
+        }),
+    }
+}
+
+fn decode_hex(value: &str) -> Option<Vec<u8>> {
+    if value.is_empty() || !value.len().is_multiple_of(2) {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(value.len() / 2);
+    let chars = value.as_bytes().chunks(2);
+    for chunk in chars {
+        let text = std::str::from_utf8(chunk).ok()?;
+        bytes.push(u8::from_str_radix(text, 16).ok()?);
+    }
+    Some(bytes)
+}
+
+fn peer_auth_key<'a>(peer: &PeerSpec, auth: &'a AuthConfig) -> Result<Option<&'a AuthKey>, Vec<AppletError>> {
+    let Some(key_id) = peer.key_id else {
+        return Ok(None);
+    };
+    if !auth.trusted_keys.is_empty() && !auth.trusted_keys.contains(&key_id) {
+        return Err(vec![AppletError::new(
+            APPLET,
+            format!("key {key_id} is not trusted"),
+        )]);
+    }
+    auth.keys.get(&key_id).map(Some).ok_or_else(|| {
+        vec![AppletError::new(
+            APPLET,
+            format!("key {key_id} is not defined"),
+        )]
+    })
+}
+
+fn encode_packet(packet: &NtpPacket, auth: Option<(u32, Vec<u8>)>) -> Vec<u8> {
+    let mut bytes = packet.encode().to_vec();
+    if let Some((key_id, digest)) = auth {
+        bytes.extend_from_slice(&key_id.to_be_bytes());
+        bytes.extend_from_slice(&digest);
+    }
+    bytes
+}
+
+fn auth_digest(key: &AuthKey, packet: &[u8; 48]) -> Vec<u8> {
+    match key.algorithm {
+        AuthAlgorithm::Md5 => {
+            let mut digest = md5::Md5::new();
+            digest.update(&key.secret);
+            digest.update(packet);
+            digest.finalize().to_vec()
+        }
+        AuthAlgorithm::Sha1 => {
+            let mut digest = sha1::Sha1::new();
+            digest.update(&key.secret);
+            digest.update(packet);
+            digest.finalize().to_vec()
+        }
+    }
+}
+
+fn validate_packet_auth(raw_packet: &[u8], key: &AuthKey) -> Result<(), Vec<AppletError>> {
+    let digest_len = match key.algorithm {
+        AuthAlgorithm::Md5 => 16,
+        AuthAlgorithm::Sha1 => 20,
+    };
+    if raw_packet.len() != 48 + 4 + digest_len {
+        return Err(vec![AppletError::new(APPLET, "invalid authenticated NTP packet")]);
+    }
+    let key_id = u32::from_be_bytes(raw_packet[48..52].try_into().expect("length checked"));
+    if key_id != key.id {
+        return Err(vec![AppletError::new(APPLET, "unexpected NTP key id")]);
+    }
+    let expected = auth_digest(key, &raw_packet[..48].try_into().expect("length checked"));
+    if expected.as_slice() != &raw_packet[52..] {
+        return Err(vec![AppletError::new(APPLET, "invalid NTP authentication digest")]);
+    }
+    Ok(())
+}
+
+fn validate_incoming_auth<'a>(
+    raw_packet: &[u8],
+    auth: &'a AuthConfig,
+) -> Result<&'a AuthKey, Vec<AppletError>> {
+    if raw_packet.len() < 52 {
+        return Err(vec![AppletError::new(APPLET, "invalid authenticated NTP packet")]);
+    }
+    let key_id = u32::from_be_bytes(raw_packet[48..52].try_into().expect("length checked"));
+    if !auth.trusted_keys.is_empty() && !auth.trusted_keys.contains(&key_id) {
+        return Err(vec![AppletError::new(
+            APPLET,
+            format!("key {key_id} is not trusted"),
+        )]);
+    }
+    let key = auth.keys.get(&key_id).ok_or_else(|| {
+        vec![AppletError::new(
+            APPLET,
+            format!("key {key_id} is not defined"),
+        )]
+    })?;
+    validate_packet_auth(raw_packet, key)?;
+    Ok(key)
+}
+
 impl NtpPacket {
     fn client_request(transmit_timestamp: NtpTimestamp) -> Self {
         Self {
@@ -594,8 +911,12 @@ impl NtpTimestamp {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::{
-        NtpPacket, NtpTimestamp, compute_offset_delay, parse_args, read_configured_peers_from_path,
+        AuthAlgorithm, AuthKey, NtpPacket, NtpTimestamp, auth_digest, compute_offset_delay,
+        parse_args, parse_peer_spec, read_configured_state_from_path, read_keys_from_path,
+        validate_packet_auth,
     };
     use crate::common::unix::temp_dir;
 
@@ -605,28 +926,67 @@ mod tests {
 
     #[test]
     fn parses_flags_and_peers() {
-        let options = parse_args(&args(&["-dwq", "-S", "/bin/true", "-p", "127.0.0.1"])).unwrap();
+        let options =
+            parse_args(&args(&["-dwq", "-k", "/etc/ntp.keys", "-S", "/bin/true", "-p", "127.0.0.1"]))
+                .unwrap();
         assert_eq!(options.verbose, 1);
         assert!(options.query_only);
         assert!(options.quit_after_sync);
+        assert_eq!(options.keyfile.as_deref(), Some(Path::new("/etc/ntp.keys")));
         assert_eq!(options.script.as_deref(), Some("/bin/true"));
         assert_eq!(options.peers, vec![String::from("127.0.0.1")]);
     }
 
     #[test]
-    fn reads_server_lines_from_config() {
+    fn reads_peer_and_key_lines_from_config() {
         let dir = temp_dir("ntpd");
         let conf = dir.join("ntp.conf");
         std::fs::write(
             &conf,
-            "server 127.0.0.1\n# comment\nserver pool.ntp.org iburst\n",
+            "keys /etc/ntp.keys\ntrustedkey 4 7\nserver 127.0.0.1 key 4 iburst\npeer pool.ntp.org prefer\n",
         )
         .unwrap();
-        let peers = read_configured_peers_from_path(&conf).unwrap();
+        let config = read_configured_state_from_path(&conf).unwrap();
+        assert_eq!(config.keyfile.as_deref(), Some(Path::new("/etc/ntp.keys")));
+        assert!(config.trusted_keys.contains(&4));
+        assert!(config.trusted_keys.contains(&7));
         assert_eq!(
-            peers,
-            vec![String::from("127.0.0.1"), String::from("pool.ntp.org")]
+            config.peers,
+            vec![
+                super::PeerSpec {
+                    address: String::from("127.0.0.1"),
+                    key_id: Some(4),
+                },
+                super::PeerSpec {
+                    address: String::from("pool.ntp.org"),
+                    key_id: None,
+                },
+            ]
         );
+    }
+
+    #[test]
+    fn parses_keyed_peer_spec() {
+        assert_eq!(
+            parse_peer_spec("keyno:5:time.example.com").unwrap(),
+            super::PeerSpec {
+                address: String::from("time.example.com"),
+                key_id: Some(5),
+            }
+        );
+    }
+
+    #[test]
+    fn reads_md5_and_sha1_keys() {
+        let dir = temp_dir("ntpd");
+        let path = dir.join("ntp.keys");
+        std::fs::write(&path, "1 MD5 secret\n2 SHA1 00112233445566778899aabbccddeeff00112233\n")
+            .unwrap();
+        let keys = read_keys_from_path(&path).unwrap();
+        assert_eq!(keys[&1].algorithm, AuthAlgorithm::Md5);
+        assert_eq!(keys[&1].secret, b"secret");
+        assert_eq!(keys[&2].algorithm, AuthAlgorithm::Sha1);
+        assert_eq!(keys[&2].secret.len(), 20);
     }
 
     #[test]
@@ -654,5 +1014,17 @@ mod tests {
         let (offset, delay) = compute_offset_delay(t1, t2, t3, t4);
         assert!((offset - 0.0).abs() < 1e-9);
         assert!((delay - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn validates_authenticated_packet() {
+        let packet = NtpPacket::client_request(NtpTimestamp::from_parts(10, 11));
+        let key = AuthKey {
+            id: 3,
+            algorithm: AuthAlgorithm::Md5,
+            secret: b"secret".to_vec(),
+        };
+        let encoded = super::encode_packet(&packet, Some((key.id, auth_digest(&key, &packet.encode()))));
+        validate_packet_auth(&encoded, &key).unwrap();
     }
 }

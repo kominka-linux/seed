@@ -1,4 +1,4 @@
-tmpdir="${TMPDIR:-/tmp}/seed-ntpd-conf-$$"
+tmpdir="${TMPDIR:-/tmp}/seed-ntpd-auth-$$"
 trap 'rm -rf "$tmpdir"' EXIT
 mkdir -p "$tmpdir"
 
@@ -11,14 +11,8 @@ s.close()
 PY
 )"
 
-cat >"$tmpdir/ntp.conf" <<EOF
-keys $tmpdir/ntp.keys
-trustedkey 1
-server 127.0.0.1 key 1 iburst
-EOF
-
 cat >"$tmpdir/ntp.keys" <<'EOF'
-1 MD5 secret
+7 MD5 secret
 EOF
 
 python3 - <<'PY' "$port" &
@@ -33,19 +27,19 @@ s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 s.bind(("127.0.0.1", port))
 data, addr = s.recvfrom(512)
 assert len(data) == 68, len(data)
-assert struct.unpack("!I", data[48:52])[0] == 1
+assert struct.unpack("!I", data[48:52])[0] == 7
 assert data[52:] == hashlib.md5(key + data[:48]).digest()
 orig = data[40:48]
 pkt = bytearray(48)
 pkt[0] = (4 << 3) | 4
-pkt[1] = 3
+pkt[1] = 2
 pkt[2] = 6
 pkt[3] = 236
-pkt[12:16] = b"CONF"
+pkt[12:16] = b"AUTH"
 pkt[24:32] = orig
 pkt[32:40] = struct.pack("!II", 2208989800, 0)
 pkt[40:48] = struct.pack("!II", 2208989801, 0)
-pkt.extend(struct.pack("!I", 1))
+pkt.extend(struct.pack("!I", 7))
 pkt.extend(hashlib.md5(key + pkt[:48]).digest())
 s.sendto(pkt, addr)
 s.close()
@@ -54,4 +48,4 @@ server_pid=$!
 trap 'kill "$server_pid" 2>/dev/null || true; rm -rf "$tmpdir"' EXIT
 
 sleep 0.1
-SEED_NTP_CONF="$tmpdir/ntp.conf" SEED_NTP_PORT="$port" busybox ntpd -q -w
+SEED_NTP_PORT="$port" busybox ntpd -q -w -k "$tmpdir/ntp.keys" -p keyno:7:127.0.0.1

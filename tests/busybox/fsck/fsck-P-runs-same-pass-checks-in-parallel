@@ -1,0 +1,41 @@
+tmpdir="${TMPDIR:-/tmp}/seed-fsck-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+helpers="$tmpdir/helpers"
+mkdir -p "$tmpdir" "$helpers"
+
+cat >"$tmpdir/fstab" <<'EOF'
+/dev/a /a ext4 defaults 0 2
+/dev/b /b ext4 defaults 0 2
+EOF
+
+cat >"$helpers/fsck.ext4" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$1" >>"$SEED_FSCK_LOG"
+while [ ! -e "$SEED_FSCK_GO" ]; do
+  sleep 0.1
+done
+exit 0
+EOF
+chmod +x "$helpers/fsck.ext4"
+
+SEED_FSTAB="$tmpdir/fstab" \
+SEED_FSCK_LOG="$tmpdir/log" \
+SEED_FSCK_GO="$tmpdir/go" \
+PATH="$helpers:$PATH" \
+busybox fsck -A -P >"$tmpdir/stdout" 2>"$tmpdir/stderr" &
+pid=$!
+
+seen=0
+count=0
+while [ "$count" -lt 50 ]; do
+  if [ -f "$tmpdir/log" ] && [ "$(wc -l < "$tmpdir/log")" -ge 2 ]; then
+    seen=1
+    break
+  fi
+  count=$((count + 1))
+  sleep 0.1
+done
+
+touch "$tmpdir/go"
+wait "$pid"
+test "$seen" -eq 1

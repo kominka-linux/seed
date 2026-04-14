@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::process::Command;
+use std::process::{Child, Command};
 
 use crate::common::applet::finish_code;
 use crate::common::fstab::{self, FstabEntry};
@@ -31,13 +31,21 @@ fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
         return Ok(0);
     }
 
-    let mut exit_code = 0;
-    for request in requests {
-        if options.no_execute || options.verbose {
+    if options.no_execute {
+        for request in &requests {
             eprintln!("{}", request.display_command());
         }
-        if options.no_execute {
-            continue;
+        return Ok(0);
+    }
+
+    if options.parallel {
+        return run_requests_in_parallel(&options, requests);
+    }
+
+    let mut exit_code = 0;
+    for request in requests {
+        if options.verbose {
+            eprintln!("{}", request.display_command());
         }
         let status = request.command().status().map_err(|err| {
             vec![AppletError::from_io(APPLET, "executing", Some(&request.program), err)]
@@ -45,7 +53,7 @@ fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
         exit_code |= status.code().unwrap_or(1);
     }
 
-    let _ = (options.parallel, options.no_title);
+    let _ = options.no_title;
     Ok(exit_code)
 }
 
@@ -53,6 +61,7 @@ fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
 struct CheckRequest {
     program: String,
     args: Vec<String>,
+    passno: u32,
 }
 
 impl CheckRequest {
@@ -160,31 +169,38 @@ fn request_for_device(
                 .into_iter()
                 .find(|entry| entry.spec == device || entry.file == device)
         });
-    let filesystem_type = if let Some(filter) = type_filter {
+    let (filesystem_type, passno) = if let Some(filter) = type_filter {
         if filter.len() == 1 && !filter[0].starts_with("no") {
-            filter[0].clone()
+            (filter[0].clone(), fstab_entry.as_ref().map_or(0, |entry| entry.passno))
         } else {
+            (
+                fstab_entry
+                    .as_ref()
+                    .map(|entry| entry.vfstype.clone())
+                    .unwrap_or_else(|| String::from("auto")),
+                fstab_entry.as_ref().map_or(0, |entry| entry.passno),
+            )
+        }
+    } else {
+        (
             fstab_entry
                 .as_ref()
                 .map(|entry| entry.vfstype.clone())
-                .unwrap_or_else(|| String::from("auto"))
-        }
-    } else {
-        fstab_entry
-            .as_ref()
-            .map(|entry| entry.vfstype.clone())
-            .unwrap_or_else(|| String::from("auto"))
+                .unwrap_or_else(|| String::from("auto")),
+            fstab_entry.as_ref().map_or(0, |entry| entry.passno),
+        )
     };
-    request_for_spec(device, &filesystem_type, helper_args)
+    request_for_spec(device, &filesystem_type, passno, helper_args)
 }
 
 fn request_for_entry(entry: &FstabEntry, helper_args: &[String]) -> Result<CheckRequest, Vec<AppletError>> {
-    request_for_spec(&entry.spec, &entry.vfstype, helper_args)
+    request_for_spec(&entry.spec, &entry.vfstype, entry.passno, helper_args)
 }
 
 fn request_for_spec(
     device: &str,
     filesystem_type: &str,
+    passno: u32,
     helper_args: &[String],
 ) -> Result<CheckRequest, Vec<AppletError>> {
     let program = checker_program(filesystem_type).ok_or_else(|| {
@@ -195,7 +211,49 @@ fn request_for_spec(
     })?;
     let mut args = helper_args.to_vec();
     args.push(device.to_string());
-    Ok(CheckRequest { program, args })
+    Ok(CheckRequest {
+        program,
+        args,
+        passno,
+    })
+}
+
+fn run_requests_in_parallel(
+    options: &Options,
+    requests: Vec<CheckRequest>,
+) -> Result<i32, Vec<AppletError>> {
+    let mut exit_code = 0;
+    let mut children = Vec::<Child>::new();
+    let mut current_pass = None::<u32>;
+
+    for request in requests {
+        if options.verbose {
+            eprintln!("{}", request.display_command());
+        }
+        if current_pass.is_some_and(|pass| pass != request.passno) {
+            exit_code |= wait_for_children(children)?;
+            children = Vec::new();
+        }
+        current_pass = Some(request.passno);
+        let child = request.command().spawn().map_err(|err| {
+            vec![AppletError::from_io(APPLET, "executing", Some(&request.program), err)]
+        })?;
+        children.push(child);
+    }
+
+    exit_code |= wait_for_children(children)?;
+    Ok(exit_code)
+}
+
+fn wait_for_children(children: Vec<Child>) -> Result<i32, Vec<AppletError>> {
+    let mut exit_code = 0;
+    for mut child in children {
+        let status = child
+            .wait()
+            .map_err(|err| vec![AppletError::from_io(APPLET, "waiting", None, err)])?;
+        exit_code |= status.code().unwrap_or(1);
+    }
+    Ok(exit_code)
 }
 
 fn checker_program(filesystem_type: &str) -> Option<String> {
@@ -265,6 +323,7 @@ mod tests {
         }
         assert_eq!(requests.len(), 1);
         assert!(requests[0].program.contains("fsck.ext4"));
+        assert_eq!(requests[0].passno, 1);
         let _ = fs::remove_file(path);
     }
 }

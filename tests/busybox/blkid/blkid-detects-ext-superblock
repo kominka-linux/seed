@@ -1,0 +1,16 @@
+python3 - <<'PY'
+from pathlib import Path
+
+image = bytearray(4096)
+base = 1024
+image[base + 0x38:base + 0x3a] = (0xEF53).to_bytes(2, "little")
+image[base + 0x60:base + 0x64] = (0x40).to_bytes(4, "little")
+image[base + 0x68:base + 0x78] = bytes(range(1, 17))
+image[base + 0x78:base + 0x7c] = b"root"
+Path("ext.img").write_bytes(image)
+PY
+
+busybox blkid ext.img > out
+grep 'TYPE="ext4"' out
+grep 'LABEL="root"' out
+grep 'UUID="01020304-0506-0708-090a-0b0c0d0e0f10"' out

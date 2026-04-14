@@ -1,0 +1,2 @@
+busybox killall5 -l >actual
+grep '^15) TERM$' actual

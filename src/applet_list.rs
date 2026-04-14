@@ -36,6 +36,7 @@ macro_rules! define_applet_modules {
         pub mod install;
         pub mod kill;
         pub mod killall;
+        pub mod killall5;
         pub mod less;
         pub mod link;
         pub mod ln;
@@ -306,6 +307,10 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "killall",
                 main: applets::killall::main,
+            },
+            $entry {
+                name: "killall5",
+                main: applets::killall5::main,
             },
             $entry {
                 name: "less",

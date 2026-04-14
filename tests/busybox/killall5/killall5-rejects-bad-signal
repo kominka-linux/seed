@@ -1,0 +1,4 @@
+if busybox killall5 -z >/dev/null 2>stderr; then
+	exit 1
+fi
+grep "bad signal name 'z'" stderr

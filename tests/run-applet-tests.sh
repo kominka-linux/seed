@@ -156,7 +156,7 @@ run_old_style_ls() {
 mkdir -p "$links_dir"
 cargo build --quiet --manifest-path "$repo_dir/Cargo.toml"
 
-for applet in addgroup adduser busybox bunzip2 bzip2 bzcat cat chmod chgrp chown chroot cmp cp date dd delgroup deluser df diff dmesg du egrep env expr find flock free getopt grep gunzip gzip halt hexdump insmod install killall killall5 less ln ls lsmod lsof lzcat lzma man mkdir mkfifo mountpoint mv nologin nslookup od paste patch pgrep pkill poweroff printf ps readlink realpath reboot rfkill rm rmdir rmmod run-parts setsid sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz unzip uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
+for applet in addgroup adduser busybox bunzip2 bzip2 bzcat cat chmod chgrp chown chroot cmp cp date dd delgroup deluser df diff dmesg du egrep env expr find flock free getopt grep gunzip gzip halt hexdump insmod install killall killall5 less ln ls lsmod lsof lzcat lzma man mkdir mkfifo mountpoint mv nologin nslookup od passwd paste patch pgrep pkill poweroff printf ps readlink realpath reboot rfkill rm rmdir rmmod run-parts setsid sleep sort split stat sysctl tar tee test time touch timeout tr tree uname unlzma unxz unzip uptime watch wc wget xargs xz xzcat zcat '[' '[['; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -188,6 +188,11 @@ run_old_style tests/busybox/delgroup/delgroup-deletes-unused-group
 run_old_style tests/busybox/delgroup/delgroup-refuses-primary-group
 run_old_style tests/busybox/deluser/deluser-removes-user-from-account-files
 run_old_style tests/busybox/deluser/deluser-remove-home
+run_old_style tests/busybox/passwd/passwd-deletes-password
+run_old_style tests/busybox/passwd/passwd-locks-and-unlocks-password
+run_old_style tests/busybox/passwd/passwd-sets-default-sha512-password
+run_old_style tests/busybox/passwd/passwd-supports-md5-algorithm
+run_old_style tests/busybox/passwd/passwd-rejects-mismatched-passwords
 
 run_old_style tests/busybox/basename/basename-strips-suffix
 run_old_style tests/busybox/basename/basename-multiple-names

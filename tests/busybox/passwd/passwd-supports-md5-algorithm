@@ -1,0 +1,10 @@
+tmpdir="${TMPDIR:-/tmp}/seed-passwd-md5-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir/etc"
+
+cat >"$tmpdir/etc/passwd" <<'EOF'
+alice:x:1000:1000::/home/alice:/bin/sh
+EOF
+
+printf 'secret\nsecret\n' | SEED_ETC_DIR="$tmpdir/etc" busybox passwd -a md5 alice >/dev/null
+grep '^alice:\$1\$' "$tmpdir/etc/shadow"

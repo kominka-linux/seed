@@ -60,6 +60,7 @@ macro_rules! define_applet_modules {
         pub mod nproc;
         pub mod nslookup;
         pub mod od;
+        pub mod passwd;
         pub mod paste;
         pub mod patch;
         pub mod pgrep;
@@ -416,6 +417,10 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "od",
                 main: applets::od::main,
+            },
+            $entry {
+                name: "passwd",
+                main: applets::passwd::main,
             },
             $entry {
                 name: "paste",

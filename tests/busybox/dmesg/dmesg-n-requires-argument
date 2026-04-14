@@ -1,0 +1,4 @@
+if busybox dmesg -n >/dev/null 2>stderr; then
+	exit 1
+fi
+grep 'argument' stderr

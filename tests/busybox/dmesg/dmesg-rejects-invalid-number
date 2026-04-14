@@ -1,0 +1,4 @@
+if busybox dmesg -s x >/dev/null 2>stderr; then
+	exit 1
+fi
+grep "invalid number 'x'" stderr

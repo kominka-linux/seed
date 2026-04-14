@@ -149,7 +149,6 @@ obvious output utilities.
 ## Init Utilities
 
 - [x] halt
-- [ ] init
 - [x] poweroff
 - [x] reboot
 
@@ -184,7 +183,7 @@ obvious output utilities.
 - [x] losetup
 - [ ] acpid
 - [ ] blkid
-- [ ] dmesg
+- [x] dmesg
 - [ ] fdisk
 - [x] flock
 - [x] getopt

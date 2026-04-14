@@ -1,0 +1,5 @@
+if busybox dmesg >actual 2>stderr; then
+	test -s actual
+else
+	grep 'klogctl' stderr
+fi

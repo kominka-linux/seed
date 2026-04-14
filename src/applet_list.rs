@@ -15,6 +15,7 @@ macro_rules! define_applet_modules {
         pub mod dd;
         pub mod df;
         pub mod diff;
+        pub mod dmesg;
         pub mod du;
         pub mod echo;
         pub mod env;
@@ -174,6 +175,10 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "df",
                 main: applets::df::main,
+            },
+            $entry {
+                name: "dmesg",
+                main: applets::dmesg::main,
             },
             $entry {
                 name: "diff",

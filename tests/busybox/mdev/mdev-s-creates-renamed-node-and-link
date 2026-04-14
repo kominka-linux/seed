@@ -1,0 +1,30 @@
+tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/seed-mdev.XXXXXX")
+trap 'rm -rf "$tmpdir"' EXIT HUP INT TERM
+
+mkdir -p "$tmpdir/sys/dev/block/8:0"
+mkdir -p "$tmpdir/sys/devices/virtual/block/sda"
+mkdir -p "$tmpdir/sys/class"
+ln -s "$tmpdir/sys/devices/virtual/block/sda" "$tmpdir/sys/dev/block/8:0/device"
+ln -s "$tmpdir/sys/class/block" "$tmpdir/sys/devices/virtual/block/sda/subsystem"
+printf '8:0\n' > "$tmpdir/sys/devices/virtual/block/sda/dev"
+cat > "$tmpdir/sys/devices/virtual/block/sda/uevent" <<'EOF'
+MAJOR=8
+MINOR=0
+DEVNAME=disk/root
+EOF
+
+cat > "$tmpdir/mdev.conf" <<'EOF'
+SUBSYSTEM=block;(.*) root:root 600 >by-name/%1
+EOF
+
+mkdir -p "$tmpdir/dev"
+
+SEED_MDEV_SYSFS="$tmpdir/sys" \
+SEED_MDEV_DEV_ROOT="$tmpdir/dev" \
+SEED_MDEV_CONF="$tmpdir/mdev.conf" \
+SEED_MDEV_TEST_PLAIN_FILES=1 \
+	busybox mdev -s
+
+grep '^b 8:0$' "$tmpdir/dev/by-name/disk/root"
+test "$(readlink "$tmpdir/dev/disk/root")" = "by-name/disk/root"
+

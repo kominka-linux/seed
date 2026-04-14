@@ -75,6 +75,8 @@ macro_rules! define_applet_modules {
         #[cfg(target_os = "linux")]
         pub mod lsof;
         pub mod man;
+        #[cfg(target_os = "linux")]
+        pub mod mdev;
         pub mod mkdir;
         pub mod mkfifo;
         #[cfg(target_os = "linux")]
@@ -502,6 +504,11 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "mkfifo",
                 main: applets::mkfifo::main,
+            },
+            #[cfg(target_os = "linux")]
+            $entry {
+                name: "mdev",
+                main: applets::mdev::main,
             },
             #[cfg(target_os = "linux")]
             $entry {

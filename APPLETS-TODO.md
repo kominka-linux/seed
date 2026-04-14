@@ -188,7 +188,7 @@ obvious output utilities.
 - [x] flock
 - [x] getopt
 - [x] hwclock
-- [ ] mdev
+- [x] mdev
 - [x] mkswap
 - [x] mount
 - [x] mountpoint

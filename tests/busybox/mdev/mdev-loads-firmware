@@ -1,0 +1,30 @@
+tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/seed-mdev.XXXXXX")
+trap 'rm -rf "$tmpdir"' EXIT HUP INT TERM
+
+mkdir -p "$tmpdir/sys/devices/virtual/misc/fwdev"
+mkdir -p "$tmpdir/fw"
+mkdir -p "$tmpdir/dev"
+printf '10:200\n' > "$tmpdir/sys/devices/virtual/misc/fwdev/dev"
+cat > "$tmpdir/sys/devices/virtual/misc/fwdev/uevent" <<'EOF'
+MAJOR=10
+MINOR=200
+DEVNAME=fwdev
+EOF
+printf '' > "$tmpdir/sys/devices/virtual/misc/fwdev/loading"
+printf '' > "$tmpdir/sys/devices/virtual/misc/fwdev/data"
+printf 'firmware-bytes' > "$tmpdir/fw/blob.bin"
+
+ACTION=add \
+DEVPATH=/devices/virtual/misc/fwdev \
+SUBSYSTEM=misc \
+DEVNAME=fwdev \
+FIRMWARE=blob.bin \
+SEED_MDEV_SYSFS="$tmpdir/sys" \
+SEED_MDEV_DEV_ROOT="$tmpdir/dev" \
+SEED_MDEV_FIRMWARE_ROOT="$tmpdir/fw" \
+SEED_MDEV_TEST_PLAIN_FILES=1 \
+	busybox mdev
+
+grep 'firmware-bytes' "$tmpdir/sys/devices/virtual/misc/fwdev/data"
+tail -c 1 "$tmpdir/sys/devices/virtual/misc/fwdev/loading" | grep '0'
+

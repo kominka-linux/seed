@@ -1,0 +1,45 @@
+tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/seed-mdev.XXXXXX")
+trap 'rm -rf "$tmpdir"' EXIT HUP INT TERM
+
+mkdir -p "$tmpdir/sys/devices/virtual/misc/ttyTest"
+printf '4:64\n' > "$tmpdir/sys/devices/virtual/misc/ttyTest/dev"
+cat > "$tmpdir/sys/devices/virtual/misc/ttyTest/uevent" <<'EOF'
+MAJOR=4
+MINOR=64
+DEVNAME=ttyTest
+EOF
+
+cat > "$tmpdir/mdev.conf" <<EOF
+-ttyTest root:root 644
+ttyTest root:root 644 @printf '%s\n' "\$MDEV" > "$tmpdir/add.out"
+ttyTest root:root 644 \$printf '%s\n' "\$MDEV" > "$tmpdir/remove.out"
+EOF
+
+mkdir -p "$tmpdir/dev"
+
+ACTION=add \
+DEVPATH=/devices/virtual/misc/ttyTest \
+SUBSYSTEM=misc \
+DEVNAME=ttyTest \
+SEED_MDEV_SYSFS="$tmpdir/sys" \
+SEED_MDEV_DEV_ROOT="$tmpdir/dev" \
+SEED_MDEV_CONF="$tmpdir/mdev.conf" \
+SEED_MDEV_TEST_PLAIN_FILES=1 \
+	busybox mdev
+
+grep '^c 4:64$' "$tmpdir/dev/ttyTest"
+grep '^ttyTest$' "$tmpdir/add.out"
+
+ACTION=remove \
+DEVPATH=/devices/virtual/misc/ttyTest \
+SUBSYSTEM=misc \
+DEVNAME=ttyTest \
+SEED_MDEV_SYSFS="$tmpdir/sys" \
+SEED_MDEV_DEV_ROOT="$tmpdir/dev" \
+SEED_MDEV_CONF="$tmpdir/mdev.conf" \
+SEED_MDEV_TEST_PLAIN_FILES=1 \
+	busybox mdev
+
+test ! -e "$tmpdir/dev/ttyTest"
+grep '^ttyTest$' "$tmpdir/remove.out"
+

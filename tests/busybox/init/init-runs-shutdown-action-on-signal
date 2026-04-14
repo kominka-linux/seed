@@ -1,0 +1,27 @@
+tmpdir="${TMPDIR:-/tmp}/seed-init-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+cat >"$tmpdir/shutdown.sh" <<'EOF'
+#!/bin/sh
+printf 'shutdown\n' >"$1"
+EOF
+chmod +x "$tmpdir/shutdown.sh"
+
+cat >"$tmpdir/inittab" <<EOF
+::shutdown:$tmpdir/shutdown.sh $tmpdir/shutdown.log
+::respawn:sleep 30
+EOF
+
+SEED_INIT_TEST_ALLOW_NON_PID1=1 \
+SEED_INIT_TEST_ACTION_LOG="$tmpdir/action.log" \
+SEED_INIT_INITTAB="$tmpdir/inittab" \
+busybox init &
+pid=$!
+
+sleep 0.2
+kill -USR1 "$pid"
+wait "$pid"
+
+grep '^shutdown$' "$tmpdir/shutdown.log"
+grep '^halt$' "$tmpdir/action.log"

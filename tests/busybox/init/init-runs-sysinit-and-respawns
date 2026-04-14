@@ -1,0 +1,42 @@
+tmpdir="${TMPDIR:-/tmp}/seed-init-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+cat >"$tmpdir/sysinit.sh" <<'EOF'
+#!/bin/sh
+count_file=$1
+count=0
+if [ -f "$count_file" ]; then
+  count=$(cat "$count_file")
+fi
+count=$((count + 1))
+printf '%s\n' "$count" >"$count_file"
+EOF
+chmod +x "$tmpdir/sysinit.sh"
+
+cat >"$tmpdir/respawn.sh" <<'EOF'
+#!/bin/sh
+count_file=$1
+count=0
+if [ -f "$count_file" ]; then
+  count=$(cat "$count_file")
+fi
+count=$((count + 1))
+printf '%s\n' "$count" >"$count_file"
+exit 0
+EOF
+chmod +x "$tmpdir/respawn.sh"
+
+cat >"$tmpdir/inittab" <<EOF
+::sysinit:$tmpdir/sysinit.sh $tmpdir/sysinit.count
+::respawn:$tmpdir/respawn.sh $tmpdir/respawn.count
+EOF
+
+SEED_INIT_TEST_ALLOW_NON_PID1=1 \
+SEED_INIT_TEST_EXIT_WHEN_IDLE=1 \
+SEED_INIT_TEST_MAX_RESPAWNS=2 \
+SEED_INIT_INITTAB="$tmpdir/inittab" \
+busybox init
+
+test "$(cat "$tmpdir/sysinit.count")" = "1"
+test "$(cat "$tmpdir/respawn.count")" = "2"

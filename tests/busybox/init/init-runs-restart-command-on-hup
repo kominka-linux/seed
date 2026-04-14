@@ -1,0 +1,24 @@
+tmpdir="${TMPDIR:-/tmp}/seed-init-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+cat >"$tmpdir/restart.sh" <<'EOF'
+#!/bin/sh
+printf 'restart\n' >"$1"
+EOF
+chmod +x "$tmpdir/restart.sh"
+
+cat >"$tmpdir/inittab" <<EOF
+::restart:$tmpdir/restart.sh $tmpdir/restart.log
+EOF
+
+SEED_INIT_TEST_ALLOW_NON_PID1=1 \
+SEED_INIT_INITTAB="$tmpdir/inittab" \
+busybox init &
+pid=$!
+
+sleep 0.2
+kill -HUP "$pid"
+wait "$pid"
+
+grep '^restart$' "$tmpdir/restart.log"

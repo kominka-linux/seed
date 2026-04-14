@@ -56,6 +56,8 @@ macro_rules! define_applet_modules {
         #[cfg(target_os = "linux")]
         pub mod ifconfig;
         #[cfg(target_os = "linux")]
+        pub mod init;
+        #[cfg(target_os = "linux")]
         pub mod insmod;
         pub mod install;
         #[cfg(target_os = "linux")]
@@ -424,6 +426,11 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "id",
                 main: applets::id::main,
+            },
+            #[cfg(target_os = "linux")]
+            $entry {
+                name: "init",
+                main: applets::init::main,
             },
             #[cfg(target_os = "linux")]
             $entry {

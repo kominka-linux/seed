@@ -1,0 +1,17 @@
+tmpdir="${TMPDIR:-/tmp}/seed-init-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir/dev"
+: >"$tmpdir/dev/tty1"
+
+cat >"$tmpdir/inittab" <<EOF
+tty1::respawn:printf 'hello tty\n'
+EOF
+
+SEED_INIT_TEST_ALLOW_NON_PID1=1 \
+SEED_INIT_TEST_EXIT_WHEN_IDLE=1 \
+SEED_INIT_TEST_MAX_RESPAWNS=1 \
+SEED_INIT_TTY_DIR="$tmpdir/dev" \
+SEED_INIT_INITTAB="$tmpdir/inittab" \
+busybox init
+
+grep 'hello tty' "$tmpdir/dev/tty1"

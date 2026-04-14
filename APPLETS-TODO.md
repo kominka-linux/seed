@@ -148,6 +148,7 @@ obvious output utilities.
 
 ## Init Utilities
 
+- [x] init
 - [x] halt
 - [x] poweroff
 - [x] reboot

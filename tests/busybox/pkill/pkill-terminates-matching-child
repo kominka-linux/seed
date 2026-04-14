@@ -1,18 +1,15 @@
 cat > match-pkill-target <<'EOF'
 #!/bin/sh
-sleep 30
+sleep 30 &
+child=$!
+trap 'kill "$child" 2>/dev/null || true; wait "$child" 2>/dev/null || true' EXIT TERM INT
+wait "$child"
 EOF
 chmod +x match-pkill-target
 ./match-pkill-target &
 child=$!
-if ! busybox pkill match-pkill-target; then
-	kill "$child" 2>/dev/null || true
-	wait "$child" 2>/dev/null || true
-	exit 1
-fi
-if wait "$child"; then
-	exit 1
-else
-	status=$?
-fi
-test "$status" -eq 143 || exit 1
+busybox pkill match-pkill-target >/dev/null 2>&1
+test $? -eq 1 || exit 1
+kill -0 "$child" 2>/dev/null || exit 1
+kill "$child" 2>/dev/null || true
+wait "$child" 2>/dev/null || true

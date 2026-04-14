@@ -3,8 +3,8 @@ printf 'ok\n' > parent/file
 
 chmod -R 644 parent
 
-test "$(stat -f '%Lp' parent)" = "644"
+test "$(PATH=/usr/bin:/bin stat -c '%a' parent)" = "644"
 chmod 755 parent
 
-test "$(stat -f '%Lp' parent)" = "755"
-test "$(stat -f '%Lp' parent/file)" = "644"
+test "$(PATH=/usr/bin:/bin stat -c '%a' parent)" = "755"
+test "$(PATH=/usr/bin:/bin stat -c '%a' parent/file)" = "644"

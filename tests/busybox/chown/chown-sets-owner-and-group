@@ -2,5 +2,5 @@ printf 'x\n' > file
 uid=$(id -u)
 gid=$(id -g)
 busybox chown "$uid:$gid" file
-test "$(stat -f %u file)" = "$uid"
-test "$(stat -f %g file)" = "$gid"
+test "$(PATH=/usr/bin:/bin stat -c '%u' file)" = "$uid"
+test "$(PATH=/usr/bin:/bin stat -c '%g' file)" = "$gid"

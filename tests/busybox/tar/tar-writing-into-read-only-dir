@@ -15,7 +15,7 @@ run_case() {
 	setup_case
 	case "$mode" in
 		system)
-			tar_bin=/usr/bin/tar
+			tar_bin='PATH=/usr/bin:/bin tar'
 			;;
 		busybox)
 			tar_bin='busybox tar'

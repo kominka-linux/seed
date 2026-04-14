@@ -67,11 +67,25 @@ fn run(args: &[String]) -> AppletResult {
                 .open(path)
                 .map_err(|err| vec![AppletError::from_io(APPLET, "opening", Some(path), err)])?;
             if options.seek > 0 {
-                output
+                let offset = output
                     .seek(SeekFrom::Start((options.seek * options.block_size) as u64))
                     .map_err(|err| {
                         vec![AppletError::from_io(APPLET, "seeking", Some(path), err)]
                     })?;
+                if options.count == Some(0) {
+                    let current_len = output
+                        .metadata()
+                        .map_err(|err| {
+                            vec![AppletError::from_io(APPLET, "reading", Some(path), err)]
+                        })?
+                        .len();
+                    if offset > current_len {
+                        output.set_len(offset).map_err(|err| {
+                            vec![AppletError::from_io(APPLET, "writing", Some(path), err)]
+                        })?;
+                    }
+                    return Ok(());
+                }
             }
             copy_blocks(&mut input, &mut output, options.block_size, options.count)
                 .map_err(|err| vec![AppletError::from_io(APPLET, "copying", Some(path), err)])?;
@@ -117,7 +131,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
 }
 
 fn parse_positive(text: &str, label: &str) -> Result<usize, Vec<AppletError>> {
-    match text.parse::<usize>() {
+    match parse_suffixed_usize(text) {
         Ok(0) | Err(_) => Err(vec![AppletError::new(
             APPLET,
             format!("invalid {label} '{text}'"),
@@ -127,12 +141,32 @@ fn parse_positive(text: &str, label: &str) -> Result<usize, Vec<AppletError>> {
 }
 
 fn parse_nonnegative(text: &str, label: &str) -> Result<usize, Vec<AppletError>> {
-    text.parse::<usize>().map_err(|_| {
+    parse_suffixed_usize(text).map_err(|_| {
         vec![AppletError::new(
             APPLET,
             format!("invalid {label} '{text}'"),
         )]
     })
+}
+
+fn parse_suffixed_usize(text: &str) -> Result<usize, ()> {
+    let split = text
+        .find(|ch: char| !ch.is_ascii_digit())
+        .unwrap_or(text.len());
+    let (digits, suffix) = text.split_at(split);
+    if digits.is_empty() {
+        return Err(());
+    }
+    let value = digits.parse::<usize>().map_err(|_| ())?;
+    let multiplier = match suffix {
+        "" | "c" | "C" => 1,
+        "b" | "B" => 512,
+        "k" | "K" => 1024,
+        "m" | "M" => 1024 * 1024,
+        "g" | "G" => 1024 * 1024 * 1024,
+        _ => return Err(()),
+    };
+    value.checked_mul(multiplier).ok_or(())
 }
 
 fn skip_blocks<R: Read>(reader: &mut R, blocks: usize, block_size: usize) -> std::io::Result<()> {
@@ -172,7 +206,9 @@ fn copy_blocks<R: Read, W: Write>(
 
 #[cfg(test)]
 mod tests {
-    use super::parse_args;
+    use std::fs;
+
+    use super::{parse_args, parse_suffixed_usize, run};
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
@@ -195,5 +231,27 @@ mod tests {
         assert_eq!(options.count, Some(3));
         assert_eq!(options.skip, 1);
         assert_eq!(options.seek, 4);
+    }
+
+    #[test]
+    fn seek_with_zero_count_extends_sparse_output() {
+        let path = std::env::temp_dir().join(format!("seed-dd-{}", std::process::id()));
+        let args = args(&[
+            "if=/dev/zero",
+            &format!("of={}", path.display()),
+            "bs=1",
+            "count=0",
+            "seek=16",
+        ]);
+        run(&args).expect("run dd");
+        assert_eq!(fs::metadata(&path).expect("metadata").len(), 16);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn parses_busybox_style_size_suffixes() {
+        assert_eq!(parse_suffixed_usize("10k").unwrap(), 10 * 1024);
+        assert_eq!(parse_suffixed_usize("2M").unwrap(), 2 * 1024 * 1024);
+        assert_eq!(parse_suffixed_usize("4b").unwrap(), 4 * 512);
     }
 }

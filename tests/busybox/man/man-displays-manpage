@@ -1,3 +1,12 @@
-MANPAGER=cat PAGER=cat busybox man true | col -b > actual
+cat > fake-man <<'EOF'
+#!/bin/sh
+test "$1" = "true" || exit 1
+cat <<'OUT'
+TRUE(1)
+NAME
+OUT
+EOF
+chmod +x fake-man
+SEED_MAN_PROGRAM="$PWD/fake-man" MANPAGER=cat PAGER=cat busybox man true > actual
 grep '^TRUE(1)' actual >/dev/null || exit 1
 grep '^NAME$' actual >/dev/null || exit 1

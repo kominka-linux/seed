@@ -1,6 +1,9 @@
 cat > wrapper-pkill-target <<'EOF'
 #!/bin/sh
-sleep 30
+sleep 30 &
+child=$!
+trap 'kill "$child" 2>/dev/null || true; wait "$child" 2>/dev/null || true' EXIT TERM INT
+wait "$child"
 EOF
 chmod +x wrapper-pkill-target
 sh ./wrapper-pkill-target &

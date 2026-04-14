@@ -1,4 +1,4 @@
 printf 'x\n' > file
 uid=$(id -u)
 busybox chown "$uid" file
-test "$(stat -f %u file)" = "$uid"
+test "$(PATH=/usr/bin:/bin stat -c '%u' file)" = "$uid"

@@ -232,12 +232,12 @@ fn parse_count(input: &[u8], mut index: usize) -> (CountSpec, usize) {
         index += 1;
     }
     if start == index {
-        (CountSpec::Number(-1), index)
+        (CountSpec::Number(0), index)
     } else {
         let value = std::str::from_utf8(&input[start..index])
             .ok()
             .and_then(|value| value.parse::<isize>().ok())
-            .unwrap_or(-1);
+            .unwrap_or(0);
         (CountSpec::Number(value), index)
     }
 }
@@ -514,5 +514,20 @@ fn apply_width(mut bytes: Vec<u8>, width: isize, left_justify: bool, zero_pad: b
     } else {
         pad.extend_from_slice(&bytes);
         pad
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CountSpec, parse_count, render_string};
+
+    #[test]
+    fn absent_width_does_not_pad_empty_string() {
+        assert_eq!(render_string("", 0, None, false), b"");
+    }
+
+    #[test]
+    fn parse_count_defaults_to_zero_width() {
+        assert!(matches!(parse_count(b"s", 0), (CountSpec::Number(0), 0)));
     }
 }

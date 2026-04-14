@@ -1,4 +1,4 @@
 printf 'x\n' > file
 gid=$(id -g)
 busybox chgrp "$gid" file
-test "$(stat -f %g file)" = "$gid"
+test "$(PATH=/usr/bin:/bin stat -c '%g' file)" = "$gid"

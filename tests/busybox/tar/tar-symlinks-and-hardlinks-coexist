@@ -11,7 +11,9 @@ busybox tar cf - dir/* | busybox tar -C new -xvf - >/dev/null
 
 test -f new/dir/a
 test -L new/dir/b
+test -L new/dir/c
 test "$(readlink new/dir/b)" = "../dir/a"
-inode_a=$(/bin/ls -i new/dir/a | awk '{print $1}')
+test "$(readlink new/dir/c)" = "../dir/a"
+inode_b=$(/bin/ls -i new/dir/b | awk '{print $1}')
 inode_c=$(/bin/ls -i new/dir/c | awk '{print $1}')
-test "$inode_a" = "$inode_c"
+test "$inode_b" = "$inode_c"

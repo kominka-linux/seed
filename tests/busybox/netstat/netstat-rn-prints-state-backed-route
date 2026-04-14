@@ -6,6 +6,6 @@ EOF
 
 SEED_NET_STATE="$state" busybox netstat -rn >out
 
-grep '^Kernel IP routing table$' out
-grep '^Destination[[:space:]]\+Gateway[[:space:]]\+Genmask[[:space:]]\+Flags[[:space:]]\+Iface$' out
-grep '0.0.0.0[[:space:]]\+10.0.0.1[[:space:]]\+0.0.0.0[[:space:]]\+UG[[:space:]]\+eth0' out
+PATH=/usr/bin:/bin grep '^Kernel IP routing table$' out
+PATH=/usr/bin:/bin grep '^Destination[[:space:]]\+Gateway[[:space:]]\+Genmask[[:space:]]\+Flags[[:space:]]\+Iface$' out
+PATH=/usr/bin:/bin grep '0.0.0.0[[:space:]]\+10.0.0.1[[:space:]]\+0.0.0.0[[:space:]]\+UG[[:space:]]\+eth0' out

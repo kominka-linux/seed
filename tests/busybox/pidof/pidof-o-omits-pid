@@ -1,10 +1,18 @@
+cat > pidof-omit <<'EOF'
+#!/bin/sh
 sleep 30 &
+child=$!
+trap 'kill "$child" 2>/dev/null || true; wait "$child" 2>/dev/null || true' EXIT TERM INT
+wait "$child"
+EOF
+chmod +x pidof-omit
+./pidof-omit &
 pid1=$!
-sleep 30 &
+./pidof-omit &
 pid2=$!
 trap 'kill "$pid1" "$pid2" 2>/dev/null || true; wait "$pid1" "$pid2" 2>/dev/null || true' EXIT
 
-result=$(busybox pidof -o "$pid1" sleep)
+result=$(busybox pidof -o "$pid1" pidof-omit)
 echo "$result" | grep -w "$pid2"
 if echo "$result" | grep -w "$pid1" >/dev/null; then
 	echo "pidof unexpectedly included omitted pid" >&2

@@ -1,3 +1,8 @@
-if MANPAGER=cat PAGER=cat busybox man definitely-not-a-real-man-page >/dev/null 2>&1; then
+cat > fake-man <<'EOF'
+#!/bin/sh
+exit 1
+EOF
+chmod +x fake-man
+if SEED_MAN_PROGRAM="$PWD/fake-man" MANPAGER=cat PAGER=cat busybox man definitely-not-a-real-man-page >/dev/null 2>&1; then
 	exit 1
 fi

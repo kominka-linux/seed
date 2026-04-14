@@ -328,7 +328,10 @@ fn format_long_entry(entry: &LongEntry, widths: LongWidths) -> String {
 }
 
 fn total_blocks(entries: &[Entry]) -> u64 {
-    entries.iter().map(|entry| entry.metadata.blocks()).sum()
+    entries
+        .iter()
+        .map(|entry| display_blocks(entry.metadata.blocks()))
+        .sum()
 }
 
 fn format_mode(entry: &Entry) -> Result<String, AppletError> {
@@ -376,11 +379,16 @@ fn file_kind(file_type: fs::FileType) -> FileKind {
 }
 
 fn format_blocks(blocks: u64, human_readable: bool) -> String {
+    let blocks = display_blocks(blocks);
     if human_readable {
-        format_human_size(blocks.saturating_mul(512))
+        format_human_size(blocks.saturating_mul(1024))
     } else {
         blocks.to_string()
     }
+}
+
+fn display_blocks(blocks: u64) -> u64 {
+    blocks.div_ceil(2)
 }
 
 fn format_human_size(size: u64) -> String {

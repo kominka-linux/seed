@@ -2,4 +2,4 @@ printf 'source\n' > ref
 sleep 1
 printf 'target\n' > target
 busybox touch -r ref target
-test x"`stat -f '%m' ref`" = x"`stat -f '%m' target`"
+test x"`PATH=/usr/bin:/bin stat -c '%Y' ref`" = x"`PATH=/usr/bin:/bin stat -c '%Y' target`"

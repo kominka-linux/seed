@@ -11,7 +11,7 @@ EOF
 
 cat > "$tmpdir/mdev.conf" <<EOF
 -ttyTest root:root 644
-ttyTest root:root 644 @printf '%s\n' "\$MDEV" > "$tmpdir/add.out"
+-ttyTest root:root 644 @printf '%s\n' "\$MDEV" > "$tmpdir/add.out"
 ttyTest root:root 644 \$printf '%s\n' "\$MDEV" > "$tmpdir/remove.out"
 EOF
 
@@ -42,4 +42,3 @@ SEED_MDEV_TEST_PLAIN_FILES=1 \
 
 test ! -e "$tmpdir/dev/ttyTest"
 grep '^ttyTest$' "$tmpdir/remove.out"
-

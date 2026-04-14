@@ -16,7 +16,7 @@ struct Options {
 }
 
 pub fn main(args: &[String]) -> i32 {
-    finish_code(run(args).map(i32::from))
+    finish_code(run(args).map(match_exit_code))
 }
 
 fn run(args: &[String]) -> Result<bool, Vec<AppletError>> {
@@ -101,6 +101,10 @@ fn parse_omit_pid(value: &str) -> Result<i32, Vec<AppletError>> {
         .map_err(|_| vec![AppletError::new(APPLET, format!("invalid pid '{value}'"))])
 }
 
+fn match_exit_code(matched: bool) -> i32 {
+    if matched { 0 } else { 1 }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Options, parse_args};
@@ -119,5 +123,11 @@ mod tests {
                 names: vec!["sleep".to_string()],
             }
         );
+    }
+
+    #[test]
+    fn match_exit_codes_follow_pidof_convention() {
+        assert_eq!(super::match_exit_code(true), 0);
+        assert_eq!(super::match_exit_code(false), 1);
     }
 }

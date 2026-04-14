@@ -1,5 +1,13 @@
+cat > pidof-find <<'EOF'
+#!/bin/sh
 sleep 30 &
+child=$!
+trap 'kill "$child" 2>/dev/null || true; wait "$child" 2>/dev/null || true' EXIT TERM INT
+wait "$child"
+EOF
+chmod +x pidof-find
+./pidof-find &
 pid=$!
 trap 'kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true' EXIT
 
-busybox pidof sleep | grep -w "$pid"
+busybox pidof pidof-find | grep -w "$pid"

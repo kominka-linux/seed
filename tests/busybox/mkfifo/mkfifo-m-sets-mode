@@ -3,5 +3,5 @@ busybox mkfifo -m 600 pipe
 if mode=$(stat -c %a pipe 2>/dev/null); then
 	test "$mode" = "600"
 else
-	test "$(stat -f %Lp pipe)" = "600"
+	test "$(PATH=/usr/bin:/bin stat -c '%a' pipe)" = "600"
 fi

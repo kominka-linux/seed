@@ -8,7 +8,7 @@ use crate::common::process::list_processes;
 const APPLET: &str = "pgrep";
 
 pub fn main(args: &[String]) -> i32 {
-    finish_code(run(args).map(i32::from))
+    finish_code(run(args).map(match_exit_code))
 }
 
 fn run(args: &[String]) -> Result<bool, Vec<AppletError>> {
@@ -39,6 +39,10 @@ fn parse_args(args: &[String]) -> Result<String, Vec<AppletError>> {
     }
 }
 
+fn match_exit_code(matched: bool) -> i32 {
+    if matched { 0 } else { 1 }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::common::process::ProcessInfo;
@@ -52,6 +56,12 @@ mod tests {
     #[test]
     fn parses_pattern() {
         assert_eq!(parse_args(&args(&["sleep"])).expect("parse pgrep"), "sleep");
+    }
+
+    #[test]
+    fn match_exit_codes_follow_pgrep_convention() {
+        assert_eq!(super::match_exit_code(true), 0);
+        assert_eq!(super::match_exit_code(false), 1);
     }
 
     #[test]

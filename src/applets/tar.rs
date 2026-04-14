@@ -331,7 +331,7 @@ fn remember_hardlink(
 }
 
 fn should_track_hardlink(metadata: &std::fs::Metadata) -> bool {
-    metadata.nlink() > 1 && metadata.is_file()
+    metadata.nlink() > 1 && (metadata.is_file() || metadata.file_type().is_symlink())
 }
 
 fn hardlink_key(metadata: &std::fs::Metadata) -> (u64, u64) {
@@ -694,15 +694,7 @@ fn extract_hardlink<R: Read>(
         ));
     }
     remove_existing_path(&output_path, path_text)?;
-    let target_metadata =
-        fs::symlink_metadata(&target_path).map_err(|err| extract_io_error(path_text, err))?;
-    if target_metadata.file_type().is_symlink() {
-        let link_target =
-            fs::read_link(&target_path).map_err(|err| extract_io_error(path_text, err))?;
-        symlink(&link_target, &output_path).map_err(|err| extract_io_error(path_text, err))
-    } else {
-        fs::hard_link(&target_path, &output_path).map_err(|err| extract_io_error(path_text, err))
-    }
+    fs::hard_link(&target_path, &output_path).map_err(|err| extract_io_error(path_text, err))
 }
 
 fn extract_regular_file_overwrite<R: Read>(
@@ -723,7 +715,21 @@ fn extract_regular_file_overwrite<R: Read>(
         Ok(metadata) if metadata.file_type().is_symlink() => {
             remove_existing_path(&output_path, path_text)?;
         }
-        Ok(_) => {}
+        Ok(_) => {
+            let mut output = fs::OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(&output_path)
+                .map_err(|err| extract_io_error(path_text, err))?;
+            io::copy(entry, &mut output).map_err(|err| extract_io_error(path_text, err))?;
+
+            let mode = entry
+                .header()
+                .mode()
+                .map_err(|err| read_error(Some(path_text), err))?;
+            return fs::set_permissions(&output_path, fs::Permissions::from_mode(mode))
+                .map_err(|err| extract_io_error(path_text, err));
+        }
         Err(err) if err.kind() == io::ErrorKind::NotFound => {}
         Err(err) => {
             return Err(extract_io_error(path_text, err));
@@ -1543,6 +1549,7 @@ mod tests {
     use bzip2::bufread::MultiBzDecoder;
     use flate2::bufread::MultiGzDecoder;
     use lzma_rust2::XzReader;
+    use std::os::unix::fs::MetadataExt;
     use std::fs;
     use std::io::{self, BufReader, Cursor};
     use tar::{Builder, Header};
@@ -1896,6 +1903,42 @@ mod tests {
             "tar: extracting dir/sub/file: trying to unpack outside of destination path"
         );
         assert_eq!(fs::read(outside.join("sub/file")).expect("read outside file"), b"keep");
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn overwrite_mode_preserves_existing_hardlinks() {
+        let dir = crate::common::unix::temp_dir("tar-overwrite-hardlinks");
+        let source = dir.join("src");
+        let destination = dir.join("dest");
+        fs::create_dir_all(&source).expect("create source dir");
+        fs::create_dir_all(&destination).expect("create destination dir");
+
+        let source_file = source.join("input_hard");
+        fs::write(&source_file, b"Ok\n").expect("write archive source");
+
+        let mut bytes = Vec::new();
+        let mut builder = Builder::new(&mut bytes);
+        builder
+            .append_path_with_name(&source_file, "input_hard")
+            .expect("append archive entry");
+        builder.finish().expect("finish archive");
+        drop(builder);
+
+        let input = destination.join("input");
+        let input_hard = destination.join("input_hard");
+        fs::write(&input, b"Ok\n").expect("write destination file");
+        fs::hard_link(&input, &input_hard).expect("create destination hardlink");
+        fs::write(&input, b"WRONG\n").expect("mutate existing hardlink pair");
+
+        extract_into(bytes, &destination, true).expect("extract archive");
+
+        assert_eq!(fs::read(&input).expect("read input"), b"Ok\n");
+        assert_eq!(fs::read(&input_hard).expect("read hardlink"), b"Ok\n");
+        let input_meta = fs::metadata(&input).expect("input metadata");
+        let hard_meta = fs::metadata(&input_hard).expect("hardlink metadata");
+        assert_eq!(input_meta.ino(), hard_meta.ino());
 
         let _ = fs::remove_dir_all(dir);
     }

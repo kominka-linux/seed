@@ -958,6 +958,8 @@ mod tests {
         set_ipv4, write_state,
     };
     #[cfg(target_os = "linux")]
+    use crate::common::test_env;
+    #[cfg(target_os = "linux")]
     use std::fs;
 
     #[test]
@@ -992,6 +994,7 @@ mod tests {
     #[test]
     #[cfg(target_os = "linux")]
     fn mutates_state_backend() {
+        let _guard = test_env::lock();
         let path = std::env::temp_dir().join(format!("seed-net-{}", std::process::id()));
         let mut state = super::State::default();
         state.interfaces.push(InterfaceInfo {
@@ -1004,7 +1007,7 @@ mod tests {
             stats: super::InterfaceStats::default(),
         });
         write_state(&path, &state).unwrap();
-        // SAFETY: test-only env mutation with no concurrent access.
+        // SAFETY: the test holds the global env lock for the full mutation window.
         unsafe { std::env::set_var("SEED_NET_STATE", &path) };
         set_ipv4(
             "eth0",
@@ -1043,7 +1046,7 @@ mod tests {
         })
         .unwrap();
         let state = read_state(&path).unwrap();
-        // SAFETY: paired with set_var above in this isolated test.
+        // SAFETY: the test holds the global env lock for the full mutation window.
         unsafe { std::env::remove_var("SEED_NET_STATE") };
         assert_eq!(state.interfaces[0].mtu, 1400);
         assert_eq!(state.interfaces[0].addresses[0].address, "10.0.0.2");

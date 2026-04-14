@@ -3,9 +3,10 @@ use crate::common::error::AppletError;
 use crate::common::process::list_processes;
 
 const APPLET: &str = "killall";
+const LINUX_COMM_LIMIT: usize = 15;
 
 pub fn main(args: &[String]) -> i32 {
-    finish_code(run(args).map(i32::from))
+    finish_code(run(args).map(match_exit_code))
 }
 
 fn run(args: &[String]) -> Result<bool, Vec<AppletError>> {
@@ -18,7 +19,7 @@ fn run(args: &[String]) -> Result<bool, Vec<AppletError>> {
         if process.pid == self_pid {
             continue;
         }
-        if !process.matches_exact_name(&target) {
+        if !matches_target(&process, &target) {
             continue;
         }
 
@@ -48,11 +49,20 @@ fn parse_args(args: &[String]) -> Result<String, Vec<AppletError>> {
     }
 }
 
+fn matches_target(process: &crate::common::process::ProcessInfo, target: &str) -> bool {
+    process.matches_exact_name(target)
+        || (process.name.len() == LINUX_COMM_LIMIT && target.starts_with(&process.name))
+}
+
+fn match_exit_code(matched: bool) -> i32 {
+    if matched { 0 } else { 1 }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::common::process::ProcessInfo;
 
-    use super::parse_args;
+    use super::{matches_target, parse_args};
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
@@ -79,5 +89,26 @@ mod tests {
         };
         assert!(!process.matches_exact_name("match-killall-target"));
         assert!(!process.matches_exact_name("killall-target"));
+    }
+
+    #[test]
+    fn match_exit_codes_follow_killall_convention() {
+        assert_eq!(super::match_exit_code(true), 0);
+        assert_eq!(super::match_exit_code(false), 1);
+    }
+
+    #[test]
+    fn matches_truncated_linux_comm_name() {
+        let process = ProcessInfo {
+            pid: 1,
+            ppid: 0,
+            uid: 0,
+            tty: String::from("??"),
+            cpu_time_ns: 0,
+            name: String::from("match-killall-t"),
+            command: String::from("/bin/sh ./match-killall-target"),
+        };
+        assert!(matches_target(&process, "match-killall-target"));
+        assert!(!matches_target(&process, "wrapper-killall-target"));
     }
 }

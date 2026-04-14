@@ -1,0 +1,30 @@
+#!/bin/sh
+
+set -eu
+
+repo_dir=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+quick=0
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --quick)
+            quick=1
+            shift
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            printf 'usage: %s [--quick]\n' "$0" >&2
+            exit 1
+            ;;
+    esac
+done
+
+docker compose run --rm dev sh /work/tests/run-tier1-stabilization.sh
+
+if [ "$quick" -eq 0 ]; then
+    sh "$repo_dir/tests/run-linux-init.sh"
+    sh "$repo_dir/tests/run-linux-phase7b.sh" --privileged
+fi

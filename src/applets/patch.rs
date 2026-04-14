@@ -364,10 +364,8 @@ mod tests {
     #[test]
     fn apply_chunk_creates_new_file() {
         let dir = crate::common::unix::temp_dir("patch");
+        let target = dir.join("testfile");
         let patch = b"--- /dev/null\n+++ testfile\n@@ -0,0 +1 @@\n+qwerty\n";
-
-        let previous = std::env::current_dir().expect("cwd");
-        std::env::set_current_dir(&dir).expect("chdir");
 
         let result = apply_chunk(
             patch,
@@ -376,16 +374,12 @@ mod tests {
                 strip: 0,
                 reverse: false,
                 ignore_already_applied: false,
-                target: None,
+                target: Some(target.to_string_lossy().into_owned()),
             },
         );
 
-        std::env::set_current_dir(previous).expect("restore cwd");
         assert!(result.is_ok());
-        assert_eq!(
-            fs::read(dir.join("testfile")).expect("read file"),
-            b"qwerty\n"
-        );
+        assert_eq!(fs::read(&target).expect("read file"), b"qwerty\n");
         let _ = fs::remove_dir_all(dir);
     }
 
@@ -394,16 +388,20 @@ mod tests {
         let dir = crate::common::unix::temp_dir("patch-symlink");
         fs::write(dir.join("real"), b"old\n").expect("write target");
         std::os::unix::fs::symlink("real", dir.join("link")).expect("create symlink");
+        let target = dir.join("link");
         let patch = b"--- link\n+++ link\n@@ -1 +1 @@\n-old\n+new\n";
-
-        let previous = std::env::current_dir().expect("cwd");
-        std::env::set_current_dir(&dir).expect("chdir");
-
-        let result = apply_chunk(patch, &Options::default());
-
-        std::env::set_current_dir(previous).expect("restore cwd");
+        let result = apply_chunk(
+            patch,
+            &Options {
+                target: Some(target.to_string_lossy().into_owned()),
+                ..Options::default()
+            },
+        );
         let err = result.expect_err("expected symlink refusal");
-        assert_eq!(err[0].to_string(), "patch: refusing to patch symlink link");
+        assert_eq!(
+            err[0].to_string(),
+            format!("patch: refusing to patch symlink {}", target.display())
+        );
         assert_eq!(fs::read(dir.join("real")).expect("read target"), b"old\n");
         let _ = fs::remove_dir_all(dir);
     }

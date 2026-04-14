@@ -8,38 +8,11 @@ Linux-native.
 
 ## Scrutiny Guide
 
-Use this to decide how much design and test effort an applet deserves.
+Moved to [T1-STABILIZATION.md](/Users/josh/d/seed/T1-STABILIZATION.md:34), which now combines the scrutiny levels with the Tier 1 support/risk matrix and stabilization workstreams.
 
-- Critical: package/data integrity, destructive filesystem changes, boot/auth,
-  mounts, block devices, or system state. These need adversarial tests,
-  malformed-input coverage, failure-path checks, and Linux integration tests.
-  Examples: `tar`, `patch`, `cpio`, `unzip`, compression applets, checksum
-  applets, `cp`, `mv`, `rm`, `ln`, `install`, `dd`, `chmod`, `chown`,
-  `chgrp`, `mount`, `umount`, `losetup`, `fsck`, `mkswap`, `swapon`,
-  `swapoff`, `pivot_root`, `switch_root`, `chroot`, `init`, `halt`,
-  `poweroff`, `reboot`, `login`, `passwd`, `su`, `sulogin`, `getty`, `mdev`.
-- High: script foundation and text-processing behavior where subtle drift
-  breaks builds, installers, or shell scripts. These need broad flag coverage
-  and host-oracle tests where behavior is stable. Examples: `awk`, `sed`,
-  `grep`, `egrep`, `fgrep`, `xargs`, `find`, `test`, `[`, `[[`, `expr`,
-  `sort`, `cut`, `tee`, `head`, `tail`, `stat`, `df`, `du`, `ls`, `date`,
-  `env`, `readlink`, `realpath`, `nohup`, `timeout`.
-- Routine: useful but failures are usually localized and obvious. These still
-  need solid tests, but not the same adversarial depth. Examples: `ps`,
-  `pgrep`, `pkill`, `kill`, `killall`, `free`, `uptime`, `watch`,
-  `hostname`, `nslookup`, `wget`, `which`, `run-parts`, `sysctl`, `flock`,
-  `setsid`, `less`, `man`, `tree`.
-- Low: trivial behavior or low consequence. Keep these simple and avoid
-  over-engineering. A few focused tests are enough. Examples: `yes`, `true`,
-  `false`, `whoami`, `pwd`, `printenv`, `basename`, `dirname`, `nproc`,
-  `tty`, `seq`, `rev`, `sleep`, `echo`.
+## Tier 1
 
-When in doubt: default to `Critical` for anything that can destroy data,
-mutate system state, or sits in the package/install path; default to `High`
-for parser-heavy or script-facing tools; default to `Low` only for pure,
-obvious output utilities.
-
-## Archival Utilities
+### Archival Utilities
 
 - [x] bunzip2
 - [x] bzip2
@@ -57,7 +30,7 @@ obvious output utilities.
 - [x] cpio
 - [x] unzip
 
-## Coreutils
+### Coreutils
 
 - [x] basename
 - [x] cat
@@ -130,30 +103,30 @@ obvious output utilities.
 - [x] test / [ / [[
 - [x] tree
 
-## Editors
+### Editors
 
 - [x] diff
-- [ ] awk
+- [x] awk
 - [x] cmp
 - [x] hexdump
 - [x] patch
 - [x] sed
 
-## Finding Utilities
+### Finding Utilities
 
 - [x] grep
 - [x] egrep
 - [x] fgrep
 - [x] xargs
 
-## Init Utilities
+### Init Utilities
 
 - [x] init
 - [x] halt
 - [x] poweroff
 - [x] reboot
 
-## Login / Password Management
+### Login / Password Management
 
 - [x] addgroup
 - [x] adduser
@@ -166,11 +139,11 @@ obvious output utilities.
 - [x] su
 - [x] sulogin
 
-## Linux Ext2 FS Progs
+### Linux Ext2 FS Progs
 
 - [x] fsck
 
-## Linux Module Utilities
+### Linux Module Utilities
 
 - [x] depmod
 - [x] insmod
@@ -179,7 +152,7 @@ obvious output utilities.
 - [x] modprobe
 - [x] rmmod
 
-## Linux System Utilities
+### Linux System Utilities
 
 - [x] losetup
 - [x] acpid
@@ -201,7 +174,7 @@ obvious output utilities.
 - [x] sysctl
 - [x] umount
 
-## Miscellaneous Utilities
+### Miscellaneous Utilities
 
 - [x] less
 - [x] lsattr / chattr
@@ -210,7 +183,7 @@ obvious output utilities.
 - [x] time
 - [x] which
 
-## Networking Utilities
+### Networking Utilities
 
 - [x] wget
 - [x] hostname
@@ -224,7 +197,7 @@ obvious output utilities.
 - [x] udhcpc
 - [x] udhcpd
 
-## Process Utilities
+### Process Utilities
 
 - [x] kill
 - [x] free
@@ -236,11 +209,6 @@ obvious output utilities.
 - [x] ps
 - [x] uptime
 - [x] watch
-
-## System Logging Utilities
-
-- [ ] klogd
-- [ ] syslogd
 
 ---
 

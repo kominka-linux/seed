@@ -263,7 +263,29 @@ fn parse_program(script: &str, extended: bool) -> Result<Program, String> {
         }
     }
 
+    validate_branch_targets(&commands, &labels)?;
+
     Ok(Program { commands, labels })
+}
+
+fn validate_branch_targets(commands: &[Command], labels: &HashMap<String, usize>) -> Result<(), String> {
+    for command in commands {
+        validate_branch_target_command(command, labels)?;
+    }
+    Ok(())
+}
+
+fn validate_branch_target_command(command: &Command, labels: &HashMap<String, usize>) -> Result<(), String> {
+    match &command.kind {
+        CommandKind::Branch(Some(label)) | CommandKind::Test(Some(label)) | CommandKind::TestNot(Some(label)) => {
+            if !labels.contains_key(label) {
+                return Err(format!("undefined label: {label}"));
+            }
+        }
+        CommandKind::Block(commands) => validate_branch_targets(commands, labels)?,
+        _ => {}
+    }
+    Ok(())
 }
 
 struct ScriptParser<'a> {
@@ -1671,5 +1693,11 @@ mod tests {
         let program = parse_program("/a/,+1{p;N}", false).expect("parse");
         assert!(matches!(program.commands[0].address2, Some(Address::Relative(1))));
         assert!(matches!(program.commands[0].kind, CommandKind::Block(_)));
+    }
+
+    #[test]
+    fn parse_program_rejects_undefined_labels() {
+        let error = parse_program("b walrus", false).expect_err("undefined label should fail");
+        assert_eq!(error, "undefined label: walrus");
     }
 }

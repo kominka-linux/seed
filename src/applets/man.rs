@@ -5,6 +5,7 @@ use crate::common::applet::finish_code;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "man";
+const MAN_PATH: &str = "/usr/bin/man";
 
 pub fn main(args: &[String]) -> i32 {
     finish_code(run(args))
@@ -15,7 +16,11 @@ fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
         return Err(vec![AppletError::new(APPLET, "missing operand")]);
     }
 
-    let status = Command::new("/usr/bin/man")
+    run_with_program(MAN_PATH, args)
+}
+
+fn run_with_program(program: &str, args: &[String]) -> Result<i32, Vec<AppletError>> {
+    let status = Command::new(program)
         .args(args)
         .status()
         .map_err(|err| {
@@ -38,7 +43,7 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::run;
+    use super::{run, run_with_program};
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
@@ -51,7 +56,12 @@ mod tests {
 
     #[test]
     fn propagates_failure_status() {
-        let code = run(&args(&["definitely-not-a-real-man-page"])).expect("run man");
-        assert_ne!(code, 0);
+        let code = run_with_program("/bin/sh", &args(&["-c", "exit 7"])).expect("run shell");
+        assert_eq!(code, 7);
+    }
+
+    #[test]
+    fn execution_failure_errors() {
+        assert!(run_with_program("/definitely/missing/man", &args(&["seed"])).is_err());
     }
 }

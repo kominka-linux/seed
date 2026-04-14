@@ -3,7 +3,8 @@
 set -eu
 
 repo_dir=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-binary="$repo_dir/target/debug/seed"
+target_dir=${CARGO_TARGET_DIR:-"$repo_dir/target"}
+binary="$target_dir/debug/seed"
 links_dir=${TMPDIR:-/tmp}/seed-links
 
 make_echo_ne() {

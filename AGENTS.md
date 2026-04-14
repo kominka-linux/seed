@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`seed` is a multi-call binary in the BusyBox style. Each applet is a small Rust module registered in `src/lib.rs`, and the binary dispatches based on `argv[0]` or the first argument after `seed`/`busybox`.
+`seed` is a multi-call binary in the BusyBox style. Each applet is a small Rust module registered in `src/lib.rs`, and the binary dispatches based on `argv[0]` or the first argument after `seed`/`busybox`. Compatibility for `busybox <applet>` invocation matters in addition to direct `argv[0]` dispatch and `seed <applet>`.
 
 ## Codebase Structure
 
@@ -27,6 +27,10 @@
 - Put syscall or platform-specific code behind small helpers so parsing and behavior remain easy to test.
 - Follow existing error style: concise BusyBox-like messages through `AppletError`, with context about the failed action.
 - Avoid adding dependencies unless there is a strong reason. The repo favors standard library and libc-first solutions.
+- Prefer streaming over collecting whole inputs when the algorithm allows it.
+- Minimize allocations and buffering unless the problem genuinely requires materializing data.
+- Prefer the simplest correct implementation over abstraction-heavy designs.
+- Match BusyBox behavior where that is the contract, but do not mechanically translate BusyBox C into Rust.
 
 ## Working Style
 
@@ -76,6 +80,9 @@
 
 - Prefer targeted `cargo test` runs while developing.
 - Keep shell tests small and direct. Match the existing style in `tests/busybox/*`.
+- The BusyBox-style shell suite has two formats:
+  - new-style `.tests` files via `testing.sh`
+  - old-style standalone shell scripts where exit 0 means pass
 - When behavior depends on Unix metadata, test the visible contract instead of overfitting to one implementation detail.
 - For Linux-targeted work, prefer the Alpine wrappers over host execution:
   - `bin/alpine-test`
@@ -89,6 +96,7 @@
   5. Keep the test scoped to the applet or option being added; avoid dragging in unrelated semantics.
 - Rewrite applicable existing tests when working on an applet if an adapted case is clearer, stronger, or less platform-fragile than what is already in the repo.
 - Prefer incremental replacement by applet or test area so the suite stays reviewable and regressions stay attributable.
+- Handle SIGPIPE quietly and keep failure paths non-panicking in normal applet execution.
 
 ## Commit Discipline
 

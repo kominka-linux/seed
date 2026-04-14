@@ -171,11 +171,11 @@ obvious output utilities.
 
 ## Linux Module Utilities
 
-- [ ] depmod
+- [x] depmod
 - [x] insmod
 - [x] lsmod
-- [ ] modinfo
-- [ ] modprobe
+- [x] modinfo
+- [x] modprobe
 - [x] rmmod
 
 ## Linux System Utilities

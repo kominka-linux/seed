@@ -1,0 +1,14 @@
+modules="$PWD/lib/modules/1.0"
+mkdir -p "$modules/kernel/net"
+
+printf '\0license=GPL\0' > "$modules/kernel/net/helper.ko"
+printf '\0depends=helper\0license=GPL\0' > "$modules/kernel/net/driver.ko"
+
+log="$PWD/actions.log"
+SEED_MODULES_DIR="$modules" \
+SEED_MODULE_ACTION_LOG="$log" \
+	busybox modprobe -r driver
+
+sed -n '1p' "$log" | grep '^rmmod driver$'
+sed -n '2p' "$log" | grep '^rmmod helper$'
+

@@ -1,0 +1,12 @@
+modules="$PWD/lib/modules/1.0"
+mkdir -p "$modules/kernel/net"
+
+printf '\0author=Seed\0description=Network driver\0parm=color:Tint\0license=GPL\0' \
+	> "$modules/kernel/net/driver.ko"
+
+SEED_MODULES_DIR="$modules" busybox modinfo -F description driver > out
+SEED_MODULES_DIR="$modules" busybox modinfo -n driver > path.out
+
+grep '^Network driver$' out
+grep "$modules/kernel/net/driver.ko" path.out
+

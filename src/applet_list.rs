@@ -25,6 +25,8 @@ macro_rules! define_applet_modules {
         pub mod delgroup;
         pub mod deluser;
         #[cfg(target_os = "linux")]
+        pub mod depmod;
+        #[cfg(target_os = "linux")]
         pub mod df;
         pub mod diff;
         #[cfg(target_os = "linux")]
@@ -83,6 +85,10 @@ macro_rules! define_applet_modules {
         pub mod mknod;
         pub mod mkswap;
         pub mod mktemp;
+        #[cfg(target_os = "linux")]
+        pub mod modinfo;
+        #[cfg(target_os = "linux")]
+        pub mod modprobe;
         #[cfg(target_os = "linux")]
         pub mod mount;
         #[cfg(target_os = "linux")]
@@ -268,6 +274,11 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "dd",
                 main: applets::dd::main,
+            },
+            #[cfg(target_os = "linux")]
+            $entry {
+                name: "depmod",
+                main: applets::depmod::main,
             },
             $entry {
                 name: "delgroup",
@@ -527,6 +538,16 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "mkswap",
                 main: applets::mkswap::main,
+            },
+            #[cfg(target_os = "linux")]
+            $entry {
+                name: "modinfo",
+                main: applets::modinfo::main,
+            },
+            #[cfg(target_os = "linux")]
+            $entry {
+                name: "modprobe",
+                main: applets::modprobe::main,
             },
             #[cfg(target_os = "linux")]
             $entry {

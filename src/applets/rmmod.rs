@@ -1,8 +1,8 @@
-use std::ffi::CString;
 use std::fs;
 
 use crate::common::applet::{AppletResult, finish};
 use crate::common::error::AppletError;
+use crate::common::modules::delete_module as delete_kernel_module;
 
 const APPLET: &str = "rmmod";
 
@@ -93,21 +93,10 @@ fn delete_module_flags(options: &Options) -> libc::c_int {
 }
 
 fn delete_module(module: &str, flags: libc::c_int, name: Option<&str>) -> Result<(), AppletError> {
-    let module = CString::new(module)
-        .map_err(|_| AppletError::new(APPLET, "module name contains NUL byte"))?;
-    // SAFETY: `module` is a valid NUL-terminated string, and `flags` only uses
-    // documented delete_module flag bits.
-    let rc = unsafe { libc::syscall(libc::SYS_delete_module, module.as_ptr(), flags) };
-    if rc == 0 {
-        Ok(())
-    } else {
-        let err = std::io::Error::last_os_error();
-        let message = match name {
-            Some(name) => format!("can't unload module '{name}': {err}"),
-            None => format!("rmmod: {err}"),
-        };
-        Err(AppletError::new(APPLET, message))
-    }
+    delete_kernel_module(module, flags).map_err(|err| match name {
+        Some(name) => AppletError::new(APPLET, format!("can't unload module '{name}': {err}")),
+        None => AppletError::new(APPLET, err.to_string()),
+    })
 }
 
 fn unused_modules() -> Result<Vec<String>, Vec<AppletError>> {

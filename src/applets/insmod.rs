@@ -1,9 +1,8 @@
-use std::ffi::CString;
-use std::fs::File;
-use std::os::fd::AsRawFd;
+use std::path::Path;
 
 use crate::common::applet::{AppletResult, finish};
 use crate::common::error::AppletError;
+use crate::common::modules::finit_module;
 
 const APPLET: &str = "insmod";
 
@@ -24,40 +23,8 @@ fn parse_args(args: &[String]) -> Result<(String, Vec<String>), Vec<AppletError>
 }
 
 fn run_linux(path: &str, params: &[String]) -> AppletResult {
-    let file = File::open(path)
-        .map_err(|err| vec![AppletError::new(APPLET, format!("can't insert '{path}': {err}"))])?;
-
-    let size = file
-        .metadata()
-        .map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some(path), err)])?
-        .len();
-    if size == 0 {
-        return Err(vec![AppletError::new(APPLET, "short read")]);
-    }
-
-    let params = params.join(" ");
-    let params = CString::new(params)
-        .map_err(|_| vec![AppletError::new(APPLET, "module parameters contain NUL byte")])?;
-
-    // SAFETY: the fd is valid and open for reading, `params` is a valid
-    // NUL-terminated string, and the final flags argument is zero.
-    let rc = unsafe {
-        libc::syscall(
-            libc::SYS_finit_module,
-            file.as_raw_fd(),
-            params.as_ptr(),
-            0,
-        )
-    };
-    if rc == 0 {
-        Ok(())
-    } else {
-        let err = std::io::Error::last_os_error();
-        Err(vec![AppletError::new(
-            APPLET,
-            format!("can't insert '{path}': {err}"),
-        )])
-    }
+    finit_module(Path::new(path), params)
+        .map_err(|err| vec![AppletError::new(APPLET, err.to_string())])
 }
 
 #[cfg(test)]

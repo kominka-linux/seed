@@ -1,0 +1,4 @@
+if busybox insmod /definitely-missing.ko >/dev/null 2>stderr; then
+	exit 1
+fi
+grep "can't insert '/definitely-missing.ko'" stderr

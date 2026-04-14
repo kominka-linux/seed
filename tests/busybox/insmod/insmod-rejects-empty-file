@@ -1,0 +1,5 @@
+: > empty.ko
+if busybox insmod ./empty.ko >/dev/null 2>stderr; then
+	exit 1
+fi
+grep 'short read' stderr

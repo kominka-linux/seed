@@ -172,7 +172,7 @@ obvious output utilities.
 ## Linux Module Utilities
 
 - [ ] depmod
-- [ ] insmod
+- [x] insmod
 - [x] lsmod
 - [ ] modinfo
 - [ ] modprobe

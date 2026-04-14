@@ -32,6 +32,7 @@ macro_rules! define_applet_modules {
         pub mod hexdump;
         pub mod hostname;
         pub mod id;
+        pub mod insmod;
         pub mod install;
         pub mod kill;
         pub mod killall;
@@ -287,6 +288,10 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "id",
                 main: applets::id::main,
+            },
+            $entry {
+                name: "insmod",
+                main: applets::insmod::main,
             },
             $entry {
                 name: "install",

@@ -1,0 +1,3 @@
+exec 3< /etc/passwd
+busybox lsof >actual
+grep '/etc/passwd$' actual

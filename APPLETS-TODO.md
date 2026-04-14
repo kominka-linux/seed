@@ -229,7 +229,7 @@ obvious output utilities.
 - [x] free
 - [x] killall
 - [ ] killall5
-- [ ] lsof
+- [x] lsof
 - [x] pgrep
 - [x] pkill
 - [x] ps

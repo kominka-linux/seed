@@ -42,6 +42,7 @@ macro_rules! define_applet_modules {
         pub mod losetup;
         pub mod ls;
         pub mod lsmod;
+        pub mod lsof;
         pub mod man;
         pub mod mkdir;
         pub mod mkfifo;
@@ -329,6 +330,10 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "lsmod",
                 main: applets::lsmod::main,
+            },
+            $entry {
+                name: "lsof",
+                main: applets::lsof::main,
             },
             $entry {
                 name: "lzcat",

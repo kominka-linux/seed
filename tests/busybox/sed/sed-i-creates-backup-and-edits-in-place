@@ -1,0 +1,20 @@
+tmpdir="${TMPDIR:-/tmp}/seed-sed-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+printf 'left\nright\n' >"$tmpdir/input"
+
+busybox sed -i.bak '2c changed' "$tmpdir/input"
+
+cat >"$tmpdir/expected" <<'EOF'
+left
+changed
+EOF
+
+cat >"$tmpdir/expected.bak" <<'EOF'
+left
+right
+EOF
+
+diff -u "$tmpdir/expected" "$tmpdir/input"
+diff -u "$tmpdir/expected.bak" "$tmpdir/input.bak"

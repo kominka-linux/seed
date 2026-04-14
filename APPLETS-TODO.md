@@ -137,7 +137,7 @@ obvious output utilities.
 - [x] cmp
 - [x] hexdump
 - [x] patch
-- [ ] sed
+- [x] sed
 
 ## Finding Utilities
 

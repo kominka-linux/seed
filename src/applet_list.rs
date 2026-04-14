@@ -129,6 +129,7 @@ macro_rules! define_applet_modules {
         #[cfg(target_os = "linux")]
         pub mod rmmod;
         pub mod run_parts;
+        pub mod sed;
         pub mod seq;
         pub mod setsid;
         pub mod shuf;
@@ -708,6 +709,10 @@ macro_rules! define_applet_entries {
             $entry {
                 name: "seq",
                 main: applets::seq::main,
+            },
+            $entry {
+                name: "sed",
+                main: applets::sed::main,
             },
             $entry {
                 name: "setsid",

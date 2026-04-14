@@ -162,6 +162,7 @@ if [ "$(uname -s)" = "Linux" ]; then
 fi
 
 applets="addgroup adduser busybox bunzip2 bzip2 bzcat cat chattr chmod chgrp chown cmp cp cpio date dd delgroup deluser diff du egrep env expr find flock free fsck getopt getty grep gunzip gzip hexdump install killall less ln login ls lsattr lzcat lzma man mkdir mkfifo mkswap mv nologin nslookup ntpd od passwd paste patch pidof pgrep pkill printf ps pstree readlink realpath rm rmdir run-parts setsid sleep sort split stat stty su sulogin tar tee test time touch timeout tr tree udhcpc udhcpd uname unlzma unxz unzip watch wc wget xargs xz xzcat zcat [ [["
+applets="$applets sed"
 if [ "$is_linux" -eq 1 ]; then
 	applets="$applets acpid blkid chroot depmod df dmesg fdisk halt hwclock ifconfig init insmod ip killall5 losetup lsmod lsof mdev mknod modinfo modprobe mount mountpoint netstat ping ping6 pivot_root poweroff reboot rfkill rmmod swapoff swapon switch_root sysctl umount uptime"
 fi
@@ -207,6 +208,11 @@ run_old_style tests/busybox/getty/getty-n-uses-custom-login-and-term
 run_old_style tests/busybox/getty/getty-prompts-and-passes-username
 run_old_style tests/busybox/login/login-force-uses-user-shell-and-home
 run_old_style tests/busybox/login/login-p-preserves-home
+run_old_style tests/busybox/sed/sed-substitutes-and-prints-lines
+run_old_style tests/busybox/sed/sed-n-range-p-and-delete-work
+run_old_style tests/busybox/sed/sed-E-backrefs-and-global-substitution-work
+run_old_style tests/busybox/sed/sed-f-loads-script-file
+run_old_style tests/busybox/sed/sed-i-creates-backup-and-edits-in-place
 run_old_style tests/busybox/lsattr/lsattr-v-lists-version-and-long-flags
 run_old_style tests/busybox/lsattr/lsattr-R-a-recurses-hidden-entries
 run_old_style tests/busybox/su/su-runs-command-as-target-user

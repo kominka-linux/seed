@@ -1,0 +1,20 @@
+tmpdir="${TMPDIR:-/tmp}/seed-sed-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+cat >"$tmpdir/script.sed" <<'EOF'
+1i before
+/two/a after
+EOF
+
+printf 'one\ntwo\n' >"$tmpdir/input"
+
+busybox sed -f "$tmpdir/script.sed" "$tmpdir/input" >"$tmpdir/actual"
+cat >"$tmpdir/expected" <<'EOF'
+before
+one
+two
+after
+EOF
+
+diff -u "$tmpdir/expected" "$tmpdir/actual"

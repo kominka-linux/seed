@@ -1,0 +1,11 @@
+tmpdir="${TMPDIR:-/tmp}/seed-awk-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+printf 'anything\n' >"$tmpdir/input"
+
+if awk '{ $(-1) }' "$tmpdir/input" >"$tmpdir/actual" 2>"$tmpdir/error"; then
+	exit 1
+fi
+
+grep -F 'access to negative field' "$tmpdir/error" >/dev/null

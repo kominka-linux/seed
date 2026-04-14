@@ -1,0 +1,27 @@
+tmpdir="${TMPDIR:-/tmp}/seed-awk-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+cat >"$tmpdir/script.awk" <<'EOF'
+BEGIN {
+  u["a"]=1
+  u["b"]=1
+  u["c"]=1
+  v["d"]=1
+  v["e"]=1
+  v["f"]=1
+  for (l in u) {
+    print "outer1", l;
+    for (l in v) {
+      print " inner", l;
+    }
+    print "outer2", l;
+  }
+  print "end", l;
+}
+EOF
+
+awk -f "$tmpdir/script.awk" >"$tmpdir/actual"
+printf 'outer1 a\n inner d\n inner e\n inner f\nouter2 f\nouter1 b\n inner d\n inner e\n inner f\nouter2 f\nouter1 c\n inner d\n inner e\n inner f\nouter2 f\nend f\n' >"$tmpdir/expected"
+
+diff -u "$tmpdir/expected" "$tmpdir/actual"

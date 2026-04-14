@@ -1,0 +1,9 @@
+tmpdir="${TMPDIR:-/tmp}/seed-awk-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+if awk -e 'foo:bar:' >"$tmpdir/actual" 2>"$tmpdir/error"; then
+	exit 1
+fi
+
+grep -F 'unexpected token' "$tmpdir/error" >/dev/null

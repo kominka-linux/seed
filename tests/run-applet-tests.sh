@@ -224,6 +224,16 @@ run_old_style tests/busybox/awk/awk-empty-function-noargs-works
 run_old_style tests/busybox/awk/awk-function-return-value-works
 run_old_style tests/busybox/awk/awk-undefined-function-errors
 run_old_style tests/busybox/awk/awk-string-cast-and-ternary-work
+run_old_style tests/busybox/awk/awk-whitespace-before-array-subscript-works
+run_old_style tests/busybox/awk/awk-delete-array-postdecrement-evaluates-once
+run_old_style tests/busybox/awk/awk-nested-for-in-loops-with-same-variable-work
+run_old_style tests/busybox/awk/awk-large-integer-and-int-work
+run_old_style tests/busybox/awk/awk-length-array-works
+run_old_style tests/busybox/awk/awk-f-dash-and-argc-work
+run_old_style tests/busybox/awk/awk-fs-assignment-works
+run_old_style tests/busybox/awk/awk-delete-missing-arg-errors
+run_old_style tests/busybox/awk/awk-top-level-colon-errors
+run_old_style tests/busybox/awk/awk-negative-field-access-errors
 run_old_style tests/busybox/sed/sed-substitutes-and-prints-lines
 run_old_style tests/busybox/sed/sed-accepts-blanks-before-command
 run_old_style tests/busybox/sed/sed-append-autoinserts-newline

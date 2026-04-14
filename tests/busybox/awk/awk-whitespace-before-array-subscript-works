@@ -1,0 +1,8 @@
+tmpdir="${TMPDIR:-/tmp}/seed-awk-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+awk 'BEGIN { arr [3] = 1; print arr [3] }' >"$tmpdir/actual"
+printf '1\n' >"$tmpdir/expected"
+
+diff -u "$tmpdir/expected" "$tmpdir/actual"

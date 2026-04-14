@@ -1,0 +1,8 @@
+tmpdir="${TMPDIR:-/tmp}/seed-awk-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+awk 'BEGIN{n=(2^31)-1; print n, int(n), n%1, ++n, int(n), n%1}' >"$tmpdir/actual"
+printf '2147483647 2147483647 0 2147483648 2147483648 0\n' >"$tmpdir/expected"
+
+diff -u "$tmpdir/expected" "$tmpdir/actual"

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fs;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::mem::MaybeUninit;
 
 use crate::common::applet::{AppletResult, finish};
@@ -19,6 +19,7 @@ fn run(args: &[String]) -> AppletResult {
     let program = parse_program(&options.program)?;
 
     let mut env = Environment::new(program.functions.clone());
+    env.set_var("ARGC", Value::Number((options.files.len() + 1) as f64));
     for (name, value) in options.assignments {
         env.set_var(&name, Value::String(value));
     }
@@ -132,15 +133,29 @@ fn execute_stmt(
                 .map_err(|err| vec![AppletError::new(APPLET, format!("writing stdout: {err}"))])?;
             Ok(None)
         }
-        Stmt::Assign(name, expr) => {
+        Stmt::Assign(target, expr) => {
             let value = eval_expr(expr, env, out)?;
-            env.set_var(name, value);
+            assign_lvalue(target, value, env, out)?;
             Ok(None)
         }
         Stmt::If(condition, then_branch) => {
             if eval_expr(condition, env, out)?.is_truthy() {
                 return execute_stmt(then_branch, env, out);
             }
+            Ok(None)
+        }
+        Stmt::ForIn(var, array, body) => {
+            for key in env.array_keys(array) {
+                env.set_var(var, Value::String(key));
+                if let Some(value) = execute_stmt(body, env, out)? {
+                    return Ok(Some(value));
+                }
+            }
+            Ok(None)
+        }
+        Stmt::Delete(array, index) => {
+            let key = eval_expr(index, env, out)?.as_string();
+            env.delete_array_element(array, &key);
             Ok(None)
         }
         Stmt::Return(expr) => Ok(Some(if let Some(expr) = expr {
@@ -168,12 +183,23 @@ fn eval_expr(expr: &Expr, env: &mut Environment, out: &mut dyn Write) -> Result<
         Expr::Number(value) => Ok(Value::Number(*value)),
         Expr::String(value) => Ok(Value::String(value.clone())),
         Expr::Var(name) => Ok(env.get_var(name)),
+        Expr::ArrayGet(name, index) => {
+            let key = eval_expr(index, env, out)?.as_string();
+            Ok(env.get_array_element(name, &key))
+        }
         Expr::Field(index) => {
             let field = eval_expr(index, env, out)?.as_number() as isize;
+            if field < 0 {
+                return Err(vec![AppletError::new(APPLET, "access to negative field")]);
+            }
             Ok(Value::String(env.get_field(field)))
         }
         Expr::UnaryMinus(expr) => Ok(Value::Number(-eval_expr(expr, env, out)?.as_number())),
         Expr::UnaryPlus(expr) => Ok(Value::Number(eval_expr(expr, env, out)?.as_number())),
+        Expr::PreInc(target) => update_lvalue(target, 1.0, true, env, out),
+        Expr::PreDec(target) => update_lvalue(target, -1.0, true, env, out),
+        Expr::PostInc(target) => update_lvalue(target, 1.0, false, env, out),
+        Expr::PostDec(target) => update_lvalue(target, -1.0, false, env, out),
         Expr::Conditional(condition, yes, no) => {
             if eval_expr(condition, env, out)?.is_truthy() {
                 eval_expr(yes, env, out)
@@ -185,6 +211,7 @@ fn eval_expr(expr: &Expr, env: &mut Environment, out: &mut dyn Write) -> Result<
             let left = eval_expr(left, env, out)?;
             let right = eval_expr(right, env, out)?;
             match op {
+                BinaryOp::Pow => Ok(Value::Number(left.as_number().powf(right.as_number()))),
                 BinaryOp::Add => Ok(Value::Number(left.as_number() + right.as_number())),
                 BinaryOp::Sub => Ok(Value::Number(left.as_number() - right.as_number())),
                 BinaryOp::Mul => Ok(Value::Number(left.as_number() * right.as_number())),
@@ -229,12 +256,25 @@ fn eval_expr(expr: &Expr, env: &mut Environment, out: &mut dyn Write) -> Result<
         }
         Expr::Call(name, args) => match name.as_str() {
             "length" => {
+                if let Some(Expr::Var(name)) = args.first()
+                    && env.has_array(name)
+                {
+                    return Ok(Value::Number(env.array_len(name) as f64));
+                }
                 let text = if let Some(arg) = args.first() {
                     eval_expr(arg, env, out)?.as_string()
                 } else {
                     env.record_text()
                 };
                 Ok(Value::Number(text.chars().count() as f64))
+            }
+            "int" => {
+                let value = if let Some(arg) = args.first() {
+                    eval_expr(arg, env, out)?.as_number()
+                } else {
+                    0.0
+                };
+                Ok(Value::Number(value.trunc()))
             }
             "or" => {
                 if args.len() != 2 {
@@ -247,6 +287,61 @@ fn eval_expr(expr: &Expr, env: &mut Environment, out: &mut dyn Write) -> Result<
             _ => env.call_user_function(name, args, out),
         },
     }
+}
+
+#[derive(Debug)]
+enum ResolvedLValue {
+    Var(String),
+    Array(String, String),
+}
+
+fn assign_lvalue(
+    target: &LValue,
+    value: Value,
+    env: &mut Environment,
+    out: &mut dyn Write,
+) -> Result<(), Vec<AppletError>> {
+    match resolve_lvalue(target, env, out)? {
+        ResolvedLValue::Var(name) => env.set_var(&name, value),
+        ResolvedLValue::Array(name, key) => env.set_array_element(&name, key, value),
+    }
+    Ok(())
+}
+
+fn update_lvalue(
+    target: &LValue,
+    delta: f64,
+    prefix: bool,
+    env: &mut Environment,
+    out: &mut dyn Write,
+) -> Result<Value, Vec<AppletError>> {
+    match resolve_lvalue(target, env, out)? {
+        ResolvedLValue::Var(name) => {
+            let old = env.get_var(&name).as_number();
+            let new = old + delta;
+            env.set_var(&name, Value::Number(new));
+            Ok(Value::Number(if prefix { new } else { old }))
+        }
+        ResolvedLValue::Array(name, key) => {
+            let old = env.get_array_element(&name, &key).as_number();
+            let new = old + delta;
+            env.set_array_element(&name, key, Value::Number(new));
+            Ok(Value::Number(if prefix { new } else { old }))
+        }
+    }
+}
+
+fn resolve_lvalue(
+    target: &LValue,
+    env: &mut Environment,
+    out: &mut dyn Write,
+) -> Result<ResolvedLValue, Vec<AppletError>> {
+    Ok(match target {
+        LValue::Var(name) => ResolvedLValue::Var(name.clone()),
+        LValue::Array(name, index) => {
+            ResolvedLValue::Array(name.clone(), eval_expr(index, env, out)?.as_string())
+        }
+    })
 }
 
 fn render_printf(
@@ -382,6 +477,7 @@ fn parse_input_number(text: &str) -> f64 {
 #[derive(Debug)]
 struct Environment {
     vars: HashMap<String, Value>,
+    arrays: HashMap<String, ArrayValue>,
     functions: HashMap<String, Function>,
     frames: Vec<HashMap<String, Value>>,
     record: String,
@@ -398,6 +494,7 @@ impl Environment {
         vars.insert("ORS".to_owned(), Value::String("\n".to_owned()));
         Self {
             vars,
+            arrays: HashMap::new(),
             functions,
             frames: Vec::new(),
             record: String::new(),
@@ -493,6 +590,76 @@ impl Environment {
         }
         self.frames.pop();
         Ok(return_value)
+    }
+
+    fn array_len(&self, name: &str) -> usize {
+        self.arrays.get(name).map_or(0, ArrayValue::len)
+    }
+
+    fn has_array(&self, name: &str) -> bool {
+        self.arrays.contains_key(name)
+    }
+
+    fn get_array_element(&self, name: &str, key: &str) -> Value {
+        self.arrays
+            .get(name)
+            .and_then(|array| array.get(key))
+            .unwrap_or_else(|| Value::String(String::new()))
+    }
+
+    fn set_array_element(&mut self, name: &str, key: String, value: Value) {
+        self.arrays
+            .entry(name.to_owned())
+            .or_default()
+            .set(key, value);
+    }
+
+    fn delete_array_element(&mut self, name: &str, key: &str) {
+        if let Some(array) = self.arrays.get_mut(name) {
+            array.remove(key);
+        }
+    }
+
+    fn array_keys(&self, name: &str) -> Vec<String> {
+        self.arrays
+            .get(name)
+            .map_or_else(Vec::new, ArrayValue::keys)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct ArrayValue {
+    order: Vec<String>,
+    values: HashMap<String, Value>,
+}
+
+impl ArrayValue {
+    fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    fn get(&self, key: &str) -> Option<Value> {
+        self.values.get(key).cloned()
+    }
+
+    fn set(&mut self, key: String, value: Value) {
+        if !self.values.contains_key(&key) {
+            self.order.push(key.clone());
+        }
+        self.values.insert(key, value);
+    }
+
+    fn remove(&mut self, key: &str) {
+        self.values.remove(key);
+        self.order.retain(|entry| entry != key);
+    }
+
+    fn keys(&self) -> Vec<String> {
+        self.order
+            .iter()
+            .filter(|key| self.values.contains_key(*key))
+            .cloned()
+            .collect()
     }
 }
 
@@ -626,8 +793,17 @@ fn parse_options(args: &[String]) -> Result<Options, Vec<AppletError>> {
             let Some(path) = args.get(index) else {
                 return Err(vec![AppletError::option_requires_arg(APPLET, "f")]);
             };
-            let program = fs::read_to_string(path)
-                .map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some(path), err)])?;
+            let program = if path == "-" {
+                let mut stdin = String::new();
+                io::stdin()
+                    .read_to_string(&mut stdin)
+                    .map_err(|err| vec![AppletError::new(APPLET, format!("reading stdin: {err}"))])?;
+                stdin
+            } else {
+                fs::read_to_string(path).map_err(|err| {
+                    vec![AppletError::from_io(APPLET, "reading", Some(path), err)]
+                })?
+            };
             program_parts.push(program);
             saw_program = true;
             index += 1;
@@ -708,8 +884,10 @@ struct Rule {
 enum Stmt {
     Print(Vec<Expr>),
     Printf(Expr, Vec<Expr>),
-    Assign(String, Expr),
+    Assign(LValue, Expr),
     If(Expr, Box<Stmt>),
+    ForIn(String, String, Box<Stmt>),
+    Delete(String, Expr),
     Return(Option<Expr>),
     Block(Vec<Stmt>),
     Expr(Expr),
@@ -720,12 +898,23 @@ enum Expr {
     Number(f64),
     String(String),
     Var(String),
+    ArrayGet(String, Box<Expr>),
     Field(Box<Expr>),
     UnaryMinus(Box<Expr>),
     UnaryPlus(Box<Expr>),
+    PreInc(LValue),
+    PreDec(LValue),
+    PostInc(LValue),
+    PostDec(LValue),
     Conditional(Box<Expr>, Box<Expr>, Box<Expr>),
     Binary(BinaryOp, Box<Expr>, Box<Expr>),
     Call(String, Vec<Expr>),
+}
+
+#[derive(Debug, Clone)]
+enum LValue {
+    Var(String),
+    Array(String, Box<Expr>),
 }
 
 #[derive(Debug, Clone)]
@@ -736,6 +925,7 @@ struct Function {
 
 #[derive(Debug, Clone, Copy)]
 enum BinaryOp {
+    Pow,
     Add,
     Sub,
     Mul,
@@ -757,6 +947,9 @@ enum Token {
     Function,
     Return,
     If,
+    For,
+    In,
+    Delete,
     Print,
     Printf,
     Ident(String),
@@ -766,6 +959,8 @@ enum Token {
     RBrace,
     LParen,
     RParen,
+    LBracket,
+    RBracket,
     Comma,
     Semicolon,
     Question,
@@ -778,6 +973,9 @@ enum Token {
     Le,
     Gt,
     Ge,
+    Caret,
+    PlusPlus,
+    MinusMinus,
     Plus,
     Minus,
     Star,
@@ -825,10 +1023,7 @@ fn parse_program(source: &str) -> Result<Program, Vec<AppletError>> {
             }
             Token::Eof => break,
             _ => {
-                return Err(vec![AppletError::new(
-                    APPLET,
-                    "unsupported awk rule syntax",
-                )]);
+                return Err(vec![AppletError::new(APPLET, "unexpected token")]);
             }
         }
         parser.skip_separators()?;
@@ -913,6 +1108,35 @@ impl<'a> Parser<'a> {
                 let then_branch = self.parse_stmt()?;
                 Ok(Stmt::If(condition, Box::new(then_branch)))
             }
+            Token::For => {
+                self.bump()?;
+                self.expect(Token::LParen)?;
+                let Token::Ident(var) = &self.current else {
+                    return Err(vec![AppletError::new(APPLET, "unexpected token")]);
+                };
+                let var = var.clone();
+                self.bump()?;
+                self.expect(Token::In)?;
+                let Token::Ident(array) = &self.current else {
+                    return Err(vec![AppletError::new(APPLET, "unexpected token")]);
+                };
+                let array = array.clone();
+                self.bump()?;
+                self.expect(Token::RParen)?;
+                Ok(Stmt::ForIn(var, array, Box::new(self.parse_stmt()?)))
+            }
+            Token::Delete => {
+                self.bump()?;
+                let Token::Ident(name) = &self.current else {
+                    return Err(vec![AppletError::new(APPLET, "too few arguments")]);
+                };
+                let name = name.clone();
+                self.bump()?;
+                self.expect(Token::LBracket)?;
+                let index = self.parse_expr()?;
+                self.expect(Token::RBracket)?;
+                Ok(Stmt::Delete(name, index))
+            }
             Token::Return => {
                 self.bump()?;
                 if matches!(self.current, Token::Semicolon | Token::RBrace | Token::Eof) {
@@ -925,11 +1149,15 @@ impl<'a> Parser<'a> {
             Token::Ident(name) => {
                 let name = name.clone();
                 self.bump()?;
+                let prefix = self.parse_postfix_expr(Expr::Var(name))?;
                 if matches!(self.current, Token::Assign) {
+                    let Some(target) = expr_to_lvalue(&prefix) else {
+                        return Err(vec![AppletError::new(APPLET, "unexpected token")]);
+                    };
                     self.bump()?;
-                    Ok(Stmt::Assign(name, self.parse_expr()?))
+                    Ok(Stmt::Assign(target, self.parse_expr()?))
                 } else {
-                    let expr = self.parse_expr_with_prefix(Expr::Var(name))?;
+                    let expr = self.parse_expr_with_prefix(prefix)?;
                     Ok(Stmt::Expr(expr))
                 }
             }
@@ -942,24 +1170,6 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expr_with_prefix(&mut self, prefix: Expr) -> Result<Expr, Vec<AppletError>> {
-        let prefix = match prefix {
-            Expr::Var(name) if matches!(self.current, Token::LParen) && !self.current_had_space => {
-                self.bump()?;
-                let mut args = Vec::new();
-                if !matches!(self.current, Token::RParen) {
-                    loop {
-                        args.push(self.parse_expr()?);
-                        if !matches!(self.current, Token::Comma) {
-                            break;
-                        }
-                        self.bump()?;
-                    }
-                }
-                self.expect(Token::RParen)?;
-                Expr::Call(name, args)
-            }
-            other => other,
-        };
         let left = self.parse_concat_tail(prefix)?;
         let left = self.parse_comparison_tail(left)?;
         self.parse_conditional_tail(left)
@@ -1029,7 +1239,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_multiplicative(&mut self) -> Result<Expr, Vec<AppletError>> {
-        let mut left = self.parse_unary()?;
+        let mut left = self.parse_power()?;
         loop {
             let op = match self.current {
                 Token::Star => BinaryOp::Mul,
@@ -1038,14 +1248,41 @@ impl<'a> Parser<'a> {
                 _ => break,
             };
             self.bump()?;
-            let right = self.parse_unary()?;
+            let right = self.parse_power()?;
             left = Expr::Binary(op, Box::new(left), Box::new(right));
         }
         Ok(left)
     }
 
+    fn parse_power(&mut self) -> Result<Expr, Vec<AppletError>> {
+        let left = self.parse_unary()?;
+        if matches!(self.current, Token::Caret) {
+            self.bump()?;
+            let right = self.parse_power()?;
+            Ok(Expr::Binary(BinaryOp::Pow, Box::new(left), Box::new(right)))
+        } else {
+            Ok(left)
+        }
+    }
+
     fn parse_unary(&mut self) -> Result<Expr, Vec<AppletError>> {
         match self.current {
+            Token::PlusPlus => {
+                self.bump()?;
+                let expr = self.parse_unary()?;
+                let Some(target) = expr_to_lvalue(&expr) else {
+                    return Err(vec![AppletError::new(APPLET, "unexpected token")]);
+                };
+                Ok(Expr::PreInc(target))
+            }
+            Token::MinusMinus => {
+                self.bump()?;
+                let expr = self.parse_unary()?;
+                let Some(target) = expr_to_lvalue(&expr) else {
+                    return Err(vec![AppletError::new(APPLET, "unexpected token")]);
+                };
+                Ok(Expr::PreDec(target))
+            }
             Token::Minus => {
                 self.bump()?;
                 Ok(Expr::UnaryMinus(Box::new(self.parse_unary()?)))
@@ -1058,26 +1295,20 @@ impl<'a> Parser<'a> {
                 self.bump()?;
                 Ok(Expr::Field(Box::new(self.parse_unary()?)))
             }
-            _ => self.parse_primary(),
+            _ => self.parse_postfix(),
         }
     }
 
-    fn parse_primary(&mut self) -> Result<Expr, Vec<AppletError>> {
-        match &self.current {
-            Token::Number(value) => {
-                let value = *value;
-                self.bump()?;
-                Ok(Expr::Number(value))
-            }
-            Token::String(value) => {
-                let value = value.clone();
-                self.bump()?;
-                Ok(Expr::String(value))
-            }
-            Token::Ident(name) => {
-                let name = name.clone();
-                self.bump()?;
-                if matches!(self.current, Token::LParen) && !self.current_had_space {
+    fn parse_postfix(&mut self) -> Result<Expr, Vec<AppletError>> {
+        let primary = self.parse_primary()?;
+        self.parse_postfix_expr(primary)
+    }
+
+    fn parse_postfix_expr(&mut self, mut expr: Expr) -> Result<Expr, Vec<AppletError>> {
+        loop {
+            match (&expr, &self.current) {
+                (Expr::Var(name), Token::LParen) if !self.current_had_space => {
+                    let name = name.clone();
                     self.bump()?;
                     let mut args = Vec::new();
                     if !matches!(self.current, Token::RParen) {
@@ -1090,22 +1321,66 @@ impl<'a> Parser<'a> {
                         }
                     }
                     self.expect(Token::RParen)?;
-                    Ok(Expr::Call(name, args))
-                } else {
-                    Ok(Expr::Var(name))
+                    expr = Expr::Call(name, args);
                 }
+                (Expr::Var(name), Token::LBracket) => {
+                    let name = name.clone();
+                    self.bump()?;
+                    let index = self.parse_expr()?;
+                    self.expect(Token::RBracket)?;
+                    expr = Expr::ArrayGet(name, Box::new(index));
+                }
+                (_, Token::PlusPlus) => {
+                    let Some(target) = expr_to_lvalue(&expr) else {
+                        return Err(vec![AppletError::new(APPLET, "unexpected token")]);
+                    };
+                    self.bump()?;
+                    expr = Expr::PostInc(target);
+                }
+                (_, Token::MinusMinus) => {
+                    let Some(target) = expr_to_lvalue(&expr) else {
+                        return Err(vec![AppletError::new(APPLET, "unexpected token")]);
+                    };
+                    self.bump()?;
+                    expr = Expr::PostDec(target);
+                }
+                _ => break,
+            }
+        }
+        Ok(expr)
+    }
+
+    fn parse_primary(&mut self) -> Result<Expr, Vec<AppletError>> {
+        let expr = match &self.current {
+            Token::Number(value) => {
+                let value = *value;
+                self.bump()?;
+                Expr::Number(value)
+            }
+            Token::String(value) => {
+                let value = value.clone();
+                self.bump()?;
+                Expr::String(value)
+            }
+            Token::Ident(name) => {
+                let name = name.clone();
+                self.bump()?;
+                Expr::Var(name)
             }
             Token::LParen => {
                 self.bump()?;
                 let expr = self.parse_expr()?;
                 self.expect(Token::RParen)?;
-                Ok(expr)
+                expr
             }
-            _ => Err(vec![AppletError::new(
-                APPLET,
-                "unexpected token in expression",
-            )]),
-        }
+            _ => {
+                return Err(vec![AppletError::new(
+                    APPLET,
+                    "unexpected token in expression",
+                )]);
+            }
+        };
+        Ok(expr)
     }
 
     fn parse_function(&mut self) -> Result<(String, Function), Vec<AppletError>> {
@@ -1153,7 +1428,17 @@ fn token_starts_expr(token: &Token) -> bool {
             | Token::Dollar
             | Token::Plus
             | Token::Minus
+            | Token::PlusPlus
+            | Token::MinusMinus
     )
+}
+
+fn expr_to_lvalue(expr: &Expr) -> Option<LValue> {
+    match expr {
+        Expr::Var(name) => Some(LValue::Var(name.clone())),
+        Expr::ArrayGet(name, index) => Some(LValue::Array(name.clone(), index.clone())),
+        _ => None,
+    }
 }
 
 struct Lexer<'a> {
@@ -1196,6 +1481,14 @@ impl<'a> Lexer<'a> {
                 self.index += 1;
                 Ok((Token::RParen, had_space))
             }
+            '[' => {
+                self.index += 1;
+                Ok((Token::LBracket, had_space))
+            }
+            ']' => {
+                self.index += 1;
+                Ok((Token::RBracket, had_space))
+            }
             ',' => {
                 self.index += 1;
                 Ok((Token::Comma, had_space))
@@ -1212,13 +1505,27 @@ impl<'a> Lexer<'a> {
                 self.index += 1;
                 Ok((Token::Dollar, had_space))
             }
+            '^' => {
+                self.index += 1;
+                Ok((Token::Caret, had_space))
+            }
             '+' => {
                 self.index += 1;
-                Ok((Token::Plus, had_space))
+                if self.peek() == Some('+') {
+                    self.index += 1;
+                    Ok((Token::PlusPlus, had_space))
+                } else {
+                    Ok((Token::Plus, had_space))
+                }
             }
             '-' => {
                 self.index += 1;
-                Ok((Token::Minus, had_space))
+                if self.peek() == Some('-') {
+                    self.index += 1;
+                    Ok((Token::MinusMinus, had_space))
+                } else {
+                    Ok((Token::Minus, had_space))
+                }
             }
             '*' => {
                 self.index += 1;
@@ -1278,6 +1585,9 @@ impl<'a> Lexer<'a> {
                     "function" | "func" => (Token::Function, had_space),
                     "return" => (Token::Return, had_space),
                     "if" => (Token::If, had_space),
+                    "for" => (Token::For, had_space),
+                    "in" => (Token::In, had_space),
+                    "delete" => (Token::Delete, had_space),
                     "print" => (Token::Print, had_space),
                     "printf" => (Token::Printf, had_space),
                     _ => (Token::Ident(ident), had_space),

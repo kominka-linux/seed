@@ -83,6 +83,10 @@ When in doubt:
 Status:
 - In progress
 - Initial gate runner added in this tranche: `tests/run-tier1-stabilization.sh` and `bin/alpine-stabilization`
+- Unprivileged Alpine quick gate is now green:
+  - `cargo test --quiet`
+  - `cargo clippy --all-targets --all-features --quiet -- -D warnings`
+  - `tests/run-applet-tests.sh`
 
 ## P0: Boot, Storage, and Recovery Closure
 
@@ -204,3 +208,10 @@ That gate is expected to cover:
   - fixed `tests/run-applet-tests.sh` to honor `CARGO_TARGET_DIR`, so Alpine shell tests use the Linux binary instead of the host build
   - fixed `sed` so undefined branch labels are rejected at parse time, matching the shell regression case on empty input
   - fixed `patch` unit tests to avoid process-wide `cwd` mutation under parallel test execution
+  - fixed multiple process-tool exit-status and matching bugs in `pgrep`, `pkill`, `pidof`, and `killall`
+  - fixed `printf` missing-argument handling so `xargs` batch behavior now matches BusyBox for `%s`
+  - fixed `dd` sparse-output and suffix parsing behavior, which unblocked `mkswap` and large-file fixture setup
+  - hardened `tar` overwrite and hardlink handling, including preserved hardlinks across overwrite and hardlinked symlink entries
+  - tightened `ls` block accounting and long-format rendering to match the Alpine `/bin/ls` oracle more closely
+  - converted several shell tests to use explicit system-tool oracles where the previous failures were in the oracle applet rather than the applet under test
+  - cleared the unprivileged Alpine quick gate end to end

@@ -259,12 +259,12 @@ struct LongWidths {
 }
 
 impl LongWidths {
-    fn from_entries(entries: &[LongEntry], options: Options) -> Self {
+    fn from_entries(entries: &[LongEntry], _options: Options) -> Self {
         let mut widths = Self {
             links: 1,
             owner: 0,
             group: 0,
-            size: if options.human_readable { 6 } else { 3 },
+            size: 0,
         };
 
         for entry in entries {
@@ -306,7 +306,7 @@ fn build_long_entry(entry: &Entry, options: Options) -> Result<LongEntry, Applet
 
 fn format_long_entry(entry: &LongEntry, widths: LongWidths) -> String {
     let mut line = format!(
-        "{} {:>links$} {:owner_width$}  {:group_width$} {:>size_width$} {} {}",
+        "{} {:>links$} {:owner_width$} {:group_width$} {:>size_width$} {} {}",
         entry.mode,
         entry.links,
         entry.owner,
@@ -338,11 +338,11 @@ fn format_mode(entry: &Entry) -> Result<String, AppletError> {
     Ok(unix::format_mode(
         file_kind(entry.metadata.file_type()),
         entry.metadata.mode(),
-        Some(attribute_marker(&entry.path)?),
+        attribute_marker(&entry.path)?,
     ))
 }
 
-fn attribute_marker(path: &Path) -> Result<char, AppletError> {
+fn attribute_marker(path: &Path) -> Result<Option<char>, AppletError> {
     let bytes = path.as_os_str().as_bytes();
     let path_c = CString::new(bytes)
         .map_err(|_| AppletError::new(APPLET, format!("unsupported path '{}'", path.display())))?;
@@ -351,12 +351,12 @@ fn attribute_marker(path: &Path) -> Result<char, AppletError> {
         // SAFETY: `path_c` is a valid NUL-terminated path string. Passing a null
         // buffer with size 0 asks `listxattr` for the required size only.
         let size = unsafe { libc::listxattr(path_c.as_ptr(), std::ptr::null_mut(), 0) };
-        Ok(if size > 0 { '@' } else { ' ' })
+        Ok(if size > 0 { Some('@') } else { None })
     }
     #[cfg(target_os = "macos")]
     {
         let _ = path_c;
-        Ok(' ')
+        Ok(None)
     }
 }
 
@@ -400,7 +400,7 @@ fn format_human_size(size: u64) -> String {
         unit += 1;
     }
     if unit == 0 {
-        format!("{size}B")
+        size.to_string()
     } else if value >= 10.0 {
         format!("{value:.0}{}", UNITS[unit])
     } else {

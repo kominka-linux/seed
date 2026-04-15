@@ -41,6 +41,7 @@ This file tracks applet-specific limitations that are important to keep visible 
 - `udhcpc`
 - `udhcpd`
   - handles `DHCPDECLINE` with `decline_time`
+  - now serves and exports BOOTP `siaddr`, `sname`, and `boot_file` for client-script flows
   - config surface is still a BusyBox-style subset
   - several common directives are accepted and ignored
 - `ip`

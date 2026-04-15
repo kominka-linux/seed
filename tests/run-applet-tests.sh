@@ -322,6 +322,7 @@ run_old_style tests/busybox/ntpd/ntpd-q-w-loads-peers-from-config
 run_old_style tests/busybox/ntpd/ntpd-q-w-authenticates-explicit-keyed-peer
 run_old_style tests/busybox/ntpd/ntpd-runs-script-after-sync
 run_old_style tests/busybox/udhcpc/udhcpc-acquires-lease-and-runs-script
+run_old_style tests/busybox/udhcpc/udhcpc-exports-bootfile-and-sname
 run_old_style tests/busybox/udhcpc/udhcpc-r-requests-specific-address
 run_old_style tests/busybox/udhcpc/udhcpc-R-releases-lease
 run_old_style tests/busybox/udhcpc/udhcpc-a-declines-conflicting-lease

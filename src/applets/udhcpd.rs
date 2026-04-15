@@ -77,6 +77,8 @@ struct ServerConfig {
     lease_file: Option<PathBuf>,
     pidfile: Option<PathBuf>,
     siaddr: Option<Ipv4Addr>,
+    sname: Option<String>,
+    boot_file: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -146,6 +148,8 @@ fn parse_config(text: &str) -> Result<ServerConfig, Vec<AppletError>> {
     let mut lease_file = None;
     let mut pidfile = None;
     let mut siaddr = None;
+    let mut sname = None;
+    let mut boot_file = None;
 
     for (line_number, raw_line) in text.lines().enumerate() {
         let line = raw_line.split('#').next().unwrap_or("").trim();
@@ -176,6 +180,8 @@ fn parse_config(text: &str) -> Result<ServerConfig, Vec<AppletError>> {
             "lease_file" => lease_file = Some(PathBuf::from(parts[1])),
             "pidfile" => pidfile = Some(PathBuf::from(parts[1])),
             "siaddr" => siaddr = Some(parse_ipv4(parts[1], line_number + 1)?),
+            "sname" => sname = Some(line["sname".len()..].trim().to_string()),
+            "boot_file" => boot_file = Some(line["boot_file".len()..].trim().to_string()),
             "option" | "opt" => {
                 let Some(code) = option_code(parts[1]) else {
                     return Err(vec![AppletError::new(
@@ -203,7 +209,7 @@ fn parse_config(text: &str) -> Result<ServerConfig, Vec<AppletError>> {
             }
             // BusyBox configs commonly carry these; we accept and ignore them for compatibility.
             "remaining" | "auto_time" | "conflict_time" | "offer_time"
-            | "min_lease" | "notify_file" | "sname" | "boot_file" => {}
+            | "min_lease" | "notify_file" => {}
             _ => {
                 return Err(vec![AppletError::new(
                     APPLET,
@@ -233,6 +239,8 @@ fn parse_config(text: &str) -> Result<ServerConfig, Vec<AppletError>> {
         lease_file,
         pidfile,
         siaddr,
+        sname,
+        boot_file,
     })
 }
 
@@ -314,6 +322,8 @@ fn make_reply(config: &ServerConfig, request: &DhcpPacket, message_type: u8, yia
     reply.flags = request.flags;
     reply.yiaddr = yiaddr;
     reply.siaddr = config.siaddr.unwrap_or(config.server_id);
+    reply.sname = config.sname.clone();
+    reply.file = config.boot_file.clone();
     reply.set_option(OPTION_MESSAGE_TYPE, vec![message_type]);
     reply.set_option(OPTION_SERVER_ID, encode_ipv4(config.server_id));
     reply.set_option(OPTION_LEASE_TIME, encode_u32(config.lease_time));
@@ -582,6 +592,8 @@ mod tests {
             lease_file: None,
             pidfile: None,
             siaddr: None,
+            sname: None,
+            boot_file: None,
         }
     }
 
@@ -604,6 +616,17 @@ mod tests {
         assert_eq!(config.lease_time, 900);
         assert_eq!(config.decline_time, 3600);
         assert_eq!(config.dns.len(), 2);
+    }
+
+    #[test]
+    fn parses_bootp_reply_fields() {
+        let config = parse_config(
+            "start 10.0.0.10\nend 10.0.0.20\nserver 10.0.0.1\nsname seed-server\nboot_file pxelinux.0\nsiaddr 10.0.0.2\n",
+        )
+        .unwrap();
+        assert_eq!(config.sname.as_deref(), Some("seed-server"));
+        assert_eq!(config.boot_file.as_deref(), Some("pxelinux.0"));
+        assert_eq!(config.siaddr, Some(Ipv4Addr::new(10, 0, 0, 2)));
     }
 
     #[test]

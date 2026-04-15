@@ -100,6 +100,8 @@ struct LeaseInfo {
     renewal_seconds: Option<u32>,
     rebinding_seconds: Option<u32>,
     siaddr: Option<Ipv4Addr>,
+    sname: Option<String>,
+    boot_file: Option<String>,
 }
 
 fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
@@ -510,6 +512,8 @@ fn lease_from_ack(packet: &DhcpPacket, from: SocketAddr) -> Result<LeaseInfo, Ve
         renewal_seconds: packet.option(OPTION_RENEWAL_TIME).and_then(decode_u32),
         rebinding_seconds: packet.option(OPTION_REBINDING_TIME).and_then(decode_u32),
         siaddr: nonzero_ip(packet.siaddr),
+        sname: packet.sname.clone(),
+        boot_file: packet.file.clone(),
     })
 }
 
@@ -536,6 +540,12 @@ fn run_script(options: &Options, reason: &str, lease: &LeaseInfo) -> Result<(), 
     }
     if let Some(siaddr) = lease.siaddr {
         command.env("siaddr", siaddr.to_string());
+    }
+    if let Some(sname) = &lease.sname {
+        command.env("sname", sname);
+    }
+    if let Some(boot_file) = &lease.boot_file {
+        command.env("boot_file", boot_file);
     }
     if let Some(renewal) = lease.renewal_seconds {
         command.env("renewal", renewal.to_string());

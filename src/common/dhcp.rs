@@ -54,6 +54,8 @@ pub(crate) struct DhcpPacket {
     pub(crate) siaddr: Ipv4Addr,
     pub(crate) giaddr: Ipv4Addr,
     pub(crate) chaddr: [u8; 16],
+    pub(crate) sname: Option<String>,
+    pub(crate) file: Option<String>,
     pub(crate) options: BTreeMap<u8, Vec<u8>>,
 }
 
@@ -74,6 +76,8 @@ impl DhcpPacket {
             siaddr: Ipv4Addr::UNSPECIFIED,
             giaddr: Ipv4Addr::UNSPECIFIED,
             chaddr,
+            sname: None,
+            file: None,
             options: BTreeMap::new(),
         }
     }
@@ -111,6 +115,8 @@ impl DhcpPacket {
         bytes[20..24].copy_from_slice(&self.siaddr.octets());
         bytes[24..28].copy_from_slice(&self.giaddr.octets());
         bytes[28..44].copy_from_slice(&self.chaddr);
+        write_bootp_field(&mut bytes[44..108], &self.sname);
+        write_bootp_field(&mut bytes[108..236], &self.file);
         bytes[236..240].copy_from_slice(&DHCP_MAGIC_COOKIE);
         for (code, value) in &self.options {
             bytes.push(*code);
@@ -166,8 +172,30 @@ impl DhcpPacket {
             siaddr: Ipv4Addr::from(<[u8; 4]>::try_from(&bytes[20..24]).expect("slice length")),
             giaddr: Ipv4Addr::from(<[u8; 4]>::try_from(&bytes[24..28]).expect("slice length")),
             chaddr,
+            sname: read_bootp_field(&bytes[44..108]),
+            file: read_bootp_field(&bytes[108..236]),
             options,
         })
+    }
+}
+
+fn write_bootp_field(target: &mut [u8], value: &Option<String>) {
+    if let Some(value) = value {
+        let bytes = value.as_bytes();
+        let len = bytes.len().min(target.len());
+        target[..len].copy_from_slice(&bytes[..len]);
+    }
+}
+
+fn read_bootp_field(bytes: &[u8]) -> Option<String> {
+    let end = bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(bytes.len());
+    if end == 0 {
+        None
+    } else {
+        Some(String::from_utf8_lossy(&bytes[..end]).into_owned())
     }
 }
 
@@ -668,6 +696,8 @@ mod tests {
     #[test]
     fn packet_round_trip() {
         let mut packet = DhcpPacket::new(1, 0x1234_5678, [1, 2, 3, 4, 5, 6]);
+        packet.sname = Some(String::from("seed-server"));
+        packet.file = Some(String::from("pxelinux.0"));
         packet.set_option(OPTION_MESSAGE_TYPE, vec![MESSAGE_DISCOVER]);
         packet.set_option(OPTION_HOSTNAME, b"seed".to_vec());
         let decoded = DhcpPacket::decode(&packet.encode()).unwrap();
@@ -675,6 +705,8 @@ mod tests {
         assert_eq!(decoded.mac(), [1, 2, 3, 4, 5, 6]);
         assert_eq!(decoded.message_type(), Some(MESSAGE_DISCOVER));
         assert_eq!(decoded.option(OPTION_HOSTNAME), Some("seed".as_bytes()));
+        assert_eq!(decoded.sname.as_deref(), Some("seed-server"));
+        assert_eq!(decoded.file.as_deref(), Some("pxelinux.0"));
     }
 
     #[test]

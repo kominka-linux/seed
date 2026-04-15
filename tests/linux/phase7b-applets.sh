@@ -14,7 +14,7 @@ system_losetup=$(command -v losetup)
 trap 'rm -rf "$tmpdir" "$links_dir"' EXIT HUP INT TERM
 
 mkdir -p "$links_dir"
-for applet in mknod losetup; do
+for applet in ifconfig ip losetup mknod; do
 	ln -sf "$binary" "$links_dir/$applet"
 done
 
@@ -44,3 +44,29 @@ losetup -d "$loopdev"
 "$system_losetup" -a | grep -F "$tmpdir/disk.img" >/dev/null && exit 1 || true
 
 printf 'phase7b: losetup-ok\n'
+
+if [ ! -f /proc/net/if_inet6 ] || ! grep -q ' lo$' /proc/net/if_inet6; then
+	printf 'phase7b: ipv6-skip (loopback IPv6 unavailable)\n'
+	exit 0
+fi
+
+ip -6 addr add 2001:db8:7::2/128 dev lo
+ip -6 addr show dev lo | grep -F 'inet6 2001:db8:7::2/128' >/dev/null
+ip -6 addr del 2001:db8:7::2/128 dev lo
+ip -6 addr show dev lo | grep -F 'inet6 2001:db8:7::2/128' >/dev/null && exit 1 || true
+
+printf 'phase7b: ip-ipv6-addr-ok\n'
+
+ifconfig lo add 2001:db8:7::3/128
+ifconfig lo | grep -F 'inet6 addr: 2001:db8:7::3/128' >/dev/null
+ifconfig lo del 2001:db8:7::3
+ifconfig lo | grep -F 'inet6 addr: 2001:db8:7::3/128' >/dev/null && exit 1 || true
+
+printf 'phase7b: ifconfig-ipv6-addr-ok\n'
+
+ip -6 route add 2001:db8:55::/64 dev lo
+ip -6 route show | grep -F '2001:db8:55::/64 dev lo' >/dev/null
+ip -6 route del 2001:db8:55::/64 dev lo
+ip -6 route show | grep -F '2001:db8:55::/64 dev lo' >/dev/null && exit 1 || true
+
+printf 'phase7b: ip-ipv6-route-ok\n'

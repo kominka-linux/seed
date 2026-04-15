@@ -46,11 +46,10 @@ This file tracks applet-specific limitations that are important to keep visible 
 - `ip`
   - family-aware `-4` / `-6` display exists for `addr` and `route`
   - only a narrow `addr` / `link` / `route` subset exists
-  - live IPv6 route and address mutation are still unsupported
 - `ifconfig`
   - display includes IPv4 and IPv6 addresses
-  - state-backed `add` / `del` address coverage exists
-  - live mutation is still mostly IPv4/Ethernet-only
+  - IPv6 address `add` / `del` now works against the live kernel path too
+  - link mutation remains narrow and Ethernet-oriented
   - only `hw ether` is supported
 - `netstat`
   - family-aware socket and route display exists

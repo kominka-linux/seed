@@ -120,10 +120,7 @@ pub(crate) fn add_address(name: &str, address: &InterfaceAddress) -> io::Result<
                 },
             )
         }
-        AddressFamily::Inet6 => Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "IPv6 address changes are not supported",
-        )),
+        AddressFamily::Inet6 => live_add_ipv6(name, address),
     }
 }
 
@@ -144,10 +141,7 @@ pub(crate) fn remove_address(name: &str, family: AddressFamily, address: &str) -
 
     match family {
         AddressFamily::Inet4 => clear_ipv4(name),
-        AddressFamily::Inet6 => Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "IPv6 address changes are not supported",
-        )),
+        AddressFamily::Inet6 => live_remove_ipv6(name, address),
     }
 }
 
@@ -829,11 +823,18 @@ fn live_set_ipv4(name: &str, change: &Ipv4Change) -> io::Result<()> {
 
 #[cfg(target_os = "linux")]
 fn live_route_change(route: &RouteInfo, request: libc::c_ulong) -> io::Result<()> {
-    if route.family != AddressFamily::Inet4 {
-        return Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "IPv6 route changes are not supported",
-        ));
+    if route.family == AddressFamily::Inet6 {
+        let request_type = match request {
+            libc::SIOCADDRT => libc::RTM_NEWROUTE,
+            libc::SIOCDELRT => libc::RTM_DELROUTE,
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "unsupported route request",
+                ));
+            }
+        };
+        return live_ipv6_route_change(route, request_type);
     }
     let mut entry = unsafe { mem::zeroed::<libc::rtentry>() };
     entry.rt_flags = libc::RTF_UP
@@ -864,6 +865,313 @@ fn live_route_change(route: &RouteInfo, request: libc::c_ulong) -> io::Result<()
     let err = io::Error::last_os_error();
     close_fd(fd);
     if rc == 0 { Ok(()) } else { Err(err) }
+}
+
+#[cfg(target_os = "linux")]
+fn live_add_ipv6(name: &str, address: &InterfaceAddress) -> io::Result<()> {
+    let ipv6 = address
+        .address
+        .parse::<Ipv6Addr>()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid IPv6 address"))?;
+    let index = if_index(name)?;
+    let mut payload = Vec::new();
+    append_bytes(
+        &mut payload,
+        &IfAddrMsg {
+            ifa_family: libc::AF_INET6 as u8,
+            ifa_prefixlen: address.prefix_len,
+            ifa_flags: 0,
+            ifa_scope: 0,
+            ifa_index: index,
+        },
+    );
+    let octets = ipv6.octets();
+    append_rtattr(&mut payload, libc::IFA_ADDRESS, &octets);
+    append_rtattr(&mut payload, libc::IFA_LOCAL, &octets);
+    rtnetlink_request(
+        libc::RTM_NEWADDR,
+        (libc::NLM_F_REQUEST | libc::NLM_F_ACK | libc::NLM_F_CREATE | libc::NLM_F_EXCL) as u16,
+        &payload,
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn live_remove_ipv6(name: &str, address: &str) -> io::Result<()> {
+    let ipv6 = address
+        .parse::<Ipv6Addr>()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid IPv6 address"))?;
+    let index = if_index(name)?;
+    let prefix_len = list_interfaces()?
+        .into_iter()
+        .find(|interface| interface.name == name)
+        .and_then(|interface| {
+            interface.addresses.into_iter().find_map(|existing| {
+                (existing.family == AddressFamily::Inet6 && existing.address == address)
+                    .then_some(existing.prefix_len)
+            })
+        })
+        .unwrap_or(128);
+    let mut payload = Vec::new();
+    append_bytes(
+        &mut payload,
+        &IfAddrMsg {
+            ifa_family: libc::AF_INET6 as u8,
+            ifa_prefixlen: prefix_len,
+            ifa_flags: 0,
+            ifa_scope: 0,
+            ifa_index: index,
+        },
+    );
+    let octets = ipv6.octets();
+    append_rtattr(&mut payload, libc::IFA_ADDRESS, &octets);
+    append_rtattr(&mut payload, libc::IFA_LOCAL, &octets);
+    rtnetlink_request(
+        libc::RTM_DELADDR,
+        (libc::NLM_F_REQUEST | libc::NLM_F_ACK) as u16,
+        &payload,
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn live_ipv6_route_change(route: &RouteInfo, request_type: u16) -> io::Result<()> {
+    let destination = route.destination.parse::<Ipv6Addr>().map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "invalid IPv6 route destination",
+        )
+    })?;
+    let gateway = route
+        .gateway
+        .as_deref()
+        .map(|gateway| {
+            gateway.parse::<Ipv6Addr>().map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidInput, "invalid IPv6 route gateway")
+            })
+        })
+        .transpose()?;
+    let index = if_index(&route.dev)?;
+
+    let mut payload = Vec::new();
+    append_bytes(
+        &mut payload,
+        &RtMsg {
+            rtm_family: libc::AF_INET6 as u8,
+            rtm_dst_len: route.prefix_len,
+            rtm_src_len: 0,
+            rtm_tos: 0,
+            rtm_table: libc::RT_TABLE_MAIN,
+            rtm_protocol: libc::RTPROT_BOOT,
+            rtm_scope: if gateway.is_some() {
+                libc::RT_SCOPE_UNIVERSE
+            } else {
+                libc::RT_SCOPE_LINK
+            },
+            rtm_type: libc::RTN_UNICAST,
+            rtm_flags: 0,
+        },
+    );
+    if route.prefix_len != 0 {
+        append_rtattr(&mut payload, libc::RTA_DST, &destination.octets());
+    }
+    if let Some(gateway) = gateway {
+        append_rtattr(&mut payload, libc::RTA_GATEWAY, &gateway.octets());
+    }
+    append_rtattr(&mut payload, libc::RTA_OIF, &index.to_ne_bytes());
+
+    let flags = if request_type == libc::RTM_NEWROUTE {
+        (libc::NLM_F_REQUEST | libc::NLM_F_ACK | libc::NLM_F_CREATE | libc::NLM_F_EXCL) as u16
+    } else {
+        (libc::NLM_F_REQUEST | libc::NLM_F_ACK) as u16
+    };
+    rtnetlink_request(request_type, flags, &payload)
+}
+
+#[cfg(target_os = "linux")]
+fn if_index(name: &str) -> io::Result<u32> {
+    let name = CString::new(name)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "device contains NUL byte"))?;
+    // SAFETY: `name` is a valid C string for if_nametoindex.
+    let index = unsafe { libc::if_nametoindex(name.as_ptr()) };
+    if index == 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(index)
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn rtnetlink_request(request_type: u16, flags: u16, payload: &[u8]) -> io::Result<()> {
+    let fd = rtnetlink_socket_fd()?;
+    let mut message = Vec::with_capacity(mem::size_of::<libc::nlmsghdr>() + payload.len());
+    append_bytes(
+        &mut message,
+        &libc::nlmsghdr {
+            nlmsg_len: (mem::size_of::<libc::nlmsghdr>() + payload.len()) as u32,
+            nlmsg_type: request_type,
+            nlmsg_flags: flags,
+            nlmsg_seq: 1,
+            nlmsg_pid: 0,
+        },
+    );
+    message.extend_from_slice(payload);
+
+    let mut kernel = unsafe { mem::zeroed::<libc::sockaddr_nl>() };
+    kernel.nl_family = libc::AF_NETLINK as libc::sa_family_t;
+
+    // SAFETY: buffer and sockaddr point to initialized memory for sendto.
+    let rc = unsafe {
+        libc::sendto(
+            fd,
+            message.as_ptr() as *const libc::c_void,
+            message.len(),
+            0,
+            &kernel as *const libc::sockaddr_nl as *const libc::sockaddr,
+            mem::size_of::<libc::sockaddr_nl>() as libc::socklen_t,
+        )
+    };
+    if rc < 0 {
+        let err = io::Error::last_os_error();
+        close_fd(fd);
+        return Err(err);
+    }
+
+    let mut buffer = vec![0_u8; 4096];
+    // SAFETY: `buffer` is valid writable memory for recv.
+    let len = unsafe {
+        libc::recv(
+            fd,
+            buffer.as_mut_ptr() as *mut libc::c_void,
+            buffer.len(),
+            0,
+        )
+    };
+    if len < 0 {
+        let err = io::Error::last_os_error();
+        close_fd(fd);
+        return Err(err);
+    }
+    if len == 0 {
+        close_fd(fd);
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "short netlink reply",
+        ));
+    }
+
+    let result = parse_rtnetlink_reply(&buffer[..len as usize]);
+    close_fd(fd);
+    result
+}
+
+#[cfg(target_os = "linux")]
+fn parse_rtnetlink_reply(buffer: &[u8]) -> io::Result<()> {
+    let header_len = mem::size_of::<libc::nlmsghdr>();
+    let error_len = mem::size_of::<libc::nlmsgerr>();
+    let mut offset = 0;
+    while offset + header_len <= buffer.len() {
+        // SAFETY: bounds checked above and aligned access is fine for nlmsghdr.
+        let header = unsafe { &*(buffer[offset..].as_ptr() as *const libc::nlmsghdr) };
+        if header.nlmsg_len < header_len as u32 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "malformed netlink reply",
+            ));
+        }
+        let message_end = offset + header.nlmsg_len as usize;
+        if message_end > buffer.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "truncated netlink reply",
+            ));
+        }
+        match header.nlmsg_type {
+            value if value == libc::NLMSG_DONE as u16 => return Ok(()),
+            value if value == libc::NLMSG_ERROR as u16 => {
+                if header.nlmsg_len < (header_len + error_len) as u32 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "truncated netlink error",
+                    ));
+                }
+                // SAFETY: bounds checked above for nlmsgerr payload.
+                let error =
+                    unsafe { &*(buffer[offset + header_len..].as_ptr() as *const libc::nlmsgerr) };
+                if error.error == 0 {
+                    return Ok(());
+                }
+                return Err(io::Error::from_raw_os_error(-error.error));
+            }
+            _ => {}
+        }
+        offset += nlmsg_align(header.nlmsg_len as usize);
+    }
+    Err(io::Error::new(
+        io::ErrorKind::InvalidData,
+        "missing netlink ack",
+    ))
+}
+
+#[cfg(target_os = "linux")]
+fn rtnetlink_socket_fd() -> io::Result<libc::c_int> {
+    // SAFETY: socket arguments are valid constants.
+    let fd = unsafe {
+        libc::socket(
+            libc::AF_NETLINK,
+            libc::SOCK_RAW | libc::SOCK_CLOEXEC,
+            libc::NETLINK_ROUTE,
+        )
+    };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+
+    let mut local = unsafe { mem::zeroed::<libc::sockaddr_nl>() };
+    local.nl_family = libc::AF_NETLINK as libc::sa_family_t;
+    // SAFETY: sockaddr points to initialized local address for bind.
+    let rc = unsafe {
+        libc::bind(
+            fd,
+            &local as *const libc::sockaddr_nl as *const libc::sockaddr,
+            mem::size_of::<libc::sockaddr_nl>() as libc::socklen_t,
+        )
+    };
+    if rc == 0 {
+        Ok(fd)
+    } else {
+        let err = io::Error::last_os_error();
+        close_fd(fd);
+        Err(err)
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn append_rtattr(buffer: &mut Vec<u8>, rta_type: u16, data: &[u8]) {
+    let attr_len = mem::size_of::<RtAttr>() + data.len();
+    append_bytes(
+        buffer,
+        &RtAttr {
+            rta_len: attr_len as u16,
+            rta_type,
+        },
+    );
+    buffer.extend_from_slice(data);
+    let aligned = nlmsg_align(attr_len);
+    if aligned > attr_len {
+        buffer.resize(buffer.len() + (aligned - attr_len), 0);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn nlmsg_align(length: usize) -> usize {
+    (length + 3) & !3
+}
+
+#[cfg(target_os = "linux")]
+fn append_bytes<T>(buffer: &mut Vec<u8>, value: &T) {
+    let len = mem::size_of::<T>();
+    // SAFETY: `value` is a valid plain-old-data struct copied byte-for-byte into the message.
+    let bytes = unsafe { std::slice::from_raw_parts(value as *const T as *const u8, len) };
+    buffer.extend_from_slice(bytes);
 }
 
 #[cfg(target_os = "linux")]
@@ -1007,6 +1315,37 @@ union IfreqUnion {
     flags: libc::c_short,
     mtu: libc::c_int,
     name: [libc::c_char; libc::IFNAMSIZ],
+}
+
+#[cfg(target_os = "linux")]
+#[repr(C)]
+struct IfAddrMsg {
+    ifa_family: u8,
+    ifa_prefixlen: u8,
+    ifa_flags: u8,
+    ifa_scope: u8,
+    ifa_index: u32,
+}
+
+#[cfg(target_os = "linux")]
+#[repr(C)]
+struct RtMsg {
+    rtm_family: u8,
+    rtm_dst_len: u8,
+    rtm_src_len: u8,
+    rtm_tos: u8,
+    rtm_table: u8,
+    rtm_protocol: u8,
+    rtm_scope: u8,
+    rtm_type: u8,
+    rtm_flags: u32,
+}
+
+#[cfg(target_os = "linux")]
+#[repr(C)]
+struct RtAttr {
+    rta_len: u16,
+    rta_type: u16,
 }
 
 #[cfg(target_os = "linux")]

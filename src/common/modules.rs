@@ -273,6 +273,7 @@ pub(crate) fn kernel_release() -> Result<String, AppletError> {
         .iter()
         .copied()
         .take_while(|byte| *byte != 0)
+        .map(|byte| byte as u8)
         .collect::<Vec<_>>();
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }

@@ -163,9 +163,6 @@ fn format_local_time(
         return Err(AppletError::new(applet, "failed to format file time"));
     }
 
-    #[cfg(target_os = "linux")]
-    let bytes = buffer[..written].to_vec();
-    #[cfg(target_os = "macos")]
     let bytes = buffer[..written]
         .iter()
         .map(|&byte| byte as u8)

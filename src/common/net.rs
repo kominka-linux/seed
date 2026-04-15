@@ -46,6 +46,9 @@ pub(crate) struct InterfaceInfo {
     pub(crate) mtu: u32,
     pub(crate) metric: u32,
     pub(crate) tx_queue_len: u32,
+    pub(crate) mem_start: u64,
+    pub(crate) io_addr: u16,
+    pub(crate) irq: u8,
     pub(crate) mac: Option<String>,
     pub(crate) addresses: Vec<InterfaceAddress>,
     pub(crate) stats: InterfaceStats,
@@ -74,6 +77,9 @@ pub(crate) struct LinkChange {
     pub(crate) promisc: Option<bool>,
     pub(crate) dynamic: Option<bool>,
     pub(crate) trailers: Option<bool>,
+    pub(crate) mem_start: Option<u64>,
+    pub(crate) io_addr: Option<u16>,
+    pub(crate) irq: Option<u8>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -185,6 +191,15 @@ pub(crate) fn apply_link_change(name: &str, change: &LinkChange) -> io::Result<(
         }
         if let Some(tx_queue_len) = change.tx_queue_len {
             interface.tx_queue_len = tx_queue_len;
+        }
+        if let Some(mem_start) = change.mem_start {
+            interface.mem_start = mem_start;
+        }
+        if let Some(io_addr) = change.io_addr {
+            interface.io_addr = io_addr;
+        }
+        if let Some(irq) = change.irq {
+            interface.irq = irq;
         }
         if let Some(address) = &change.address {
             interface.mac = Some(address.clone());
@@ -475,6 +490,9 @@ fn read_state(path: &Path) -> io::Result<State> {
                     mtu: mtu.parse().unwrap_or(0),
                     metric: 0,
                     tx_queue_len: 0,
+                    mem_start: 0,
+                    io_addr: 0,
+                    irq: 0,
                     mac: (!mac.is_empty()).then(|| (*mac).to_string()),
                     addresses: Vec::new(),
                     stats: InterfaceStats {
@@ -506,6 +524,46 @@ fn read_state(path: &Path) -> io::Result<State> {
                     mtu: mtu.parse().unwrap_or(0),
                     metric: metric.parse().unwrap_or(0),
                     tx_queue_len: tx_queue_len.parse().unwrap_or(0),
+                    mem_start: 0,
+                    io_addr: 0,
+                    irq: 0,
+                    mac: (!mac.is_empty()).then(|| (*mac).to_string()),
+                    addresses: Vec::new(),
+                    stats: InterfaceStats {
+                        rx_bytes: rx_bytes.parse().unwrap_or(0),
+                        rx_packets: rx_packets.parse().unwrap_or(0),
+                        tx_bytes: tx_bytes.parse().unwrap_or(0),
+                        tx_packets: tx_packets.parse().unwrap_or(0),
+                    },
+                });
+            }
+            [
+                "iface",
+                index,
+                name,
+                flags,
+                mtu,
+                metric,
+                tx_queue_len,
+                mem_start,
+                io_addr,
+                irq,
+                mac,
+                rx_bytes,
+                rx_packets,
+                tx_bytes,
+                tx_packets,
+            ] => {
+                state.interfaces.push(InterfaceInfo {
+                    index: index.parse().unwrap_or(0),
+                    name: (*name).to_string(),
+                    flags: flags.parse().unwrap_or(0),
+                    mtu: mtu.parse().unwrap_or(0),
+                    metric: metric.parse().unwrap_or(0),
+                    tx_queue_len: tx_queue_len.parse().unwrap_or(0),
+                    mem_start: mem_start.parse().unwrap_or(0),
+                    io_addr: io_addr.parse().unwrap_or(0),
+                    irq: irq.parse().unwrap_or(0),
                     mac: (!mac.is_empty()).then(|| (*mac).to_string()),
                     addresses: Vec::new(),
                     stats: InterfaceStats {
@@ -599,13 +657,16 @@ fn write_state(path: &Path, state: &State) -> io::Result<()> {
     let mut text = String::new();
     for interface in &state.interfaces {
         text.push_str(&format!(
-            "iface\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+            "iface\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
             interface.index,
             interface.name,
             interface.flags,
             interface.mtu,
             interface.metric,
             interface.tx_queue_len,
+            interface.mem_start,
+            interface.io_addr,
+            interface.irq,
             interface.mac.as_deref().unwrap_or(""),
             interface.stats.rx_bytes,
             interface.stats.rx_packets,
@@ -679,6 +740,7 @@ fn read_sys_interfaces() -> io::Result<Vec<InterfaceInfo>> {
         let flags = read_sys_u32(&path.join("flags")).unwrap_or(0);
         let mtu = read_sys_u32(&path.join("mtu")).unwrap_or(0);
         let tx_queue_len = read_sys_u32(&path.join("tx_queue_len")).unwrap_or(0);
+        let (mem_start, io_addr, irq) = get_ifmap(&name).unwrap_or((0, 0, 0));
         let mac = fs::read_to_string(path.join("address"))
             .ok()
             .map(|value| value.trim().to_string());
@@ -700,6 +762,9 @@ fn read_sys_interfaces() -> io::Result<Vec<InterfaceInfo>> {
             )
             .unwrap_or(0),
             tx_queue_len,
+            mem_start,
+            io_addr,
+            irq,
             mac,
             addresses: Vec::new(),
             stats,
@@ -959,6 +1024,9 @@ fn live_apply_link_change(name: &str, change: &LinkChange) -> io::Result<()> {
     }
     if let Some(tx_queue_len) = change.tx_queue_len {
         set_tx_queue_len(name, tx_queue_len)?;
+    }
+    if change.mem_start.is_some() || change.io_addr.is_some() || change.irq.is_some() {
+        set_ifmap(name, change.mem_start, change.io_addr, change.irq)?;
     }
     if let Some(address) = &change.address {
         set_hwaddr(name, &parse_mac(address)?)?;
@@ -1539,6 +1607,56 @@ fn set_tx_queue_len(name: &str, tx_queue_len: u32) -> io::Result<()> {
 }
 
 #[cfg(target_os = "linux")]
+fn get_ifmap(name: &str) -> io::Result<(u64, u16, u8)> {
+    let fd = socket_fd()?;
+    let mut ifreq = Ifreq::new(name)?;
+    // SAFETY: `ifreq` points to writable memory for the ioctl result.
+    let rc = unsafe { libc::ioctl(fd, libc::SIOCGIFMAP as _, &mut ifreq) };
+    let err = io::Error::last_os_error();
+    close_fd(fd);
+    if rc == 0 {
+        let map = unsafe { ifreq.ifru.map };
+        Ok((map.mem_start, map.base_addr, map.irq))
+    } else {
+        Err(err)
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn set_ifmap(
+    name: &str,
+    mem_start: Option<u64>,
+    io_addr: Option<u16>,
+    irq: Option<u8>,
+) -> io::Result<()> {
+    let fd = socket_fd()?;
+    let mut ifreq = Ifreq::new(name)?;
+    // SAFETY: `ifreq` points to writable memory for the ioctl result.
+    let rc = unsafe { libc::ioctl(fd, libc::SIOCGIFMAP as _, &mut ifreq) };
+    let err = io::Error::last_os_error();
+    if rc != 0 {
+        close_fd(fd);
+        return Err(err);
+    }
+    let mut map = unsafe { ifreq.ifru.map };
+    if let Some(mem_start) = mem_start {
+        map.mem_start = mem_start as libc::c_ulong;
+    }
+    if let Some(io_addr) = io_addr {
+        map.base_addr = io_addr;
+    }
+    if let Some(irq) = irq {
+        map.irq = irq;
+    }
+    ifreq.ifru.map = map;
+    // SAFETY: `ifreq` contains a valid ifmap payload.
+    let rc = unsafe { libc::ioctl(fd, libc::SIOCSIFMAP as _, &ifreq) };
+    let err = io::Error::last_os_error();
+    close_fd(fd);
+    if rc == 0 { Ok(()) } else { Err(err) }
+}
+
+#[cfg(target_os = "linux")]
 fn set_sockaddr(name: &str, request: libc::c_ulong, address: Ipv4Addr) -> io::Result<()> {
     let fd = socket_fd()?;
     let mut ifreq = Ifreq::new(name)?;
@@ -1648,7 +1766,20 @@ union IfreqUnion {
     flags: libc::c_short,
     mtu: libc::c_int,
     ivalue: libc::c_int,
+    map: IfMap,
     name: [libc::c_char; libc::IFNAMSIZ],
+}
+
+#[cfg(target_os = "linux")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct IfMap {
+    mem_start: libc::c_ulong,
+    mem_end: libc::c_ulong,
+    base_addr: libc::c_ushort,
+    irq: u8,
+    dma: u8,
+    port: u8,
 }
 
 #[cfg(target_os = "linux")]
@@ -1756,6 +1887,9 @@ mod tests {
             mtu: 1500,
             metric: 0,
             tx_queue_len: 1000,
+            mem_start: 0,
+            io_addr: 0,
+            irq: 0,
             mac: Some(String::from("02:00:00:00:00:01")),
             addresses: Vec::new(),
             stats: super::InterfaceStats::default(),
@@ -1788,6 +1922,9 @@ mod tests {
                 promisc: Some(true),
                 dynamic: Some(true),
                 trailers: Some(false),
+                mem_start: Some(0xfe000000),
+                io_addr: Some(0x300),
+                irq: Some(5),
             },
         )
         .unwrap();
@@ -1827,6 +1964,9 @@ mod tests {
         assert_eq!(state.interfaces[0].mtu, 1400);
         assert_eq!(state.interfaces[0].metric, 2);
         assert_eq!(state.interfaces[0].tx_queue_len, 500);
+        assert_eq!(state.interfaces[0].mem_start, 0xfe000000);
+        assert_eq!(state.interfaces[0].io_addr, 0x300);
+        assert_eq!(state.interfaces[0].irq, 5);
         assert_eq!(state.interfaces[0].addresses[0].address, "10.0.0.2");
         assert_eq!(state.routes.len(), 1);
         let _ = fs::remove_file(path);

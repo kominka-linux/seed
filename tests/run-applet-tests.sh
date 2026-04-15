@@ -444,6 +444,7 @@ run_old_style tests/busybox/ifconfig/ifconfig-updates-address-and-mtu
 run_old_style tests/busybox/ifconfig/ifconfig-adds-and-removes-inet4-state
 run_old_style tests/busybox/ifconfig/ifconfig-adds-and-removes-inet6-state
 run_old_style tests/busybox/ifconfig/ifconfig-updates-flags-metric-and-txqueuelen
+run_old_style tests/busybox/ifconfig/ifconfig-updates-hardware-map-state
 run_old_style tests/busybox/ip/ip-addr-show-prints-state
 run_old_style tests/busybox/ip/ip-addr-add-preserves-existing-ipv4-state
 run_old_style tests/busybox/ip/ip-addr-del-removes-only-target-state

@@ -1,0 +1,12 @@
+state=$(mktemp "${TMPDIR:-/tmp}/seed-net-state.XXXXXX")
+trap 'rm -f "$state"' EXIT HUP INT TERM
+
+cat >"$state" <<'EOF'
+iface	2	eth0	67	1500	0	1000	02:00:00:00:00:01	0	0	0	0
+EOF
+
+SEED_NET_STATE="$state" busybox ifconfig eth0 mem_start 0xfe000000 io_addr 0x300 irq 5
+SEED_NET_STATE="$state" busybox ifconfig eth0 >out
+
+grep 'Interrupt:5  Base address:0x300  Memory:0xfe000000' out
+grep "$(printf 'iface\t2\teth0\t67\t1500\t0\t1000\t4261412864\t768\t5\t02:00:00:00:00:01')" "$state"

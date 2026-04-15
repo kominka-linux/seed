@@ -26,6 +26,9 @@ struct Options {
     mtu: Option<u32>,
     metric: Option<u32>,
     tx_queue_len: Option<u32>,
+    mem_start: Option<u64>,
+    io_addr: Option<u16>,
+    irq: Option<u8>,
     hwaddr: Option<String>,
     up: Option<bool>,
     arp: Option<bool>,
@@ -113,6 +116,27 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
                 };
                 index += 1;
                 options.tx_queue_len = Some(parse_u32("txqueuelen", value)?);
+            }
+            "mem_start" => {
+                let Some(value) = args.get(index) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "mem_start")]);
+                };
+                index += 1;
+                options.mem_start = Some(parse_u64("mem_start", value)?);
+            }
+            "io_addr" => {
+                let Some(value) = args.get(index) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "io_addr")]);
+                };
+                index += 1;
+                options.io_addr = Some(parse_u16("io_addr", value)?);
+            }
+            "irq" => {
+                let Some(value) = args.get(index) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "irq")]);
+                };
+                index += 1;
+                options.irq = Some(parse_u8("irq", value)?);
             }
             "hw" => {
                 let Some(kind) = args.get(index) else {
@@ -218,6 +242,9 @@ fn run_linux(options: &Options) -> Result<(), Vec<AppletError>> {
         && options.mtu.is_none()
         && options.metric.is_none()
         && options.tx_queue_len.is_none()
+        && options.mem_start.is_none()
+        && options.io_addr.is_none()
+        && options.irq.is_none()
         && options.hwaddr.is_none()
         && options.arp.is_none()
         && options.multicast.is_none()
@@ -265,6 +292,9 @@ fn run_linux(options: &Options) -> Result<(), Vec<AppletError>> {
             mtu: options.mtu,
             metric: options.metric,
             tx_queue_len: options.tx_queue_len,
+            mem_start: options.mem_start,
+            io_addr: options.io_addr,
+            irq: options.irq,
             address: options.hwaddr.clone(),
             new_name: None,
             arp: options.arp,
@@ -288,6 +318,9 @@ fn has_changes(options: &Options) -> bool {
         || options.mtu.is_some()
         || options.metric.is_some()
         || options.tx_queue_len.is_some()
+        || options.mem_start.is_some()
+        || options.io_addr.is_some()
+        || options.irq.is_some()
         || options.hwaddr.is_some()
         || options.up.is_some()
         || options.arp.is_some()
@@ -354,6 +387,19 @@ fn print_interface(interface: &crate::common::net::InterfaceInfo) {
         interface.metric,
         interface.tx_queue_len,
     );
+    if interface.irq != 0 || interface.io_addr != 0 || interface.mem_start != 0 {
+        let mut parts = Vec::new();
+        if interface.irq != 0 {
+            parts.push(format!("Interrupt:{}", interface.irq));
+        }
+        if interface.io_addr != 0 {
+            parts.push(format!("Base address:0x{:x}", interface.io_addr));
+        }
+        if interface.mem_start != 0 {
+            parts.push(format!("Memory:0x{:x}", interface.mem_start));
+        }
+        println!("          {}", parts.join("  "));
+    }
     println!(
         "          RX packets:{} bytes:{}  TX packets:{} bytes:{}",
         interface.stats.rx_packets,
@@ -388,6 +434,9 @@ fn is_flag_like(value: &str) -> bool {
                 | "metric"
                 | "mtu"
                 | "txqueuelen"
+                | "mem_start"
+                | "io_addr"
+                | "irq"
                 | "hw"
                 | "add"
                 | "del"
@@ -401,9 +450,36 @@ fn parse_ipv4(value: &str) -> Result<Ipv4Addr, Vec<AppletError>> {
 }
 
 fn parse_u32(kind: &str, value: &str) -> Result<u32, Vec<AppletError>> {
-    value
-        .parse::<u32>()
+    parse_u64(kind, value).and_then(|parsed| {
+        u32::try_from(parsed)
+            .map_err(|_| vec![AppletError::new(APPLET, format!("invalid {kind} '{value}'"))])
+    })
+}
+
+fn parse_u16(kind: &str, value: &str) -> Result<u16, Vec<AppletError>> {
+    parse_u64(kind, value).and_then(|parsed| {
+        u16::try_from(parsed)
+            .map_err(|_| vec![AppletError::new(APPLET, format!("invalid {kind} '{value}'"))])
+    })
+}
+
+fn parse_u8(kind: &str, value: &str) -> Result<u8, Vec<AppletError>> {
+    parse_u64(kind, value).and_then(|parsed| {
+        u8::try_from(parsed)
+            .map_err(|_| vec![AppletError::new(APPLET, format!("invalid {kind} '{value}'"))])
+    })
+}
+
+fn parse_u64(kind: &str, value: &str) -> Result<u64, Vec<AppletError>> {
+    parse_u64_auto_base(value)
         .map_err(|_| vec![AppletError::new(APPLET, format!("invalid {kind} '{value}'"))])
+}
+
+fn parse_u64_auto_base(value: &str) -> Result<u64, std::num::ParseIntError> {
+    value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+        .map_or_else(|| value.parse::<u64>(), |hex| u64::from_str_radix(hex, 16))
 }
 
 fn parse_ip_addr(value: &str) -> Result<IpAddr, Vec<AppletError>> {
@@ -471,6 +547,9 @@ mod tests {
                 mtu: Some(1400),
                 metric: None,
                 tx_queue_len: None,
+                mem_start: None,
+                io_addr: None,
+                irq: None,
                 hwaddr: None,
                 up: Some(true),
                 arp: None,
@@ -510,12 +589,57 @@ mod tests {
                 mtu: None,
                 metric: Some(2),
                 tx_queue_len: Some(200),
+                mem_start: None,
+                io_addr: None,
+                irq: None,
                 hwaddr: None,
                 up: None,
                 arp: Some(false),
                 multicast: None,
                 allmulti: None,
                 promisc: Some(true),
+                dynamic: None,
+                trailers: None,
+            }
+        );
+    }
+
+    #[test]
+    fn parses_hardware_map_values() {
+        let options = parse_args(&args(&[
+            "eth0",
+            "mem_start",
+            "0xfe000000",
+            "io_addr",
+            "0x300",
+            "irq",
+            "5",
+        ]))
+        .unwrap();
+        assert_eq!(
+            options,
+            Options {
+                all: false,
+                interface: Some(String::from("eth0")),
+                address: None,
+                prefix_len: None,
+                add_address: None,
+                del_address: None,
+                netmask: None,
+                broadcast: None,
+                pointopoint: None,
+                mtu: None,
+                metric: None,
+                tx_queue_len: None,
+                mem_start: Some(0xfe000000),
+                io_addr: Some(0x300),
+                irq: Some(5),
+                hwaddr: None,
+                up: None,
+                arp: None,
+                multicast: None,
+                allmulti: None,
+                promisc: None,
                 dynamic: None,
                 trailers: None,
             }

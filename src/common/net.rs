@@ -67,6 +67,15 @@ pub(crate) struct RouteInfo {
     pub(crate) protocol: Option<u8>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct NeighborInfo {
+    pub(crate) family: AddressFamily,
+    pub(crate) address: String,
+    pub(crate) dev: String,
+    pub(crate) lladdr: Option<String>,
+    pub(crate) state: u16,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct LinkChange {
     pub(crate) up: Option<bool>,
@@ -169,6 +178,31 @@ pub(crate) fn list_routes() -> io::Result<Vec<RouteInfo>> {
         return Ok(routes);
     }
     live_list_routes()
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn list_neighbors() -> io::Result<Vec<NeighborInfo>> {
+    if let Some(path) = state_path() {
+        let mut neighbors = read_state(&path)?.neighbors;
+        neighbors.sort_by(|left, right| {
+            left.family
+                .cmp(&right.family)
+                .then(left.dev.cmp(&right.dev))
+                .then(left.address.cmp(&right.address))
+        });
+        return Ok(neighbors);
+    }
+    live_list_neighbors()
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn del_neighbor(neighbor: &NeighborInfo) -> io::Result<()> {
+    if let Some(path) = state_path() {
+        let mut state = read_state(&path)?;
+        state.neighbors.retain(|existing| existing != neighbor);
+        return write_state(&path, &state);
+    }
+    live_del_neighbor(neighbor)
 }
 
 #[cfg(target_os = "linux")]
@@ -457,6 +491,7 @@ pub(crate) fn interface_flag_names(flags: u32) -> Vec<&'static str> {
 struct State {
     interfaces: Vec<InterfaceInfo>,
     routes: Vec<RouteInfo>,
+    neighbors: Vec<NeighborInfo>,
 }
 
 #[cfg(target_os = "linux")]
@@ -675,6 +710,19 @@ fn read_state(path: &Path) -> io::Result<State> {
                     protocol: (!protocol.is_empty()).then(|| protocol.parse().unwrap_or(0)),
                 });
             }
+            ["neigh", family, address, dev, lladdr, nud_state] => {
+                state.neighbors.push(NeighborInfo {
+                    family: if *family == "inet6" {
+                        AddressFamily::Inet6
+                    } else {
+                        AddressFamily::Inet4
+                    },
+                    address: (*address).to_string(),
+                    dev: (*dev).to_string(),
+                    lladdr: (!lladdr.is_empty()).then(|| (*lladdr).to_string()),
+                    state: nud_state.parse().unwrap_or(0),
+                });
+            }
             _ => {}
         }
     }
@@ -685,6 +733,12 @@ fn read_state(path: &Path) -> io::Result<State> {
                 .then(left.address.cmp(&right.address))
         });
     }
+    state.neighbors.sort_by(|left, right| {
+        left.family
+            .cmp(&right.family)
+            .then(left.dev.cmp(&right.dev))
+            .then(left.address.cmp(&right.address))
+    });
     Ok(state)
 }
 
@@ -753,6 +807,19 @@ fn write_state(path: &Path, state: &State) -> io::Result<()> {
                 .map(|value| value.to_string())
                 .as_deref()
                 .unwrap_or("")
+        ));
+    }
+    for neighbor in &state.neighbors {
+        text.push_str(&format!(
+            "neigh\t{}\t{}\t{}\t{}\t{}\n",
+            match neighbor.family {
+                AddressFamily::Inet4 => "inet",
+                AddressFamily::Inet6 => "inet6",
+            },
+            neighbor.address,
+            neighbor.dev,
+            neighbor.lladdr.as_deref().unwrap_or(""),
+            neighbor.state
         ));
     }
     fs::write(path, text)
@@ -1276,6 +1343,231 @@ fn parse_ipv6_routes() -> io::Result<Vec<RouteInfo>> {
             })
         })
         .collect())
+}
+
+#[cfg(target_os = "linux")]
+fn live_list_neighbors() -> io::Result<Vec<NeighborInfo>> {
+    let mut neighbors = dump_neighbors(libc::AF_INET as u8)?;
+    neighbors.extend(dump_neighbors(libc::AF_INET6 as u8)?);
+    neighbors.sort_by(|left, right| {
+        left.family
+            .cmp(&right.family)
+            .then(left.dev.cmp(&right.dev))
+            .then(left.address.cmp(&right.address))
+    });
+    Ok(neighbors)
+}
+
+#[cfg(target_os = "linux")]
+fn dump_neighbors(family: u8) -> io::Result<Vec<NeighborInfo>> {
+    let fd = rtnetlink_socket_fd()?;
+    let mut payload = Vec::new();
+    append_bytes(
+        &mut payload,
+        &NdMsg {
+            ndm_family: family,
+            ndm_pad1: 0,
+            ndm_pad2: 0,
+            ndm_ifindex: 0,
+            ndm_state: 0,
+            ndm_flags: 0,
+            ndm_type: 0,
+        },
+    );
+
+    let mut message = Vec::with_capacity(mem::size_of::<libc::nlmsghdr>() + payload.len());
+    append_bytes(
+        &mut message,
+        &libc::nlmsghdr {
+            nlmsg_len: (mem::size_of::<libc::nlmsghdr>() + payload.len()) as u32,
+            nlmsg_type: libc::RTM_GETNEIGH,
+            nlmsg_flags: (libc::NLM_F_REQUEST | libc::NLM_F_DUMP) as u16,
+            nlmsg_seq: 1,
+            nlmsg_pid: 0,
+        },
+    );
+    message.extend_from_slice(&payload);
+
+    let mut kernel = unsafe { mem::zeroed::<libc::sockaddr_nl>() };
+    kernel.nl_family = libc::AF_NETLINK as libc::sa_family_t;
+
+    // SAFETY: buffer and sockaddr point to initialized memory for sendto.
+    let rc = unsafe {
+        libc::sendto(
+            fd,
+            message.as_ptr() as *const libc::c_void,
+            message.len(),
+            0,
+            &kernel as *const libc::sockaddr_nl as *const libc::sockaddr,
+            mem::size_of::<libc::sockaddr_nl>() as libc::socklen_t,
+        )
+    };
+    if rc < 0 {
+        let err = io::Error::last_os_error();
+        close_fd(fd);
+        return Err(err);
+    }
+
+    let mut neighbors = Vec::new();
+    let mut buffer = vec![0_u8; 8192];
+    loop {
+        // SAFETY: `buffer` is valid writable memory for recv.
+        let len = unsafe {
+            libc::recv(
+                fd,
+                buffer.as_mut_ptr() as *mut libc::c_void,
+                buffer.len(),
+                0,
+            )
+        };
+        if len < 0 {
+            let err = io::Error::last_os_error();
+            close_fd(fd);
+            return Err(err);
+        }
+        if len == 0 {
+            close_fd(fd);
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "short netlink reply",
+            ));
+        }
+        if parse_neighbor_dump_chunk(&buffer[..len as usize], &mut neighbors)? {
+            break;
+        }
+    }
+    close_fd(fd);
+    Ok(neighbors)
+}
+
+#[cfg(target_os = "linux")]
+fn parse_neighbor_dump_chunk(buffer: &[u8], neighbors: &mut Vec<NeighborInfo>) -> io::Result<bool> {
+    let header_len = mem::size_of::<libc::nlmsghdr>();
+    let error_len = mem::size_of::<libc::nlmsgerr>();
+    let mut offset = 0;
+    while offset + header_len <= buffer.len() {
+        // SAFETY: bounds checked above and aligned access is fine for nlmsghdr.
+        let header = unsafe { &*(buffer[offset..].as_ptr() as *const libc::nlmsghdr) };
+        if header.nlmsg_len < header_len as u32 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "malformed netlink reply",
+            ));
+        }
+        let message_end = offset + header.nlmsg_len as usize;
+        if message_end > buffer.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "truncated netlink reply",
+            ));
+        }
+        match header.nlmsg_type {
+            value if value == libc::NLMSG_DONE as u16 => return Ok(true),
+            value if value == libc::NLMSG_ERROR as u16 => {
+                if header.nlmsg_len < (header_len + error_len) as u32 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "truncated netlink error",
+                    ));
+                }
+                // SAFETY: bounds checked above for nlmsgerr payload.
+                let error =
+                    unsafe { &*(buffer[offset + header_len..].as_ptr() as *const libc::nlmsgerr) };
+                if error.error != 0 {
+                    return Err(io::Error::from_raw_os_error(-error.error));
+                }
+            }
+            value if value == libc::RTM_NEWNEIGH => {
+                if let Some(neighbor) =
+                    parse_neighbor_message(&buffer[offset + header_len..message_end])?
+                {
+                    neighbors.push(neighbor);
+                }
+            }
+            _ => {}
+        }
+        offset += nlmsg_align(header.nlmsg_len as usize);
+    }
+    Ok(false)
+}
+
+#[cfg(target_os = "linux")]
+fn parse_neighbor_message(payload: &[u8]) -> io::Result<Option<NeighborInfo>> {
+    let msg_len = mem::size_of::<NdMsg>();
+    if payload.len() < msg_len {
+        return Ok(None);
+    }
+    // SAFETY: bounds checked above and NdMsg is POD.
+    let message = unsafe { &*(payload.as_ptr() as *const NdMsg) };
+    let family = match message.ndm_family as i32 {
+        libc::AF_INET => AddressFamily::Inet4,
+        libc::AF_INET6 => AddressFamily::Inet6,
+        _ => return Ok(None),
+    };
+    let mut address = None;
+    let mut lladdr = None;
+    let mut offset = msg_len;
+    let attr_len = mem::size_of::<RtAttr>();
+    while offset + attr_len <= payload.len() {
+        // SAFETY: bounds checked above and RtAttr is POD.
+        let attr = unsafe { &*(payload[offset..].as_ptr() as *const RtAttr) };
+        if attr.rta_len < attr_len as u16 {
+            break;
+        }
+        let end = offset + attr.rta_len as usize;
+        if end > payload.len() {
+            break;
+        }
+        let data = &payload[offset + attr_len..end];
+        match attr.rta_type {
+            value if value == NDA_DST => {
+                address = Some(parse_route_address(family, data)?.to_string());
+            }
+            value if value == NDA_LLADDR => {
+                lladdr = Some(format_mac(data));
+            }
+            _ => {}
+        }
+        offset += nlmsg_align(attr.rta_len as usize);
+    }
+
+    let Some(address) = address else {
+        return Ok(None);
+    };
+    Ok(Some(NeighborInfo {
+        family,
+        address,
+        dev: if_name(message.ndm_ifindex as u32)?,
+        lladdr,
+        state: message.ndm_state,
+    }))
+}
+
+#[cfg(target_os = "linux")]
+fn live_del_neighbor(neighbor: &NeighborInfo) -> io::Result<()> {
+    let index = if_index(&neighbor.dev)?;
+    let mut payload = Vec::new();
+    append_bytes(
+        &mut payload,
+        &NdMsg {
+            ndm_family: match neighbor.family {
+                AddressFamily::Inet4 => libc::AF_INET as u8,
+                AddressFamily::Inet6 => libc::AF_INET6 as u8,
+            },
+            ndm_pad1: 0,
+            ndm_pad2: 0,
+            ndm_ifindex: index as i32,
+            ndm_state: neighbor.state,
+            ndm_flags: 0,
+            ndm_type: 0,
+        },
+    );
+    append_route_addr(&mut payload, neighbor.family, NDA_DST, &neighbor.address)?;
+    rtnetlink_request(
+        libc::RTM_DELNEIGH,
+        (libc::NLM_F_REQUEST | libc::NLM_F_ACK) as u16,
+        &payload,
+    )
 }
 
 #[cfg(target_os = "linux")]
@@ -2116,6 +2408,23 @@ struct RtMsg {
     rtm_type: u8,
     rtm_flags: u32,
 }
+
+#[cfg(target_os = "linux")]
+#[repr(C)]
+struct NdMsg {
+    ndm_family: u8,
+    ndm_pad1: u8,
+    ndm_pad2: u16,
+    ndm_ifindex: i32,
+    ndm_state: u16,
+    ndm_flags: u8,
+    ndm_type: u8,
+}
+
+#[cfg(target_os = "linux")]
+const NDA_DST: u16 = 1;
+#[cfg(target_os = "linux")]
+const NDA_LLADDR: u16 = 2;
 
 #[cfg(target_os = "linux")]
 #[repr(C)]

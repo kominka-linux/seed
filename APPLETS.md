@@ -47,10 +47,11 @@ This file tracks applet-specific limitations that are important to keep visible 
 - `ip`
   - family-aware `-4` / `-6` display exists for `addr` and `route`
   - `addr` now covers `show`, `add`, `del`, and `flush` with `dev` / `to` / `label` / `scope` filtering
+  - `neigh` now covers `show` and `flush` with `to` / `dev` / `nud` filtering
   - `route` now covers `show`, `add`, `append`, `del`, `change`, `replace`, and `flush`, including `src`, `metric`, `table`, and `proto`
   - `link set` now covers `up` / `down`, `arp`, `multicast`, `allmulti`, `promisc`, `mtu`, `qlen`, `name`, and `address`
   - still much smaller than full BusyBox `ip`
-  - no `neigh`, `rule`, `tunnel`, or broader `iproute2`-style object families
+  - no `rule`, `tunnel`, or broader `iproute2`-style object families
 - `ifconfig`
   - display includes IPv4 and IPv6 addresses
   - IPv6 address `add` / `del` now works against the live kernel path too

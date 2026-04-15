@@ -4,13 +4,21 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use crate::common::applet::finish;
 use crate::common::error::AppletError;
 use crate::common::net::{
-    AddressFamily, InterfaceAddress, LinkChange, RouteInfo, add_address, add_route,
-    apply_link_change, broadcast_for, del_route, format_mac, interface_flag_names, list_interfaces,
-    list_routes, parse_mac, parse_prefix, remove_address,
+    AddressFamily, InterfaceAddress, LinkChange, NeighborInfo, RouteInfo, add_address, add_route,
+    apply_link_change, broadcast_for, del_neighbor, del_route, format_mac, interface_flag_names,
+    list_interfaces, list_neighbors, list_routes, parse_mac, parse_prefix, remove_address,
 };
 
 const APPLET: &str = "ip";
 const RTPROT_RA: u8 = 9;
+const NUD_INCOMPLETE: u16 = 0x01;
+const NUD_REACHABLE: u16 = 0x02;
+const NUD_STALE: u16 = 0x04;
+const NUD_DELAY: u16 = 0x08;
+const NUD_PROBE: u16 = 0x10;
+const NUD_FAILED: u16 = 0x20;
+const NUD_NOARP: u16 = 0x40;
+const NUD_PERMANENT: u16 = 0x80;
 
 pub fn main(args: &[String]) -> i32 {
     finish(run(args))
@@ -28,6 +36,7 @@ fn run_linux(family: Option<AddressFamily>, args: &[String]) -> Result<(), Vec<A
     match command {
         "addr" | "address" => run_addr(family, &args[1..]),
         "link" => run_link(&args[1..]),
+        "neigh" => run_neigh(family, &args[1..]),
         "route" => run_route(family, &args[1..]),
         _ => Err(vec![AppletError::new(
             APPLET,
@@ -231,6 +240,40 @@ fn run_route(family: Option<AddressFamily>, args: &[String]) -> Result<(), Vec<A
 }
 
 #[derive(Default)]
+struct NeighFilter {
+    dev: Option<String>,
+    prefix: Option<ParsedPrefix>,
+    nud: Option<u16>,
+}
+
+fn run_neigh(family: Option<AddressFamily>, args: &[String]) -> Result<(), Vec<AppletError>> {
+    match args.first().map(String::as_str).unwrap_or("show") {
+        "show" | "list" => {
+            let filter = parse_neigh_filter(&args[1..], family)?;
+            for neighbor in list_neighbors().map_err(io_error("listing neighbors", None))? {
+                if matches_neigh_filter(&neighbor, family, &filter) {
+                    print_neigh(&neighbor);
+                }
+            }
+            Ok(())
+        }
+        "flush" => {
+            let filter = parse_neigh_filter(&args[1..], family)?;
+            for neighbor in list_neighbors().map_err(io_error("listing neighbors", None))? {
+                if matches_neigh_filter(&neighbor, family, &filter) {
+                    del_neighbor(&neighbor).map_err(io_error("deleting neighbor", None))?;
+                }
+            }
+            Ok(())
+        }
+        other => Err(vec![AppletError::new(
+            APPLET,
+            format!("unsupported 'ip neigh' command '{other}'"),
+        )]),
+    }
+}
+
+#[derive(Default)]
 struct AddrFilter {
     dev: Option<String>,
     prefix: Option<ParsedPrefix>,
@@ -297,6 +340,46 @@ fn parse_route_dev_filter(args: &[String]) -> Result<Option<String>, Vec<AppletE
         [label, dev] if label == "dev" => Ok(Some(dev.clone())),
         _ => Err(vec![AppletError::new(APPLET, "expected 'dev IFACE'")]),
     }
+}
+
+fn parse_neigh_filter(
+    args: &[String],
+    family_hint: Option<AddressFamily>,
+) -> Result<NeighFilter, Vec<AppletError>> {
+    let mut filter = NeighFilter::default();
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "dev" => {
+                let Some(dev) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "dev")]);
+                };
+                filter.dev = Some(dev.clone());
+                index += 2;
+            }
+            "to" => {
+                let Some(prefix) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "to")]);
+                };
+                filter.prefix = Some(parse_ip_prefix(prefix, family_hint)?);
+                index += 2;
+            }
+            "nud" => {
+                let Some(state) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "nud")]);
+                };
+                filter.nud = parse_neigh_state(state)?;
+                index += 2;
+            }
+            _ => {
+                return Err(vec![AppletError::new(
+                    APPLET,
+                    "expected 'dev IFACE', 'to PREFIX', or 'nud STATE'",
+                )])
+            }
+        }
+    }
+    Ok(filter)
 }
 
 struct AddrChange {
@@ -686,6 +769,42 @@ fn matches_label_scope(
             .is_none_or(|expected| address.scope.as_deref().unwrap_or("global") == expected)
 }
 
+fn matches_neigh_filter(
+    neighbor: &NeighborInfo,
+    family: Option<AddressFamily>,
+    filter: &NeighFilter,
+) -> bool {
+    family.is_none_or(|expected| expected == neighbor.family)
+        && filter
+            .dev
+            .as_deref()
+            .is_none_or(|expected| expected == neighbor.dev)
+        && filter
+            .nud
+            .is_none_or(|expected| expected == 0 || neighbor.state & expected != 0)
+        && match &filter.prefix {
+            None => true,
+            Some(ParsedPrefix::Inet4(expected, prefix_len)) if neighbor.family == AddressFamily::Inet4 => {
+                neighbor
+                    .address
+                    .parse::<Ipv4Addr>()
+                    .ok()
+                    .is_some_and(|candidate| prefix_matches_ipv4(candidate, *expected, *prefix_len))
+            }
+            Some(ParsedPrefix::Inet6(expected, prefix_len)) if neighbor.family == AddressFamily::Inet6 => {
+                neighbor
+                    .address
+                    .parse::<Ipv6Addr>()
+                    .ok()
+                    .zip(expected.parse::<Ipv6Addr>().ok())
+                    .is_some_and(|(candidate, expected)| {
+                        prefix_matches_ipv6(candidate, expected, *prefix_len)
+                    })
+            }
+            Some(_) => false,
+        }
+}
+
 fn print_link_interface(interface: &crate::common::net::InterfaceInfo) {
     println!(
         "{}: {}: <{}> mtu {} qlen {}",
@@ -704,6 +823,15 @@ fn print_link_interface(interface: &crate::common::net::InterfaceInfo) {
             .map(|bytes| format_mac(&bytes))
             .unwrap_or_else(|| String::from("00:00:00:00:00:00"))
     );
+}
+
+fn print_neigh(neighbor: &NeighborInfo) {
+    let mut parts = vec![neighbor.address.clone(), format!("dev {}", neighbor.dev)];
+    if let Some(lladdr) = &neighbor.lladdr {
+        parts.push(format!("lladdr {lladdr}"));
+    }
+    parts.push(format_neigh_state(neighbor.state));
+    println!("{}", parts.join(" "));
 }
 
 fn parse_on_off(applet: &'static str, option: &str, value: &str) -> Result<bool, Vec<AppletError>> {
@@ -787,6 +915,60 @@ fn parse_route_protocol(value: &str) -> Result<u8, Vec<AppletError>> {
     }
 }
 
+fn parse_neigh_state(value: &str) -> Result<Option<u16>, Vec<AppletError>> {
+    let state = match value {
+        "all" => return Ok(Some(0)),
+        "incomplete" => NUD_INCOMPLETE,
+        "reachable" => NUD_REACHABLE,
+        "stale" => NUD_STALE,
+        "delay" => NUD_DELAY,
+        "probe" => NUD_PROBE,
+        "failed" => NUD_FAILED,
+        "noarp" => NUD_NOARP,
+        "permanent" => NUD_PERMANENT,
+        _ => {
+            return Err(vec![AppletError::new(
+                APPLET,
+                format!("invalid nud state '{value}'"),
+            )])
+        }
+    };
+    Ok(Some(state))
+}
+
+fn format_neigh_state(state: u16) -> String {
+    let mut names = Vec::new();
+    if state & NUD_INCOMPLETE != 0 {
+        names.push("INCOMPLETE");
+    }
+    if state & NUD_REACHABLE != 0 {
+        names.push("REACHABLE");
+    }
+    if state & NUD_STALE != 0 {
+        names.push("STALE");
+    }
+    if state & NUD_DELAY != 0 {
+        names.push("DELAY");
+    }
+    if state & NUD_PROBE != 0 {
+        names.push("PROBE");
+    }
+    if state & NUD_FAILED != 0 {
+        names.push("FAILED");
+    }
+    if state & NUD_NOARP != 0 {
+        names.push("NOARP");
+    }
+    if state & NUD_PERMANENT != 0 {
+        names.push("PERMANENT");
+    }
+    if names.is_empty() {
+        state.to_string()
+    } else {
+        names.join(",")
+    }
+}
+
 fn format_route_protocol(value: u8) -> String {
     match value {
         value if value == libc::RTPROT_REDIRECT => String::from("redirect"),
@@ -867,7 +1049,11 @@ fn io_error(
 
 #[cfg(test)]
 mod tests {
-    use super::{AddressFamily, parse_addr_change, parse_global_family, parse_ip_prefix, parse_link_change, parse_route_change};
+    use super::{
+        AddressFamily, NUD_STALE, parse_addr_change, parse_global_family, parse_ip_prefix,
+        parse_link_change, parse_neigh_filter, parse_route_change,
+    };
+    use std::net::Ipv4Addr;
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
@@ -992,5 +1178,23 @@ mod tests {
         assert_eq!(route.metric, Some(10));
         assert_eq!(route.table, Some(100));
         assert_eq!(route.protocol, Some(libc::RTPROT_STATIC));
+    }
+
+    #[test]
+    fn parses_neigh_filter() {
+        let filter = parse_neigh_filter(
+            &args(&["to", "10.0.0.0/24", "dev", "eth0", "nud", "stale"]),
+            None,
+        )
+        .unwrap();
+        match filter.prefix.unwrap() {
+            super::ParsedPrefix::Inet4(address, prefix) => {
+                assert_eq!(address, Ipv4Addr::new(10, 0, 0, 0));
+                assert_eq!(prefix, 24);
+            }
+            super::ParsedPrefix::Inet6(_, _) => panic!("expected inet4"),
+        }
+        assert_eq!(filter.dev.as_deref(), Some("eth0"));
+        assert_eq!(filter.nud, Some(NUD_STALE));
     }
 }

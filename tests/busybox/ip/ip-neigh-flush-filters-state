@@ -1,0 +1,21 @@
+state=$(mktemp "${TMPDIR:-/tmp}/seed-net-state.XXXXXX")
+trap 'rm -f "$state"' EXIT HUP INT TERM
+
+cat >"$state" <<'EOF'
+neigh	inet	10.0.0.1	eth0	02:00:00:00:00:01	4
+neigh	inet	10.1.0.1	eth0	02:00:00:00:00:02	2
+neigh	inet6	fe80::1	eth0	02:00:00:00:00:03	4
+EOF
+
+SEED_NET_STATE="$state" busybox ip neigh flush dev eth0 nud stale
+SEED_NET_STATE="$state" busybox ip neigh show >out
+
+grep '^10.1.0.1 dev eth0 lladdr 02:00:00:00:00:02 REACHABLE$' out
+if grep -q '^10.0.0.1 ' out; then
+	echo "ip neigh unexpectedly left stale IPv4 entry behind" >&2
+	exit 1
+fi
+if grep -q '^fe80::1 ' out; then
+	echo "ip neigh unexpectedly left stale IPv6 entry behind" >&2
+	exit 1
+fi

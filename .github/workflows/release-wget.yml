@@ -1,8 +1,7 @@
 name: Release Wget
 
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -28,18 +27,42 @@ jobs:
       - name: Build standalone wget
         run: cargo build --quiet --profile release-wget --no-default-features --features wget --bin wget
 
-      - name: Package release asset
+      - name: Prepare binary
         run: |
           mkdir -p dist
-          cp target/release-wget/wget dist/wget
-          tar -C dist -czf "wget-${{ matrix.asset_suffix }}.tar.gz" wget
-          sha256sum "wget-${{ matrix.asset_suffix }}.tar.gz" > "wget-${{ matrix.asset_suffix }}.tar.gz.sha256"
+          cp target/release-wget/wget "dist/wget-${{ matrix.asset_suffix }}"
+          sha256sum "dist/wget-${{ matrix.asset_suffix }}" > "dist/wget-${{ matrix.asset_suffix }}.sha256"
 
-      - name: Upload release assets
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wget-${{ matrix.asset_suffix }}
+          path: |
+            dist/wget-${{ matrix.asset_suffix }}
+            dist/wget-${{ matrix.asset_suffix }}.sha256
+          if-no-files-found: error
+
+  release:
+    name: Create release
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: wget-${{ github.sha }}
         run: |
-          gh release upload "${{ github.event.release.tag_name }}" \
-            "wget-${{ matrix.asset_suffix }}.tar.gz" \
-            "wget-${{ matrix.asset_suffix }}.tar.gz.sha256" \
-            --clobber
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/* --clobber
+          else
+            gh release create "$RELEASE_TAG" dist/* \
+              --title "$RELEASE_TAG" \
+              --notes "Standalone wget binaries built from ${GITHUB_SHA}."
+          fi

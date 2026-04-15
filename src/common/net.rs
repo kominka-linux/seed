@@ -76,6 +76,20 @@ pub(crate) struct NeighborInfo {
     pub(crate) state: u16,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct RuleInfo {
+    pub(crate) family: AddressFamily,
+    pub(crate) from: Option<String>,
+    pub(crate) from_prefix_len: u8,
+    pub(crate) to: Option<String>,
+    pub(crate) to_prefix_len: u8,
+    pub(crate) iif: Option<String>,
+    pub(crate) oif: Option<String>,
+    pub(crate) fwmark: Option<u32>,
+    pub(crate) priority: Option<u32>,
+    pub(crate) table: u32,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct LinkChange {
     pub(crate) up: Option<bool>,
@@ -196,6 +210,21 @@ pub(crate) fn list_neighbors() -> io::Result<Vec<NeighborInfo>> {
 }
 
 #[cfg(target_os = "linux")]
+pub(crate) fn list_rules() -> io::Result<Vec<RuleInfo>> {
+    if let Some(path) = state_path() {
+        let mut rules = read_state(&path)?.rules;
+        rules.sort_by(|left, right| {
+            left.priority
+                .cmp(&right.priority)
+                .then(left.family.cmp(&right.family))
+                .then(left.table.cmp(&right.table))
+        });
+        return Ok(rules);
+    }
+    live_list_rules()
+}
+
+#[cfg(target_os = "linux")]
 pub(crate) fn del_neighbor(neighbor: &NeighborInfo) -> io::Result<()> {
     if let Some(path) = state_path() {
         let mut state = read_state(&path)?;
@@ -203,6 +232,27 @@ pub(crate) fn del_neighbor(neighbor: &NeighborInfo) -> io::Result<()> {
         return write_state(&path, &state);
     }
     live_del_neighbor(neighbor)
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn add_rule(rule: &RuleInfo) -> io::Result<()> {
+    if let Some(path) = state_path() {
+        let mut state = read_state(&path)?;
+        state.rules.retain(|existing| existing != rule);
+        state.rules.push(rule.clone());
+        return write_state(&path, &state);
+    }
+    live_rule_change(rule, libc::RTM_NEWRULE)
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn del_rule(rule: &RuleInfo) -> io::Result<()> {
+    if let Some(path) = state_path() {
+        let mut state = read_state(&path)?;
+        state.rules.retain(|existing| existing != rule);
+        return write_state(&path, &state);
+    }
+    live_rule_change(rule, libc::RTM_DELRULE)
 }
 
 #[cfg(target_os = "linux")]
@@ -492,6 +542,7 @@ struct State {
     interfaces: Vec<InterfaceInfo>,
     routes: Vec<RouteInfo>,
     neighbors: Vec<NeighborInfo>,
+    rules: Vec<RuleInfo>,
 }
 
 #[cfg(target_os = "linux")]
@@ -723,6 +774,36 @@ fn read_state(path: &Path) -> io::Result<State> {
                     state: nud_state.parse().unwrap_or(0),
                 });
             }
+            [
+                "rule",
+                family,
+                from,
+                from_prefix_len,
+                to,
+                to_prefix_len,
+                iif,
+                oif,
+                fwmark,
+                priority,
+                table,
+            ] => {
+                state.rules.push(RuleInfo {
+                    family: if *family == "inet6" {
+                        AddressFamily::Inet6
+                    } else {
+                        AddressFamily::Inet4
+                    },
+                    from: (!from.is_empty()).then(|| (*from).to_string()),
+                    from_prefix_len: from_prefix_len.parse().unwrap_or(0),
+                    to: (!to.is_empty()).then(|| (*to).to_string()),
+                    to_prefix_len: to_prefix_len.parse().unwrap_or(0),
+                    iif: (!iif.is_empty()).then(|| (*iif).to_string()),
+                    oif: (!oif.is_empty()).then(|| (*oif).to_string()),
+                    fwmark: (!fwmark.is_empty()).then(|| fwmark.parse().unwrap_or(0)),
+                    priority: (!priority.is_empty()).then(|| priority.parse().unwrap_or(0)),
+                    table: table.parse().unwrap_or(libc::RT_TABLE_MAIN as u32),
+                });
+            }
             _ => {}
         }
     }
@@ -738,6 +819,12 @@ fn read_state(path: &Path) -> io::Result<State> {
             .cmp(&right.family)
             .then(left.dev.cmp(&right.dev))
             .then(left.address.cmp(&right.address))
+    });
+    state.rules.sort_by(|left, right| {
+        left.priority
+            .cmp(&right.priority)
+            .then(left.family.cmp(&right.family))
+            .then(left.table.cmp(&right.table))
     });
     Ok(state)
 }
@@ -820,6 +907,30 @@ fn write_state(path: &Path, state: &State) -> io::Result<()> {
             neighbor.dev,
             neighbor.lladdr.as_deref().unwrap_or(""),
             neighbor.state
+        ));
+    }
+    for rule in &state.rules {
+        text.push_str(&format!(
+            "rule\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+            match rule.family {
+                AddressFamily::Inet4 => "inet",
+                AddressFamily::Inet6 => "inet6",
+            },
+            rule.from.as_deref().unwrap_or(""),
+            rule.from_prefix_len,
+            rule.to.as_deref().unwrap_or(""),
+            rule.to_prefix_len,
+            rule.iif.as_deref().unwrap_or(""),
+            rule.oif.as_deref().unwrap_or(""),
+            rule.fwmark
+                .map(|value| value.to_string())
+                .as_deref()
+                .unwrap_or(""),
+            rule.priority
+                .map(|value| value.to_string())
+                .as_deref()
+                .unwrap_or(""),
+            rule.table
         ));
     }
     fs::write(path, text)
@@ -1568,6 +1679,301 @@ fn live_del_neighbor(neighbor: &NeighborInfo) -> io::Result<()> {
         (libc::NLM_F_REQUEST | libc::NLM_F_ACK) as u16,
         &payload,
     )
+}
+
+#[cfg(target_os = "linux")]
+fn live_list_rules() -> io::Result<Vec<RuleInfo>> {
+    let mut rules = dump_rules(libc::AF_INET as u8)?;
+    rules.extend(dump_rules(libc::AF_INET6 as u8)?);
+    rules.sort_by(|left, right| {
+        left.priority
+            .cmp(&right.priority)
+            .then(left.family.cmp(&right.family))
+            .then(left.table.cmp(&right.table))
+    });
+    Ok(rules)
+}
+
+#[cfg(target_os = "linux")]
+fn dump_rules(family: u8) -> io::Result<Vec<RuleInfo>> {
+    let fd = rtnetlink_socket_fd()?;
+    let mut payload = Vec::new();
+    append_bytes(
+        &mut payload,
+        &FibRuleHdr {
+            family,
+            dst_len: 0,
+            src_len: 0,
+            tos: 0,
+            table: libc::RT_TABLE_UNSPEC,
+            res1: 0,
+            res2: 0,
+            action: FR_ACT_TO_TBL,
+            flags: 0,
+        },
+    );
+
+    let mut message = Vec::with_capacity(mem::size_of::<libc::nlmsghdr>() + payload.len());
+    append_bytes(
+        &mut message,
+        &libc::nlmsghdr {
+            nlmsg_len: (mem::size_of::<libc::nlmsghdr>() + payload.len()) as u32,
+            nlmsg_type: libc::RTM_GETRULE,
+            nlmsg_flags: (libc::NLM_F_REQUEST | libc::NLM_F_DUMP) as u16,
+            nlmsg_seq: 1,
+            nlmsg_pid: 0,
+        },
+    );
+    message.extend_from_slice(&payload);
+
+    let mut kernel = unsafe { mem::zeroed::<libc::sockaddr_nl>() };
+    kernel.nl_family = libc::AF_NETLINK as libc::sa_family_t;
+
+    // SAFETY: buffer and sockaddr point to initialized memory for sendto.
+    let rc = unsafe {
+        libc::sendto(
+            fd,
+            message.as_ptr() as *const libc::c_void,
+            message.len(),
+            0,
+            &kernel as *const libc::sockaddr_nl as *const libc::sockaddr,
+            mem::size_of::<libc::sockaddr_nl>() as libc::socklen_t,
+        )
+    };
+    if rc < 0 {
+        let err = io::Error::last_os_error();
+        close_fd(fd);
+        return Err(err);
+    }
+
+    let mut rules = Vec::new();
+    let mut buffer = vec![0_u8; 8192];
+    loop {
+        // SAFETY: `buffer` is valid writable memory for recv.
+        let len = unsafe {
+            libc::recv(
+                fd,
+                buffer.as_mut_ptr() as *mut libc::c_void,
+                buffer.len(),
+                0,
+            )
+        };
+        if len < 0 {
+            let err = io::Error::last_os_error();
+            close_fd(fd);
+            return Err(err);
+        }
+        if len == 0 {
+            close_fd(fd);
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "short netlink reply",
+            ));
+        }
+        if parse_rule_dump_chunk(&buffer[..len as usize], &mut rules)? {
+            break;
+        }
+    }
+    close_fd(fd);
+    Ok(rules)
+}
+
+#[cfg(target_os = "linux")]
+fn parse_rule_dump_chunk(buffer: &[u8], rules: &mut Vec<RuleInfo>) -> io::Result<bool> {
+    let header_len = mem::size_of::<libc::nlmsghdr>();
+    let error_len = mem::size_of::<libc::nlmsgerr>();
+    let mut offset = 0;
+    while offset + header_len <= buffer.len() {
+        // SAFETY: bounds checked above and aligned access is fine for nlmsghdr.
+        let header = unsafe { &*(buffer[offset..].as_ptr() as *const libc::nlmsghdr) };
+        if header.nlmsg_len < header_len as u32 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "malformed netlink reply",
+            ));
+        }
+        let message_end = offset + header.nlmsg_len as usize;
+        if message_end > buffer.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "truncated netlink reply",
+            ));
+        }
+        match header.nlmsg_type {
+            value if value == libc::NLMSG_DONE as u16 => return Ok(true),
+            value if value == libc::NLMSG_ERROR as u16 => {
+                if header.nlmsg_len < (header_len + error_len) as u32 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "truncated netlink error",
+                    ));
+                }
+                // SAFETY: bounds checked above for nlmsgerr payload.
+                let error =
+                    unsafe { &*(buffer[offset + header_len..].as_ptr() as *const libc::nlmsgerr) };
+                if error.error != 0 {
+                    return Err(io::Error::from_raw_os_error(-error.error));
+                }
+            }
+            value if value == libc::RTM_NEWRULE => {
+                if let Some(rule) = parse_rule_message(&buffer[offset + header_len..message_end])? {
+                    rules.push(rule);
+                }
+            }
+            _ => {}
+        }
+        offset += nlmsg_align(header.nlmsg_len as usize);
+    }
+    Ok(false)
+}
+
+#[cfg(target_os = "linux")]
+fn parse_rule_message(payload: &[u8]) -> io::Result<Option<RuleInfo>> {
+    let msg_len = mem::size_of::<FibRuleHdr>();
+    if payload.len() < msg_len {
+        return Ok(None);
+    }
+    // SAFETY: bounds checked above and FibRuleHdr is POD.
+    let message = unsafe { &*(payload.as_ptr() as *const FibRuleHdr) };
+    let family = match message.family as i32 {
+        libc::AF_INET => AddressFamily::Inet4,
+        libc::AF_INET6 => AddressFamily::Inet6,
+        _ => return Ok(None),
+    };
+    if message.action != FR_ACT_TO_TBL {
+        return Ok(None);
+    }
+    let mut from = None;
+    let mut to = None;
+    let mut iif = None;
+    let mut oif = None;
+    let mut fwmark = None;
+    let mut priority = None;
+    let mut table = message.table as u32;
+    let mut offset = msg_len;
+    let attr_len = mem::size_of::<RtAttr>();
+    while offset + attr_len <= payload.len() {
+        // SAFETY: bounds checked above and RtAttr is POD.
+        let attr = unsafe { &*(payload[offset..].as_ptr() as *const RtAttr) };
+        if attr.rta_len < attr_len as u16 {
+            break;
+        }
+        let end = offset + attr.rta_len as usize;
+        if end > payload.len() {
+            break;
+        }
+        let data = &payload[offset + attr_len..end];
+        match attr.rta_type {
+            value if value == FRA_SRC => {
+                from = Some(parse_route_address(family, data)?.to_string());
+            }
+            value if value == FRA_DST => {
+                to = Some(parse_route_address(family, data)?.to_string());
+            }
+            value if value == FRA_IIFNAME => {
+                iif = parse_attr_c_string(data);
+            }
+            value if value == FRA_OIFNAME => {
+                oif = parse_attr_c_string(data);
+            }
+            value if value == FRA_FWMARK && data.len() >= 4 => {
+                fwmark = Some(u32::from_ne_bytes(data[..4].try_into().unwrap_or([0; 4])));
+            }
+            value if value == FRA_PRIORITY && data.len() >= 4 => {
+                priority = Some(u32::from_ne_bytes(data[..4].try_into().unwrap_or([0; 4])));
+            }
+            value if value == FRA_TABLE && data.len() >= 4 => {
+                table = u32::from_ne_bytes(data[..4].try_into().unwrap_or([0; 4]));
+            }
+            _ => {}
+        }
+        offset += nlmsg_align(attr.rta_len as usize);
+    }
+
+    Ok(Some(RuleInfo {
+        family,
+        from,
+        from_prefix_len: message.src_len,
+        to,
+        to_prefix_len: message.dst_len,
+        iif,
+        oif,
+        fwmark,
+        priority,
+        table,
+    }))
+}
+
+#[cfg(target_os = "linux")]
+fn live_rule_change(rule: &RuleInfo, request_type: u16) -> io::Result<()> {
+    let mut payload = Vec::new();
+    append_bytes(
+        &mut payload,
+        &FibRuleHdr {
+            family: match rule.family {
+                AddressFamily::Inet4 => libc::AF_INET as u8,
+                AddressFamily::Inet6 => libc::AF_INET6 as u8,
+            },
+            dst_len: rule.to_prefix_len,
+            src_len: rule.from_prefix_len,
+            tos: 0,
+            table: rule.table.min(u8::MAX as u32) as u8,
+            res1: 0,
+            res2: 0,
+            action: FR_ACT_TO_TBL,
+            flags: 0,
+        },
+    );
+    if let Some(from) = &rule.from {
+        append_rule_addr(&mut payload, rule.family, FRA_SRC, from)?;
+    }
+    if let Some(to) = &rule.to {
+        append_rule_addr(&mut payload, rule.family, FRA_DST, to)?;
+    }
+    if let Some(iif) = &rule.iif {
+        append_attr_c_string(&mut payload, FRA_IIFNAME, iif);
+    }
+    if let Some(oif) = &rule.oif {
+        append_attr_c_string(&mut payload, FRA_OIFNAME, oif);
+    }
+    if let Some(fwmark) = rule.fwmark {
+        append_rtattr(&mut payload, FRA_FWMARK, &fwmark.to_ne_bytes());
+    }
+    if let Some(priority) = rule.priority {
+        append_rtattr(&mut payload, FRA_PRIORITY, &priority.to_ne_bytes());
+    }
+    if rule.table > u8::MAX as u32 {
+        append_rtattr(&mut payload, FRA_TABLE, &rule.table.to_ne_bytes());
+    }
+    let flags = if request_type == libc::RTM_NEWRULE {
+        (libc::NLM_F_REQUEST | libc::NLM_F_ACK | libc::NLM_F_CREATE | libc::NLM_F_EXCL) as u16
+    } else {
+        (libc::NLM_F_REQUEST | libc::NLM_F_ACK) as u16
+    };
+    rtnetlink_request(request_type, flags, &payload)
+}
+
+#[cfg(target_os = "linux")]
+fn append_rule_addr(
+    payload: &mut Vec<u8>,
+    family: AddressFamily,
+    attr: u16,
+    value: &str,
+) -> io::Result<()> {
+    append_route_addr(payload, family, attr, value)
+}
+
+#[cfg(target_os = "linux")]
+fn append_attr_c_string(payload: &mut Vec<u8>, attr: u16, value: &str) {
+    let mut bytes = value.as_bytes().to_vec();
+    bytes.push(0);
+    append_rtattr(payload, attr, &bytes);
+}
+
+#[cfg(target_os = "linux")]
+fn parse_attr_c_string(data: &[u8]) -> Option<String> {
+    let trimmed = data.split(|byte| *byte == 0).next().unwrap_or(data);
+    (!trimmed.is_empty()).then(|| String::from_utf8_lossy(trimmed).into_owned())
 }
 
 #[cfg(target_os = "linux")]
@@ -2425,6 +2831,36 @@ struct NdMsg {
 const NDA_DST: u16 = 1;
 #[cfg(target_os = "linux")]
 const NDA_LLADDR: u16 = 2;
+#[cfg(target_os = "linux")]
+const FRA_DST: u16 = 1;
+#[cfg(target_os = "linux")]
+const FRA_SRC: u16 = 2;
+#[cfg(target_os = "linux")]
+const FRA_IIFNAME: u16 = 3;
+#[cfg(target_os = "linux")]
+const FRA_PRIORITY: u16 = 6;
+#[cfg(target_os = "linux")]
+const FRA_FWMARK: u16 = 10;
+#[cfg(target_os = "linux")]
+const FRA_TABLE: u16 = 15;
+#[cfg(target_os = "linux")]
+const FRA_OIFNAME: u16 = 17;
+#[cfg(target_os = "linux")]
+const FR_ACT_TO_TBL: u8 = 1;
+
+#[cfg(target_os = "linux")]
+#[repr(C)]
+struct FibRuleHdr {
+    family: u8,
+    dst_len: u8,
+    src_len: u8,
+    tos: u8,
+    table: u8,
+    res1: u8,
+    res2: u8,
+    action: u8,
+    flags: u32,
+}
 
 #[cfg(target_os = "linux")]
 #[repr(C)]

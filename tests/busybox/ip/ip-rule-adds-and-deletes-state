@@ -1,0 +1,15 @@
+state=$(mktemp "${TMPDIR:-/tmp}/seed-net-state.XXXXXX")
+trap 'rm -f "$state"' EXIT HUP INT TERM
+
+SEED_NET_STATE="$state" busybox ip rule add from 10.0.0.0/24 to 10.1.0.0/24 iif eth0 oif eth1 fwmark 0x10 priority 100 lookup 200
+SEED_NET_STATE="$state" busybox ip rule list >out
+
+grep '^100:	from 10.0.0.0/24 to 10.1.0.0/24 iif eth0 oif eth1 fwmark 0x10 lookup 200 $' out
+
+SEED_NET_STATE="$state" busybox ip rule del from 10.0.0.0/24 to 10.1.0.0/24 iif eth0 oif eth1 fwmark 0x10 priority 100 lookup 200
+SEED_NET_STATE="$state" busybox ip rule list >out2
+
+if grep -q '^100:	from 10.0.0.0/24 ' out2; then
+	echo "ip rule unexpectedly left deleted rule behind" >&2
+	exit 1
+fi

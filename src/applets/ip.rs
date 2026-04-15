@@ -4,9 +4,10 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use crate::common::applet::finish;
 use crate::common::error::AppletError;
 use crate::common::net::{
-    AddressFamily, InterfaceAddress, LinkChange, NeighborInfo, RouteInfo, add_address, add_route,
-    apply_link_change, broadcast_for, del_neighbor, del_route, format_mac, interface_flag_names,
-    list_interfaces, list_neighbors, list_routes, parse_mac, parse_prefix, remove_address,
+    AddressFamily, InterfaceAddress, LinkChange, NeighborInfo, RouteInfo, RuleInfo, add_address,
+    add_route, add_rule, apply_link_change, broadcast_for, del_neighbor, del_route, del_rule,
+    format_mac, interface_flag_names, list_interfaces, list_neighbors, list_routes, list_rules,
+    parse_mac, parse_prefix, remove_address,
 };
 
 const APPLET: &str = "ip";
@@ -37,6 +38,7 @@ fn run_linux(family: Option<AddressFamily>, args: &[String]) -> Result<(), Vec<A
         "addr" | "address" => run_addr(family, &args[1..]),
         "link" => run_link(&args[1..]),
         "neigh" => run_neigh(family, &args[1..]),
+        "rule" => run_rule(family, &args[1..]),
         "route" => run_route(family, &args[1..]),
         _ => Err(vec![AppletError::new(
             APPLET,
@@ -273,6 +275,33 @@ fn run_neigh(family: Option<AddressFamily>, args: &[String]) -> Result<(), Vec<A
     }
 }
 
+fn run_rule(family: Option<AddressFamily>, args: &[String]) -> Result<(), Vec<AppletError>> {
+    match args.first().map(String::as_str).unwrap_or("list") {
+        "show" | "list" => {
+            for rule in list_rules().map_err(io_error("listing rules", None))? {
+                if family.is_none_or(|expected| expected == rule.family) {
+                    print_rule(&rule);
+                }
+            }
+            Ok(())
+        }
+        "add" | "del" => {
+            let delete = args[0] == "del";
+            let rule = parse_rule_change(family, &args[1..])?;
+            if delete {
+                del_rule(&rule).map_err(io_error("deleting rule", None))?;
+            } else {
+                add_rule(&rule).map_err(io_error("adding rule", None))?;
+            }
+            Ok(())
+        }
+        other => Err(vec![AppletError::new(
+            APPLET,
+            format!("unsupported 'ip rule' command '{other}'"),
+        )]),
+    }
+}
+
 #[derive(Default)]
 struct AddrFilter {
     dev: Option<String>,
@@ -463,6 +492,116 @@ fn parse_addr_change(
         broadcast,
         label,
         scope,
+    })
+}
+
+fn parse_rule_change(
+    family_hint: Option<AddressFamily>,
+    args: &[String],
+) -> Result<RuleInfo, Vec<AppletError>> {
+    let mut family = family_hint;
+    let mut from = None;
+    let mut from_prefix_len = 0;
+    let mut to = None;
+    let mut to_prefix_len = 0;
+    let mut iif = None;
+    let mut oif = None;
+    let mut fwmark = None;
+    let mut priority = None;
+    let mut table = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "from" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "from")]);
+                };
+                if value != "all" {
+                    match parse_ip_prefix(value, family_hint)? {
+                        ParsedPrefix::Inet4(address, prefix) => {
+                            family = Some(AddressFamily::Inet4);
+                            from = Some(address.to_string());
+                            from_prefix_len = prefix;
+                        }
+                        ParsedPrefix::Inet6(address, prefix) => {
+                            family = Some(AddressFamily::Inet6);
+                            from = Some(address);
+                            from_prefix_len = prefix;
+                        }
+                    }
+                }
+                index += 2;
+            }
+            "to" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "to")]);
+                };
+                if value != "all" {
+                    match parse_ip_prefix(value, family_hint)? {
+                        ParsedPrefix::Inet4(address, prefix) => {
+                            family = Some(AddressFamily::Inet4);
+                            to = Some(address.to_string());
+                            to_prefix_len = prefix;
+                        }
+                        ParsedPrefix::Inet6(address, prefix) => {
+                            family = Some(AddressFamily::Inet6);
+                            to = Some(address);
+                            to_prefix_len = prefix;
+                        }
+                    }
+                }
+                index += 2;
+            }
+            "iif" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "iif")]);
+                };
+                iif = Some(value.clone());
+                index += 2;
+            }
+            "oif" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "oif")]);
+                };
+                oif = Some(value.clone());
+                index += 2;
+            }
+            "fwmark" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "fwmark")]);
+                };
+                fwmark = Some(parse_u32_auto_base("fwmark", value)?);
+                index += 2;
+            }
+            "priority" | "pref" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "priority")]);
+                };
+                priority = Some(parse_u32_auto_base("priority", value)?);
+                index += 2;
+            }
+            "lookup" | "table" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "lookup")]);
+                };
+                table = Some(parse_route_table(value)?);
+                index += 2;
+            }
+            _ => return Err(vec![AppletError::new(APPLET, "unsupported rule selector/action")]),
+        }
+    }
+    let family = family.unwrap_or(AddressFamily::Inet4);
+    Ok(RuleInfo {
+        family,
+        from,
+        from_prefix_len,
+        to,
+        to_prefix_len,
+        iif,
+        oif,
+        fwmark,
+        priority,
+        table: table.unwrap_or(libc::RT_TABLE_MAIN as u32),
     })
 }
 
@@ -834,6 +973,25 @@ fn print_neigh(neighbor: &NeighborInfo) {
     println!("{}", parts.join(" "));
 }
 
+fn print_rule(rule: &RuleInfo) {
+    let priority = rule.priority.unwrap_or(0);
+    let mut parts = vec![format!("{priority}:\tfrom {}", format_rule_prefix(&rule.from, rule.from_prefix_len))];
+    if rule.to.is_some() || rule.to_prefix_len != 0 {
+        parts.push(format!("to {}", format_rule_prefix(&rule.to, rule.to_prefix_len)));
+    }
+    if let Some(iif) = &rule.iif {
+        parts.push(format!("iif {iif}"));
+    }
+    if let Some(oif) = &rule.oif {
+        parts.push(format!("oif {oif}"));
+    }
+    if let Some(fwmark) = rule.fwmark {
+        parts.push(format!("fwmark 0x{fwmark:x}"));
+    }
+    parts.push(format!("lookup {}", format_route_table(rule.table)));
+    println!("{} ", parts.join(" "));
+}
+
 fn parse_on_off(applet: &'static str, option: &str, value: &str) -> Result<bool, Vec<AppletError>> {
     match value {
         "on" => Ok(true),
@@ -980,6 +1138,24 @@ fn format_route_protocol(value: u8) -> String {
     }
 }
 
+fn parse_u32_auto_base(kind: &str, value: &str) -> Result<u32, Vec<AppletError>> {
+    value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+        .map_or_else(
+            || value.parse::<u32>(),
+            |hex| u32::from_str_radix(hex, 16),
+        )
+        .map_err(|_| vec![AppletError::new(APPLET, format!("invalid {kind} '{value}'"))])
+}
+
+fn format_rule_prefix(address: &Option<String>, prefix_len: u8) -> String {
+    match address {
+        Some(address) => format!("{address}/{prefix_len}"),
+        None => String::from("all"),
+    }
+}
+
 fn parse_ip_addr(value: &str) -> Result<IpAddr, Vec<AppletError>> {
     value.parse::<IpAddr>().map_err(|_| {
         vec![AppletError::new(
@@ -1051,7 +1227,7 @@ fn io_error(
 mod tests {
     use super::{
         AddressFamily, NUD_STALE, parse_addr_change, parse_global_family, parse_ip_prefix,
-        parse_link_change, parse_neigh_filter, parse_route_change,
+        parse_link_change, parse_neigh_filter, parse_route_change, parse_rule_change,
     };
     use std::net::Ipv4Addr;
 
@@ -1196,5 +1372,38 @@ mod tests {
         }
         assert_eq!(filter.dev.as_deref(), Some("eth0"));
         assert_eq!(filter.nud, Some(NUD_STALE));
+    }
+
+    #[test]
+    fn parses_rule_change() {
+        let rule = parse_rule_change(
+            None,
+            &args(&[
+                "from",
+                "10.0.0.0/24",
+                "to",
+                "10.1.0.0/24",
+                "iif",
+                "eth0",
+                "oif",
+                "eth1",
+                "fwmark",
+                "0x10",
+                "priority",
+                "100",
+                "lookup",
+                "200",
+            ]),
+        )
+        .unwrap();
+        assert_eq!(rule.from.as_deref(), Some("10.0.0.0"));
+        assert_eq!(rule.from_prefix_len, 24);
+        assert_eq!(rule.to.as_deref(), Some("10.1.0.0"));
+        assert_eq!(rule.to_prefix_len, 24);
+        assert_eq!(rule.iif.as_deref(), Some("eth0"));
+        assert_eq!(rule.oif.as_deref(), Some("eth1"));
+        assert_eq!(rule.fwmark, Some(0x10));
+        assert_eq!(rule.priority, Some(100));
+        assert_eq!(rule.table, 200);
     }
 }

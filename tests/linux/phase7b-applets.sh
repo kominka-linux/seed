@@ -91,3 +91,10 @@ ip route del 198.51.100.0/24 dev lo src 127.0.0.1 metric 10 proto static
 ip route show | grep -F '198.51.100.0/24 dev lo proto static src 127.0.0.1 metric 10' >/dev/null && exit 1 || true
 
 printf 'phase7b: ip-ipv4-route-attrs-ok\n'
+
+ip rule add from 198.51.100.0/24 priority 100 lookup main
+ip rule list | grep -F '100:	from 198.51.100.0/24 lookup main ' >/dev/null
+ip rule del from 198.51.100.0/24 priority 100 lookup main
+ip rule list | grep -F '100:	from 198.51.100.0/24 lookup main ' >/dev/null && exit 1 || true
+
+printf 'phase7b: ip-rule-ok\n'

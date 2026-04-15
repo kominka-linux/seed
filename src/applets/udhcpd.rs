@@ -6,17 +6,19 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::common::applet::finish_code;
 use crate::common::args::{ArgCursor, ArgToken};
 use crate::common::dhcp::{
-    BOOTREPLY, DhcpPacket, MESSAGE_ACK, MESSAGE_DISCOVER, MESSAGE_NAK, MESSAGE_OFFER,
-    MESSAGE_RELEASE, MESSAGE_REQUEST, OPTION_DNS, OPTION_LEASE_TIME, OPTION_MESSAGE_TYPE,
-    OPTION_REQUESTED_IP, OPTION_ROUTER, OPTION_SERVER_ID, OPTION_SUBNET_MASK, decode_ipv4, decode_u32,
-    default_server_identifier, encode_ipv4, encode_ipv4_list, encode_option_value, encode_u32,
-    format_mac, option_code, prepare_socket, receive_packet, send_packet, server_port,
+    BOOTREPLY, DhcpPacket, MESSAGE_ACK, MESSAGE_DECLINE, MESSAGE_DISCOVER, MESSAGE_NAK,
+    MESSAGE_OFFER, MESSAGE_RELEASE, MESSAGE_REQUEST, OPTION_DNS, OPTION_LEASE_TIME,
+    OPTION_MESSAGE_TYPE, OPTION_REQUESTED_IP, OPTION_ROUTER, OPTION_SERVER_ID,
+    OPTION_SUBNET_MASK, decode_ipv4, decode_u32, default_server_identifier, encode_ipv4,
+    encode_ipv4_list, encode_option_value, encode_u32, format_mac, option_code, prepare_socket,
+    receive_packet, send_packet, server_port,
 };
 use crate::common::error::AppletError;
 
 const APPLET: &str = "udhcpd";
 const DEFAULT_CONFIG: &str = "/etc/udhcpd.conf";
 const DEFAULT_LEASE_SECS: u32 = 600;
+const DEFAULT_DECLINE_TIME_SECS: u32 = 3600;
 
 pub fn main(args: &[String]) -> i32 {
     finish_code(run(args))
@@ -70,6 +72,7 @@ struct ServerConfig {
     routers: Vec<Ipv4Addr>,
     dns: Vec<Ipv4Addr>,
     lease_time: u32,
+    decline_time: u32,
     max_leases: Option<usize>,
     lease_file: Option<PathBuf>,
     pidfile: Option<PathBuf>,
@@ -79,7 +82,7 @@ struct ServerConfig {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Lease {
     ip: Ipv4Addr,
-    mac: [u8; 6],
+    mac: Option<[u8; 6]>,
     expires_at: u64,
 }
 
@@ -138,6 +141,7 @@ fn parse_config(text: &str) -> Result<ServerConfig, Vec<AppletError>> {
     let mut routers = Vec::new();
     let mut dns = Vec::new();
     let mut lease_time = DEFAULT_LEASE_SECS;
+    let mut decline_time = DEFAULT_DECLINE_TIME_SECS;
     let mut max_leases = None;
     let mut lease_file = None;
     let mut pidfile = None;
@@ -189,8 +193,16 @@ fn parse_config(text: &str) -> Result<ServerConfig, Vec<AppletError>> {
                     _ => {}
                 }
             }
+            "decline_time" => {
+                decline_time = parts[1].parse::<u32>().map_err(|_| {
+                    vec![AppletError::new(
+                        APPLET,
+                        format!("invalid config line {}: '{line}'", line_number + 1),
+                    )]
+                })?;
+            }
             // BusyBox configs commonly carry these; we accept and ignore them for compatibility.
-            "remaining" | "auto_time" | "decline_time" | "conflict_time" | "offer_time"
+            "remaining" | "auto_time" | "conflict_time" | "offer_time"
             | "min_lease" | "notify_file" | "sname" | "boot_file" => {}
             _ => {
                 return Err(vec![AppletError::new(
@@ -216,6 +228,7 @@ fn parse_config(text: &str) -> Result<ServerConfig, Vec<AppletError>> {
         routers,
         dns,
         lease_time,
+        decline_time,
         max_leases,
         lease_file,
         pidfile,
@@ -275,6 +288,15 @@ fn handle_packet(
             release_lease(leases, packet.mac(), ip);
             Ok(true)
         }
+        Some(MESSAGE_DECLINE) => {
+            if let Some(ip) = requested_ip(packet).or_else(|| nonzero_ip(packet.ciaddr))
+                && ip_in_range(config, ip)
+            {
+                decline_lease(config, leases, ip);
+                return Ok(true);
+            }
+            Ok(false)
+        }
         _ => Ok(false),
     }
 }
@@ -321,7 +343,10 @@ fn select_offer_ip(
     mac: [u8; 6],
     requested: Option<Ipv4Addr>,
 ) -> Result<Option<Ipv4Addr>, Vec<AppletError>> {
-    if let Some(lease) = leases.iter().find(|lease| lease.mac == mac && !lease_expired(lease)) {
+    if let Some(lease) = leases
+        .iter()
+        .find(|lease| lease.mac == Some(mac) && !lease_expired(lease))
+    {
         return Ok(Some(lease.ip));
     }
     if let Some(requested) = requested
@@ -340,7 +365,9 @@ fn find_first_available(
 ) -> Result<Option<Ipv4Addr>, Vec<AppletError>> {
     if config
         .max_leases
-        .is_some_and(|limit| active_lease_count(leases) >= limit && !leases.iter().any(|lease| lease.mac == mac))
+        .is_some_and(|limit| {
+            active_lease_count(leases) >= limit && !leases.iter().any(|lease| lease.mac == Some(mac))
+        })
     {
         return Ok(None);
     }
@@ -359,10 +386,10 @@ fn find_first_available(
 
 fn assign_lease(config: &ServerConfig, leases: &mut Vec<Lease>, mac: [u8; 6], ip: Ipv4Addr) {
     let expires_at = unix_now().saturating_add(u64::from(config.lease_time));
-    leases.retain(|lease| !(lease.mac == mac || lease.ip == ip));
+    leases.retain(|lease| !(lease.mac == Some(mac) || lease.ip == ip));
     leases.push(Lease {
         ip,
-        mac,
+        mac: Some(mac),
         expires_at,
     });
     leases.sort_by_key(|lease| ipv4_to_u32(lease.ip));
@@ -370,18 +397,28 @@ fn assign_lease(config: &ServerConfig, leases: &mut Vec<Lease>, mac: [u8; 6], ip
 
 fn release_lease(leases: &mut Vec<Lease>, mac: [u8; 6], ip: Option<Ipv4Addr>) {
     leases.retain(|lease| {
-        if lease.mac != mac {
+        if lease.mac != Some(mac) {
             return true;
         }
         ip.is_none_or(|release_ip| lease.ip != release_ip)
     });
 }
 
+fn decline_lease(config: &ServerConfig, leases: &mut Vec<Lease>, ip: Ipv4Addr) {
+    leases.retain(|lease| lease.ip != ip);
+    leases.push(Lease {
+        ip,
+        mac: None,
+        expires_at: unix_now().saturating_add(u64::from(config.decline_time)),
+    });
+    leases.sort_by_key(|lease| ipv4_to_u32(lease.ip));
+}
+
 fn ip_available(leases: &[Lease], mac: [u8; 6], ip: Ipv4Addr) -> bool {
     leases
         .iter()
         .filter(|lease| !lease_expired(lease))
-        .all(|lease| lease.ip != ip || lease.mac == mac)
+        .all(|lease| lease.ip != ip || lease.mac == Some(mac))
 }
 
 fn active_lease_count(leases: &[Lease]) -> usize {
@@ -432,7 +469,7 @@ fn load_leases(path: Option<&Path>) -> Result<Vec<Lease>, Vec<AppletError>> {
         };
         leases.push(Lease {
             ip,
-            mac,
+            mac: Some(mac),
             expires_at,
         });
     }
@@ -446,10 +483,13 @@ fn persist_leases(path: Option<&Path>, leases: &[Lease]) -> Result<(), Vec<Apple
     };
     let mut lines = String::new();
     for lease in leases.iter().filter(|lease| !lease_expired(lease)) {
+        let Some(mac) = lease.mac else {
+            continue;
+        };
         lines.push_str(&format!(
             "{} {} {}\n",
             lease.ip,
-            format_mac(lease.mac),
+            format_mac(mac),
             lease.expires_at
         ));
     }
@@ -517,8 +557,8 @@ impl Drop for PidFileGuard {
 #[cfg(test)]
 mod tests {
     use super::{
-        Lease, ServerConfig, assign_lease, find_first_available, parse_args, parse_config,
-        release_lease, select_offer_ip,
+        Lease, ServerConfig, assign_lease, decline_lease, find_first_available, parse_args,
+        parse_config, release_lease, select_offer_ip,
     };
     use std::net::Ipv4Addr;
     use std::path::PathBuf;
@@ -537,6 +577,7 @@ mod tests {
             routers: vec![Ipv4Addr::new(10, 0, 0, 1)],
             dns: vec![Ipv4Addr::new(1, 1, 1, 1)],
             lease_time: 600,
+            decline_time: 3600,
             max_leases: None,
             lease_file: None,
             pidfile: None,
@@ -561,6 +602,7 @@ mod tests {
         assert_eq!(config.end, Ipv4Addr::new(10, 0, 0, 20));
         assert_eq!(config.server_id, Ipv4Addr::new(10, 0, 0, 1));
         assert_eq!(config.lease_time, 900);
+        assert_eq!(config.decline_time, 3600);
         assert_eq!(config.dns.len(), 2);
     }
 
@@ -582,7 +624,7 @@ mod tests {
         let config = sample_config();
         let leases = vec![Lease {
             ip: Ipv4Addr::new(10, 0, 0, 11),
-            mac: [0, 1, 2, 3, 4, 5],
+            mac: Some([0, 1, 2, 3, 4, 5]),
             expires_at: u64::MAX,
         }];
         let offered = select_offer_ip(&config, &leases, [0, 1, 2, 3, 4, 5], None).unwrap();
@@ -606,5 +648,17 @@ mod tests {
             Some(Ipv4Addr::new(10, 0, 0, 10)),
         );
         assert!(leases.is_empty());
+    }
+
+    #[test]
+    fn declined_lease_blocks_reoffer_until_timeout() {
+        let config = sample_config();
+        let mut leases = Vec::new();
+        decline_lease(&config, &mut leases, Ipv4Addr::new(10, 0, 0, 10));
+        assert_eq!(leases[0].mac, None);
+        assert_eq!(
+            find_first_available(&config, &leases, [0, 1, 2, 3, 4, 5]).unwrap(),
+            Some(Ipv4Addr::new(10, 0, 0, 11))
+        );
     }
 }

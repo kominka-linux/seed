@@ -40,18 +40,23 @@ This file tracks applet-specific limitations that are important to keep visible 
   - still not a full libblkid-style probe matrix
 - `udhcpc`
 - `udhcpd`
+  - handles `DHCPDECLINE` with `decline_time`
   - config surface is still a BusyBox-style subset
   - several common directives are accepted and ignored
 - `ip`
+  - family-aware `-4` / `-6` display exists for `addr` and `route`
   - only a narrow `addr` / `link` / `route` subset exists
-  - route mutation is still IPv4-only
+  - live IPv6 route and address mutation are still unsupported
 - `ifconfig`
-  - still an IPv4/Ethernet subset
+  - display includes IPv4 and IPv6 addresses
+  - state-backed `add` / `del` address coverage exists
+  - live mutation is still mostly IPv4/Ethernet-only
   - only `hw ether` is supported
 - `netstat`
+  - family-aware socket and route display exists
   - still only the current small option subset
-  - route output is IPv4-only
 - `ping` / `ping6`
+  - supports `-I`, `-i`, `-w`, and `-t`
   - still a minimal ICMP echo implementation
   - many traditional ping behaviors remain absent
 - `acpid`
@@ -80,5 +85,3 @@ This file tracks applet-specific limitations that are important to keep visible 
 - `lsattr` / `chattr`
   - real ioctl path exists
   - deterministic test backend is still used where filesystems do not support the real ext ioctls
-- `modprobe`
-  - quoted `install` / `remove` fragments containing `#` are still misparsed

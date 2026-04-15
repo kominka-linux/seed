@@ -20,6 +20,7 @@ struct Options {
     udp: bool,
     route: bool,
     wide: bool,
+    family: Option<AddressFamily>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -54,7 +55,7 @@ fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
     }
 
     if options.route {
-        print_routes()?;
+        print_routes(&options)?;
     } else {
         print_sockets(&options)?;
     }
@@ -77,6 +78,8 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
                         'u' => options.udp = true,
                         'r' => options.route = true,
                         'W' => options.wide = true,
+                        '4' => options.family = Some(AddressFamily::Inet4),
+                        '6' => options.family = Some(AddressFamily::Inet6),
                         _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
                     }
                 }
@@ -126,41 +129,92 @@ fn print_sockets(options: &Options) -> Result<(), Vec<AppletError>> {
     Ok(())
 }
 
-fn print_routes() -> Result<(), Vec<AppletError>> {
-    println!("Kernel IP routing table");
-    println!(
-        "{:<18} {:<18} {:<18} {:<5} Iface",
-        "Destination", "Gateway", "Genmask", "Flags"
-    );
+fn print_routes(options: &Options) -> Result<(), Vec<AppletError>> {
     let mut routes = list_routes().map_err(io_error("listing routes", None))?;
     routes.sort_by(|left, right| left.dev.cmp(&right.dev).then(left.destination.cmp(&right.destination)));
-    for route in routes {
-        if route.family != AddressFamily::Inet4 {
-            continue;
+    let show_v4 = options.family != Some(AddressFamily::Inet6);
+    let show_v6 = options.family != Some(AddressFamily::Inet4);
+    if show_v4 {
+        let routes_v4 = routes
+            .iter()
+            .filter(|route| route.family == AddressFamily::Inet4)
+            .collect::<Vec<_>>();
+        if !routes_v4.is_empty() || options.family == Some(AddressFamily::Inet4) {
+            println!("Kernel IP routing table");
+            println!(
+                "{:<18} {:<18} {:<18} {:<5} Iface",
+                "Destination", "Gateway", "Genmask", "Flags"
+            );
+            for route in routes_v4 {
+                let destination = if route.prefix_len == 0 {
+                    String::from("0.0.0.0")
+                } else {
+                    route.destination.clone()
+                };
+                let gateway = route.gateway.clone().unwrap_or_else(|| String::from("0.0.0.0"));
+                let netmask = prefix_to_netmask(route.prefix_len).to_string();
+                let mut flags = String::from("U");
+                if gateway != "0.0.0.0" {
+                    flags.push('G');
+                }
+                if route.prefix_len == 32 {
+                    flags.push('H');
+                }
+                println!(
+                    "{:<18} {:<18} {:<18} {:<5} {}",
+                    destination, gateway, netmask, flags, route.dev
+                );
+            }
         }
-        let destination = if route.prefix_len == 0 {
-            String::from("0.0.0.0")
-        } else {
-            route.destination.clone()
-        };
-        let gateway = route.gateway.unwrap_or_else(|| String::from("0.0.0.0"));
-        let netmask = prefix_to_netmask(route.prefix_len).to_string();
-        let mut flags = String::from("U");
-        if gateway != "0.0.0.0" {
-            flags.push('G');
+    }
+    if show_v6 {
+        let routes_v6 = routes
+            .iter()
+            .filter(|route| route.family == AddressFamily::Inet6)
+            .collect::<Vec<_>>();
+        if !routes_v6.is_empty() {
+            if show_v4 {
+                println!();
+            }
+            println!("Kernel IPv6 routing table");
+            println!(
+                "{:<32} {:<32} {:<5} Iface",
+                "Destination", "Next Hop", "Flags"
+            );
+            for route in routes_v6 {
+                let destination = if route.prefix_len == 0 {
+                    String::from("default")
+                } else {
+                    format!("{}/{}", route.destination, route.prefix_len)
+                };
+                let gateway = route.gateway.clone().unwrap_or_else(|| String::from("::"));
+                let mut flags = String::from("U");
+                if gateway != "::" {
+                    flags.push('G');
+                }
+                if route.prefix_len == 128 {
+                    flags.push('H');
+                }
+                println!(
+                    "{:<32} {:<32} {:<5} {}",
+                    destination, gateway, flags, route.dev
+                );
+            }
         }
-        if route.prefix_len == 32 {
-            flags.push('H');
-        }
-        println!(
-            "{:<18} {:<18} {:<18} {:<5} {}",
-            destination, gateway, netmask, flags, route.dev
-        );
     }
     Ok(())
 }
 
 fn include_socket(options: &Options, entry: &SocketEntry) -> bool {
+    if let Some(family) = options.family {
+        let matches_family = match entry.protocol {
+            Protocol::Tcp | Protocol::Udp => family == AddressFamily::Inet4,
+            Protocol::Tcp6 | Protocol::Udp6 => family == AddressFamily::Inet6,
+        };
+        if !matches_family {
+            return false;
+        }
+    }
     if options.listening {
         return is_listener(entry);
     }
@@ -331,7 +385,8 @@ fn io_error(
 #[cfg(test)]
 mod tests {
     use super::{
-        Protocol, format_endpoint, parse_ipv4_hex, parse_ipv6_hex, parse_socket_line, parse_state,
+        AddressFamily, Protocol, format_endpoint, parse_args, parse_ipv4_hex, parse_ipv6_hex,
+        parse_socket_line, parse_state,
     };
     use std::net::{Ipv4Addr, Ipv6Addr};
 
@@ -371,5 +426,13 @@ mod tests {
         assert_eq!(format_endpoint("127.0.0.1", 80), "127.0.0.1:80");
         assert_eq!(format_endpoint("0.0.0.0", 0), "0.0.0.0:*");
         assert_eq!(format_endpoint("::1", 53), "[::1]:53");
+    }
+
+    #[test]
+    fn parses_family_flags() {
+        let options = parse_args(&["-6".to_string(), "-rn".to_string()]).unwrap();
+        assert_eq!(options.family, Some(AddressFamily::Inet6));
+        assert!(options.route);
+        assert!(options.numeric);
     }
 }

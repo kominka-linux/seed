@@ -21,7 +21,6 @@ Tier 1 applets are implemented. The remaining gap is mostly hardening, compatibi
 ## P0
 
 - System-critical Linux applets still have known compatibility holes in [APPLETS.md](/Users/josh/d/seed/APPLETS.md:24).
-- There is not yet a single Tier 1 stabilization gate that treats the repo like a release candidate.
 - `awk` and `sed` remain large mixed parser/runtime implementations, which raises audit and regression risk.
 - Some Linux helpers still mix real system behavior with test-only state backends in the same modules.
 
@@ -123,6 +122,10 @@ Status:
 Status:
 - In progress
 - `udhcpc -a` now validates DHCPACK addresses, sends `DHCPDECLINE` on conflict, and retries acquisition.
+- `udhcpd` now honors `DHCPDECLINE` with `decline_time` and reoffers the next address.
+- `ip` and `netstat` now expose family-aware `-4` / `-6` display paths with IPv6 route coverage.
+- `ping` / `ping6` now cover interface binding plus the core `-I` / `-i` / `-w` / `-t` option set.
+- `ifconfig` now has state-backed `add` / `del` address coverage, including IPv6.
 
 ## P0: Differential and Edge-Case Coverage
 
@@ -200,8 +203,8 @@ That gate is expected to cover:
 
 ## Immediate Next Steps
 
-1. Run the new stabilization gate and fix any red phases.
-2. Do a dedicated P0 networking closure pass.
+1. Keep `bin/alpine-stabilization` green while closing the remaining networking/admin gaps in `APPLETS.md`.
+2. Decide whether live IPv6 address/route mutation must be a parity target for `ip` / `ifconfig`.
 3. Start differential hardening for `awk` and `sed`.
 4. Revisit session/login scope and decide what is intentionally non-goal versus unfinished.
 
@@ -222,3 +225,7 @@ That gate is expected to cover:
   - cleared the unprivileged Alpine quick gate end to end
   - cleared the full Tier 1 stabilization gate end to end, including the privileged PID 1 and phase7b checks
   - closed the `udhcpc -a` gap with DHCPACK ARP validation, `DHCPDECLINE`, and reacquisition coverage
+  - closed the `udhcpd` decline-handling gap so the built-in server now respects client-side ARP conflict detection
+  - added family-aware `ip -4/-6` and `netstat -4/-6` coverage with IPv6 route display and state-backed IPv6 route mutation tests
+  - widened `ifconfig` with state-backed address `add` / `del` coverage, including IPv6
+  - widened `ping` / `ping6` with `-I`, `-i`, `-w`, and `-t`, plus loopback interface-binding coverage

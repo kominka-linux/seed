@@ -1,5 +1,6 @@
 use std::io;
 use std::mem;
+use std::ffi::CString;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -30,8 +31,12 @@ struct Options {
     family: Family,
     count: Option<u32>,
     timeout: Duration,
+    interval: Duration,
+    deadline: Option<Duration>,
     payload_size: usize,
     quiet: bool,
+    interface: Option<String>,
+    ttl: Option<u32>,
     host: String,
 }
 
@@ -61,8 +66,12 @@ fn parse_args(applet: &'static str, family: Family, args: &[String]) -> Result<O
         family,
         count: None,
         timeout: Duration::from_secs(DEFAULT_TIMEOUT_SECS),
+        interval: Duration::from_secs(1),
+        deadline: None,
         payload_size: DEFAULT_PAYLOAD_SIZE,
         quiet: false,
+        interface: None,
+        ttl: None,
         host: String::new(),
     };
     let mut cursor = ArgCursor::new(args);
@@ -88,10 +97,36 @@ fn parse_args(applet: &'static str, family: Family, args: &[String]) -> Result<O
                                 Duration::from_secs(parse_u32(applet, "timeout", value)? as u64);
                             break;
                         }
+                        'w' => {
+                            let attached = &flags[index + flag.len_utf8()..];
+                            let value = cursor.next_value_or_attached(attached, applet, "w")?;
+                            options.deadline =
+                                Some(Duration::from_secs(parse_u32(applet, "deadline", value)? as u64));
+                            break;
+                        }
+                        'i' => {
+                            let attached = &flags[index + flag.len_utf8()..];
+                            let value = cursor.next_value_or_attached(attached, applet, "i")?;
+                            options.interval =
+                                Duration::from_secs(parse_u32(applet, "interval", value)? as u64);
+                            break;
+                        }
                         's' => {
                             let attached = &flags[index + flag.len_utf8()..];
                             let value = cursor.next_value_or_attached(attached, applet, "s")?;
                             options.payload_size = parse_u32(applet, "size", value)? as usize;
+                            break;
+                        }
+                        'I' => {
+                            let attached = &flags[index + flag.len_utf8()..];
+                            let value = cursor.next_value_or_attached(attached, applet, "I")?;
+                            options.interface = Some(value.to_string());
+                            break;
+                        }
+                        't' => {
+                            let attached = &flags[index + flag.len_utf8()..];
+                            let value = cursor.next_value_or_attached(attached, applet, "t")?;
+                            options.ttl = Some(parse_u32(applet, "ttl", value)?);
                             break;
                         }
                         _ => return Err(vec![AppletError::invalid_option(applet, flag)]),
@@ -126,8 +161,8 @@ fn ping(options: &Options) -> AppletCodeResult {
     let fd = open_socket(options.family)?;
     let _fd = FdGuard(fd);
 
+    configure_socket(fd, options)?;
     connect_socket(fd, options.family, &target.addr)?;
-    set_receive_timeout(fd, options.family, options.timeout)?;
 
     let destination = sockaddr_to_string(&target.addr)?;
     println!(
@@ -136,6 +171,7 @@ fn ping(options: &Options) -> AppletCodeResult {
     );
 
     let limit = options.count.unwrap_or(u32::MAX);
+    let deadline_started = Instant::now();
     let mut transmitted = 0_u32;
     let mut received = 0_u32;
     let mut total = Duration::ZERO;
@@ -146,8 +182,17 @@ fn ping(options: &Options) -> AppletCodeResult {
         if !RUNNING.load(Ordering::Relaxed) {
             break;
         }
+        let Some(timeout) = effective_timeout(options, deadline_started) else {
+            break;
+        };
         transmitted += 1;
-        let reply = send_and_receive(fd, options.family, sequence as u16, options.payload_size)?;
+        let reply = send_and_receive(
+            fd,
+            options.family,
+            sequence as u16,
+            options.payload_size,
+            timeout,
+        )?;
         if let Some(reply) = reply {
             received += 1;
             total += reply.elapsed;
@@ -165,7 +210,10 @@ fn ping(options: &Options) -> AppletCodeResult {
         }
 
         if sequence + 1 < limit {
-            std::thread::sleep(Duration::from_secs(1));
+            let Some(remaining) = effective_interval(options, deadline_started) else {
+                break;
+            };
+            std::thread::sleep(remaining);
         }
     }
 
@@ -203,7 +251,9 @@ fn send_and_receive(
     family: Family,
     sequence: u16,
     payload_size: usize,
+    timeout: Duration,
 ) -> Result<Option<Reply>, Vec<AppletError>> {
+    set_receive_timeout(fd, family, timeout)?;
     let request = build_request(family, sequence, payload_size);
     let started = Instant::now();
     let sent = unsafe { libc::send(fd, request.as_ptr().cast(), request.len(), 0) };
@@ -235,6 +285,23 @@ fn send_and_receive(
             }));
         }
     }
+}
+
+fn effective_timeout(options: &Options, started: Instant) -> Option<Duration> {
+    let timeout = options.timeout;
+    let Some(deadline) = options.deadline else {
+        return Some(timeout);
+    };
+    let remaining = deadline.checked_sub(started.elapsed())?;
+    Some(remaining.min(timeout))
+}
+
+fn effective_interval(options: &Options, started: Instant) -> Option<Duration> {
+    let Some(deadline) = options.deadline else {
+        return Some(options.interval);
+    };
+    let remaining = deadline.checked_sub(started.elapsed())?;
+    Some(remaining.min(options.interval))
 }
 
 fn build_request(family: Family, sequence: u16, payload_size: usize) -> Vec<u8> {
@@ -304,6 +371,16 @@ fn open_socket(family: Family) -> Result<libc::c_int, Vec<AppletError>> {
     }
 }
 
+fn configure_socket(fd: libc::c_int, options: &Options) -> Result<(), Vec<AppletError>> {
+    if let Some(interface) = &options.interface {
+        bind_interface_or_source(fd, options.family, interface)?;
+    }
+    if let Some(ttl) = options.ttl {
+        set_ttl(fd, options.family, ttl)?;
+    }
+    Ok(())
+}
+
 fn set_receive_timeout(
     fd: libc::c_int,
     family: Family,
@@ -342,6 +419,128 @@ fn connect_socket(fd: libc::c_int, family: Family, addr: &SockAddr) -> Result<()
         Err(vec![AppletError::from_io(
             applet_name(family),
             "connecting",
+            None,
+            io::Error::last_os_error(),
+        )])
+    }
+}
+
+fn bind_interface_or_source(
+    fd: libc::c_int,
+    family: Family,
+    value: &str,
+) -> Result<(), Vec<AppletError>> {
+    match family {
+        Family::Inet4 => {
+            if let Ok(address) = value.parse::<Ipv4Addr>() {
+                let sockaddr = libc::sockaddr_in {
+                    sin_family: libc::AF_INET as libc::sa_family_t,
+                    sin_port: 0,
+                    sin_addr: libc::in_addr {
+                        s_addr: u32::from(address).to_be(),
+                    },
+                    sin_zero: [0; 8],
+                };
+                let rc = unsafe {
+                    libc::bind(
+                        fd,
+                        (&sockaddr as *const libc::sockaddr_in).cast(),
+                        mem::size_of::<libc::sockaddr_in>() as libc::socklen_t,
+                    )
+                };
+                return if rc == 0 {
+                    Ok(())
+                } else {
+                    Err(vec![AppletError::from_io(
+                        applet_name(family),
+                        "binding",
+                        None,
+                        io::Error::last_os_error(),
+                    )])
+                };
+            }
+        }
+        Family::Inet6 => {
+            if let Ok(address) = value.parse::<Ipv6Addr>() {
+                let sockaddr = libc::sockaddr_in6 {
+                    sin6_family: libc::AF_INET6 as libc::sa_family_t,
+                    sin6_port: 0,
+                    sin6_flowinfo: 0,
+                    sin6_addr: libc::in6_addr {
+                        s6_addr: address.octets(),
+                    },
+                    sin6_scope_id: 0,
+                };
+                let rc = unsafe {
+                    libc::bind(
+                        fd,
+                        (&sockaddr as *const libc::sockaddr_in6).cast(),
+                        mem::size_of::<libc::sockaddr_in6>() as libc::socklen_t,
+                    )
+                };
+                return if rc == 0 {
+                    Ok(())
+                } else {
+                    Err(vec![AppletError::from_io(
+                        applet_name(family),
+                        "binding",
+                        None,
+                        io::Error::last_os_error(),
+                    )])
+                };
+            }
+        }
+    }
+
+    let device = CString::new(value.as_bytes())
+        .map_err(|_| vec![AppletError::new(applet_name(family), "invalid interface name")])?;
+    let rc = unsafe {
+        libc::setsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_BINDTODEVICE,
+            device.as_ptr().cast(),
+            (value.len() + 1) as libc::socklen_t,
+        )
+    };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(vec![AppletError::from_io(
+            applet_name(family),
+            "binding",
+            None,
+            io::Error::last_os_error(),
+        )])
+    }
+}
+
+fn set_ttl(fd: libc::c_int, family: Family, ttl: u32) -> Result<(), Vec<AppletError>> {
+    let value: libc::c_int = ttl.try_into().map_err(|_| {
+        vec![AppletError::new(
+            applet_name(family),
+            format!("invalid ttl '{ttl}'"),
+        )]
+    })?;
+    let (level, option) = match family {
+        Family::Inet4 => (libc::IPPROTO_IP, libc::IP_TTL),
+        Family::Inet6 => (libc::IPPROTO_IPV6, libc::IPV6_UNICAST_HOPS),
+    };
+    let rc = unsafe {
+        libc::setsockopt(
+            fd,
+            level,
+            option,
+            (&value as *const libc::c_int).cast(),
+            mem::size_of::<libc::c_int>() as libc::socklen_t,
+        )
+    };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(vec![AppletError::from_io(
+            applet_name(family),
+            "configuring socket",
             None,
             io::Error::last_os_error(),
         )])
@@ -494,6 +693,7 @@ impl Drop for SigintGuard {
 #[cfg(test)]
 mod tests {
     use super::{Family, checksum, parse_args, parse_reply};
+    use std::time::Duration;
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
@@ -501,10 +701,18 @@ mod tests {
 
     #[test]
     fn parses_count_timeout_and_size() {
-        let options = parse_args("ping", Family::Inet4, &args(&["-c", "2", "-W1", "-s", "8", "127.0.0.1"]))
+        let options = parse_args(
+            "ping",
+            Family::Inet4,
+            &args(&["-c", "2", "-W1", "-w5", "-i2", "-I", "lo", "-t", "4", "-s", "8", "127.0.0.1"]),
+        )
             .unwrap();
         assert_eq!(options.count, Some(2));
         assert_eq!(options.payload_size, 8);
+        assert_eq!(options.interval, Duration::from_secs(2));
+        assert_eq!(options.deadline, Some(Duration::from_secs(5)));
+        assert_eq!(options.interface.as_deref(), Some("lo"));
+        assert_eq!(options.ttl, Some(4));
         assert_eq!(options.host, "127.0.0.1");
     }
 

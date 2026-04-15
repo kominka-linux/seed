@@ -1,12 +1,13 @@
 
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use crate::common::applet::finish;
 use crate::common::error::AppletError;
 use crate::common::net::{parse_mac, parse_prefix};
 use crate::common::net::{
-    AddressFamily, Ipv4Change, LinkChange, apply_link_change, broadcast_for, format_mac,
-    interface_flag_names, list_interfaces, prefix_to_netmask, set_ipv4,
+    AddressFamily, InterfaceAddress, Ipv4Change, LinkChange, add_address, apply_link_change,
+    broadcast_for, format_mac, interface_flag_names, list_interfaces, prefix_to_netmask,
+    remove_address, set_ipv4,
 };
 
 const APPLET: &str = "ifconfig";
@@ -17,6 +18,8 @@ struct Options {
     interface: Option<String>,
     address: Option<Ipv4Addr>,
     prefix_len: Option<u8>,
+    add_address: Option<(AddressFamily, String, u8)>,
+    del_address: Option<(AddressFamily, String)>,
     netmask: Option<Ipv4Addr>,
     broadcast: Option<Option<Ipv4Addr>>,
     pointopoint: Option<Ipv4Addr>,
@@ -100,6 +103,28 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
             }
             "up" => options.up = Some(true),
             "down" => options.up = Some(false),
+            "add" => {
+                let Some(value) = args.get(index) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "add")]);
+                };
+                index += 1;
+                let (family, address, prefix_len) = parse_any_prefix(value)?;
+                options.add_address = Some((family, address, prefix_len));
+            }
+            "del" => {
+                let Some(value) = args.get(index) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "del")]);
+                };
+                index += 1;
+                let parsed = parse_ip_addr(value)?;
+                options.del_address = Some((
+                    match parsed {
+                        IpAddr::V4(_) => AddressFamily::Inet4,
+                        IpAddr::V6(_) => AddressFamily::Inet6,
+                    },
+                    parsed.to_string(),
+                ));
+            }
             _ if arg.starts_with('-') => {
                 return Err(vec![AppletError::invalid_option(
                     APPLET,
@@ -126,6 +151,25 @@ fn run_linux(options: &Options) -> Result<(), Vec<AppletError>> {
     let interface = options.interface.as_deref().unwrap_or("");
     if !has_changes(options) {
         return print_single_interface(interface);
+    }
+
+    if let Some((family, address, prefix_len)) = &options.add_address {
+        add_address(
+            interface,
+            &InterfaceAddress {
+                family: *family,
+                address: address.clone(),
+                prefix_len: *prefix_len,
+                peer: None,
+                broadcast: None,
+            },
+        )
+        .map_err(io_error("adding address", Some(interface.to_string())))?;
+    }
+
+    if let Some((family, address)) = &options.del_address {
+        remove_address(interface, *family, address)
+            .map_err(io_error("removing address", Some(interface.to_string())))?;
     }
 
     if options.address.is_none() && options.up.is_none() && options.mtu.is_none() && options.hwaddr.is_none() {
@@ -179,6 +223,8 @@ fn has_changes(options: &Options) -> bool {
         || options.mtu.is_some()
         || options.hwaddr.is_some()
         || options.up.is_some()
+        || options.add_address.is_some()
+        || options.del_address.is_some()
 }
 
 fn print_interfaces(all: bool) -> Result<(), Vec<AppletError>> {
@@ -254,6 +300,38 @@ fn parse_u32(kind: &str, value: &str) -> Result<u32, Vec<AppletError>> {
         .map_err(|_| vec![AppletError::new(APPLET, format!("invalid {kind} '{value}'"))])
 }
 
+fn parse_ip_addr(value: &str) -> Result<IpAddr, Vec<AppletError>> {
+    value.parse::<IpAddr>().map_err(|_| {
+        vec![AppletError::new(
+            APPLET,
+            format!("invalid IP address '{value}'"),
+        )]
+    })
+}
+
+fn parse_any_prefix(value: &str) -> Result<(AddressFamily, String, u8), Vec<AppletError>> {
+    if value.contains(':') {
+        let (address, prefix) = value.split_once('/').unwrap_or((value, "128"));
+        let address = address.parse::<Ipv6Addr>().map_err(|_| {
+            vec![AppletError::new(
+                APPLET,
+                format!("invalid IPv6 address '{address}'"),
+            )]
+        })?;
+        let prefix = prefix.parse::<u8>().ok().filter(|prefix| *prefix <= 128).ok_or_else(|| {
+            vec![AppletError::new(
+                APPLET,
+                format!("invalid prefix '{prefix}'"),
+            )]
+        })?;
+        Ok((AddressFamily::Inet6, address.to_string(), prefix))
+    } else {
+        let (address, prefix) =
+            parse_prefix(value).map_err(|err| vec![AppletError::new(APPLET, err.to_string())])?;
+        Ok((AddressFamily::Inet4, address.to_string(), prefix))
+    }
+}
+
 fn io_error(
     action: &'static str,
     path: Option<String>,
@@ -263,7 +341,7 @@ fn io_error(
 
 #[cfg(test)]
 mod tests {
-    use super::{Options, parse_args};
+    use super::{AddressFamily, Options, parse_args};
     use std::net::Ipv4Addr;
 
     fn args(values: &[&str]) -> Vec<String> {
@@ -279,6 +357,8 @@ mod tests {
                 interface: Some(String::from("eth0")),
                 address: Some(Ipv4Addr::new(192, 168, 1, 2)),
                 prefix_len: Some(24),
+                add_address: None,
+                del_address: None,
                 netmask: None,
                 broadcast: None,
                 pointopoint: None,
@@ -286,6 +366,21 @@ mod tests {
                 hwaddr: None,
                 up: Some(true),
             }
+        );
+    }
+
+    #[test]
+    fn parses_add_and_del_addresses() {
+        let options = parse_args(&args(&["eth0", "add", "2001:db8::2/64"])).unwrap();
+        assert_eq!(
+            options.add_address,
+            Some((AddressFamily::Inet6, String::from("2001:db8::2"), 64))
+        );
+
+        let options = parse_args(&args(&["eth0", "del", "10.0.0.2"])).unwrap();
+        assert_eq!(
+            options.del_address,
+            Some((AddressFamily::Inet4, String::from("10.0.0.2")))
         );
     }
 }

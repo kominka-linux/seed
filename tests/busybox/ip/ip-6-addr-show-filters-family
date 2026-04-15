@@ -1,0 +1,14 @@
+state=$PWD/net.state
+cat > "$state" <<'EOF'
+iface	2	eth0	67	1500	02:00:00:00:00:01	0	0	0	0
+addr	eth0	inet	10.0.0.2	24		10.0.0.255
+addr	eth0	inet6	2001:db8::2	64		
+EOF
+
+SEED_NET_STATE="$state" busybox ip -6 addr show dev eth0 > out
+
+grep 'inet6 2001:db8::2/64' out
+if grep 'inet 10.0.0.2/24' out >/dev/null; then
+	echo "ip -6 addr unexpectedly included IPv4 address" >&2
+	exit 1
+fi

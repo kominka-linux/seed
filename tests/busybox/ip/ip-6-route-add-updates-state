@@ -1,0 +1,9 @@
+state=$PWD/net.state
+cat > "$state" <<'EOF'
+iface	2	eth0	3	1500	02:00:00:00:00:01	0	0	0	0
+EOF
+
+SEED_NET_STATE="$state" busybox ip -6 route add default via fe80::1 dev eth0
+SEED_NET_STATE="$state" busybox ip -6 route show > out
+
+grep '^default via fe80::1 dev eth0$' out

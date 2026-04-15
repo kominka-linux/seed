@@ -73,6 +73,85 @@ pub(crate) struct Ipv4Change {
 }
 
 #[cfg(target_os = "linux")]
+pub(crate) fn add_address(name: &str, address: &InterfaceAddress) -> io::Result<()> {
+    if let Some(path) = state_path() {
+        let mut state = read_state(&path)?;
+        let interface = state
+            .interfaces
+            .iter_mut()
+            .find(|interface| interface.name == name)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "interface not found"))?;
+        interface.addresses.retain(|existing| {
+            !(existing.family == address.family && existing.address == address.address)
+        });
+        interface.addresses.push(address.clone());
+        interface.addresses.sort_by(|left, right| {
+            left.family
+                .cmp(&right.family)
+                .then(left.address.cmp(&right.address))
+        });
+        return write_state(&path, &state);
+    }
+
+    match address.family {
+        AddressFamily::Inet4 => {
+            let ipv4 = address
+                .address
+                .parse::<Ipv4Addr>()
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid IPv4 address"))?;
+            let broadcast = match &address.broadcast {
+                Some(value) => Some(Some(value.parse::<Ipv4Addr>().map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "invalid broadcast address")
+                })?)),
+                None => None,
+            };
+            let peer = address.peer.as_deref().map(|value| {
+                value.parse::<Ipv4Addr>().map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "invalid peer address")
+                })
+            });
+            set_ipv4(
+                name,
+                &Ipv4Change {
+                    address: Some(ipv4),
+                    prefix_len: Some(address.prefix_len),
+                    broadcast,
+                    peer: peer.transpose()?,
+                },
+            )
+        }
+        AddressFamily::Inet6 => Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "IPv6 address changes are not supported",
+        )),
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn remove_address(name: &str, family: AddressFamily, address: &str) -> io::Result<()> {
+    if let Some(path) = state_path() {
+        let mut state = read_state(&path)?;
+        let interface = state
+            .interfaces
+            .iter_mut()
+            .find(|interface| interface.name == name)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "interface not found"))?;
+        interface
+            .addresses
+            .retain(|existing| !(existing.family == family && existing.address == address));
+        return write_state(&path, &state);
+    }
+
+    match family {
+        AddressFamily::Inet4 => clear_ipv4(name),
+        AddressFamily::Inet6 => Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "IPv6 address changes are not supported",
+        )),
+    }
+}
+
+#[cfg(target_os = "linux")]
 pub(crate) fn list_interfaces() -> io::Result<Vec<InterfaceInfo>> {
     if let Some(path) = state_path() {
         let state = read_state(&path)?;
@@ -953,9 +1032,9 @@ impl Ifreq {
 mod tests {
     #[cfg(target_os = "linux")]
     use super::{
-        AddressFamily, InterfaceInfo, LinkChange, RouteInfo, add_route, broadcast_for, del_route,
-        format_mac, interface_flag_names, parse_mac, parse_prefix, prefix_to_netmask, read_state,
-        set_ipv4, write_state,
+        AddressFamily, InterfaceAddress, InterfaceInfo, LinkChange, RouteInfo, add_address,
+        add_route, broadcast_for, del_route, format_mac, interface_flag_names, parse_mac,
+        parse_prefix, prefix_to_netmask, read_state, remove_address, set_ipv4, write_state,
     };
     #[cfg(target_os = "linux")]
     use crate::common::test_env;
@@ -1045,6 +1124,18 @@ mod tests {
             dev: String::from("eth0"),
         })
         .unwrap();
+        add_address(
+            "eth0",
+            &InterfaceAddress {
+                family: AddressFamily::Inet6,
+                address: String::from("2001:db8::2"),
+                prefix_len: 64,
+                peer: None,
+                broadcast: None,
+            },
+        )
+        .unwrap();
+        remove_address("eth0", AddressFamily::Inet6, "2001:db8::2").unwrap();
         let state = read_state(&path).unwrap();
         // SAFETY: the test holds the global env lock for the full mutation window.
         unsafe { std::env::remove_var("SEED_NET_STATE") };

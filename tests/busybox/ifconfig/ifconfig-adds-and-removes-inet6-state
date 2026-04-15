@@ -1,0 +1,15 @@
+state=$PWD/net.state
+cat > "$state" <<'EOF'
+iface	2	eth0	67	1500	02:00:00:00:00:01	0	0	0	0
+EOF
+
+SEED_NET_STATE="$state" busybox ifconfig eth0 add 2001:db8::2/64
+SEED_NET_STATE="$state" busybox ifconfig eth0 > out
+grep 'inet6 addr: 2001:db8::2/64' out
+
+SEED_NET_STATE="$state" busybox ifconfig eth0 del 2001:db8::2
+SEED_NET_STATE="$state" busybox ifconfig eth0 > out2
+if grep '2001:db8::2' out2 >/dev/null; then
+	echo "ifconfig unexpectedly left inet6 address behind" >&2
+	exit 1
+fi

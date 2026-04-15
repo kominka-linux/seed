@@ -1,0 +1,9 @@
+if [ ! -r /proc/net/if_inet6 ] || ! grep -q '00000000000000000000000000000001' /proc/net/if_inet6; then
+	exit 0
+fi
+
+busybox ping6 -c 1 -W 1 -I lo ::1 >out
+
+grep '^PING ::1 (::1): 56 data bytes$' out
+grep 'bytes from ::1: icmp_seq=0 time=' out
+grep '^1 packets transmitted, 1 packets received, 0% packet loss$' out

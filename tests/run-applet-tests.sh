@@ -326,6 +326,7 @@ run_old_style tests/busybox/udhcpc/udhcpc-r-requests-specific-address
 run_old_style tests/busybox/udhcpc/udhcpc-R-releases-lease
 run_old_style tests/busybox/udhcpc/udhcpc-a-declines-conflicting-lease
 run_old_style tests/busybox/udhcpd/udhcpd-rejects-invalid-pool
+run_old_style tests/busybox/udhcpd/udhcpd-respects-decline-and-reoffers-next-address
 
 run_old_style tests/busybox/basename/basename-strips-suffix
 run_old_style tests/busybox/basename/basename-multiple-names
@@ -439,13 +440,19 @@ run_old_style tests/busybox/hexdump/hexdump-v-disables-squeezing
 if [ "$is_linux" -eq 1 ]; then
 	run_old_style tests/busybox/ifconfig/ifconfig-lists-state-backed-interface
 	run_old_style tests/busybox/ifconfig/ifconfig-updates-address-and-mtu
+	run_old_style tests/busybox/ifconfig/ifconfig-adds-and-removes-inet6-state
 	run_old_style tests/busybox/ip/ip-addr-show-prints-state
+	run_old_style tests/busybox/ip/ip-6-addr-show-filters-family
 	run_old_style tests/busybox/ip/ip-link-set-updates-state
 	run_old_style tests/busybox/ip/ip-route-add-updates-state
+	run_old_style tests/busybox/ip/ip-6-route-add-updates-state
 	run_old_style tests/busybox/netstat/netstat-lnt-shows-listening-socket
 	run_old_style tests/busybox/netstat/netstat-rn-prints-state-backed-route
+	run_old_style tests/busybox/netstat/netstat-6-rn-prints-state-backed-route
 	run_old_style tests/busybox/ping/ping-c-1-reaches-loopback
+	run_old_style tests/busybox/ping/ping-I-lo-reaches-loopback
 	run_old_style tests/busybox/ping6/ping6-c-1-reaches-loopback
+	run_old_style tests/busybox/ping6/ping6-I-lo-reaches-loopback
 fi
 
 run_old_style tests/busybox/stat/stat-c-prints-size-mode-and-name

@@ -1,0 +1,11 @@
+state=$PWD/net.state
+cat >"$state" <<'EOF'
+iface	2	eth0	3	1500	02:00:00:00:00:01	0	0	0	0
+route	inet6	::	0	fe80::1	eth0
+EOF
+
+SEED_NET_STATE="$state" busybox netstat -6 -rn >out
+
+PATH=/usr/bin:/bin grep '^Kernel IPv6 routing table$' out
+PATH=/usr/bin:/bin grep '^Destination[[:space:]]\+Next Hop[[:space:]]\+Flags[[:space:]]\+Iface$' out
+PATH=/usr/bin:/bin grep 'default[[:space:]]\+fe80::1[[:space:]]\+UG[[:space:]]\+eth0' out

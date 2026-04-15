@@ -1,20 +1,29 @@
+pub mod common;
+#[cfg(feature = "wget")]
+pub mod wget;
+
+#[cfg(feature = "multicall")]
 #[macro_use]
 mod applet_list;
-
+#[cfg(feature = "multicall")]
 pub mod applets;
-pub mod common;
 
+#[cfg(feature = "multicall")]
 use std::path::Path;
 
+#[cfg(feature = "multicall")]
 type AppletMain = fn(&[String]) -> i32;
 
+#[cfg(feature = "multicall")]
 struct AppletEntry {
     name: &'static str,
     main: AppletMain,
 }
 
+#[cfg(feature = "multicall")]
 const APPLETS: &[AppletEntry] = define_applet_entries!(AppletEntry);
 
+#[cfg(feature = "multicall")]
 pub fn dispatch(argv: &[String]) -> i32 {
     let Some(applet) = determine_applet(argv) else {
         eprintln!("seed: missing applet name");
@@ -29,11 +38,13 @@ pub fn dispatch(argv: &[String]) -> i32 {
     }
 }
 
+#[cfg(feature = "multicall")]
 struct AppletInvocation<'a> {
     name: &'a str,
     args: &'a [String],
 }
 
+#[cfg(feature = "multicall")]
 fn determine_applet(argv: &[String]) -> Option<AppletInvocation<'_>> {
     let program_name = argv.first()?;
     let argv0 = Path::new(program_name)

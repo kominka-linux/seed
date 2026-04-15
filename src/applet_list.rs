@@ -176,6 +176,7 @@ macro_rules! define_applet_modules {
         pub mod uptime;
         pub mod watch;
         pub mod wc;
+        #[cfg(feature = "wget")]
         pub mod wget;
         pub mod which;
         pub mod whoami;
@@ -881,6 +882,7 @@ macro_rules! define_applet_entries {
                 name: "wc",
                 main: applets::wc::main,
             },
+            #[cfg(feature = "wget")]
             $entry {
                 name: "wget",
                 main: applets::wget::main,

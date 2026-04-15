@@ -1,0 +1,45 @@
+name: Release Wget
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset_suffix }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            asset_suffix: linux-x86_64
+          - runner: ubuntu-24.04-arm
+            asset_suffix: linux-aarch64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build standalone wget
+        run: cargo build --quiet --profile release-wget --no-default-features --features wget --bin wget
+
+      - name: Package release asset
+        run: |
+          mkdir -p dist
+          cp target/release-wget/wget dist/wget
+          tar -C dist -czf "wget-${{ matrix.asset_suffix }}.tar.gz" wget
+          sha256sum "wget-${{ matrix.asset_suffix }}.tar.gz" > "wget-${{ matrix.asset_suffix }}.tar.gz.sha256"
+
+      - name: Upload release assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            "wget-${{ matrix.asset_suffix }}.tar.gz" \
+            "wget-${{ matrix.asset_suffix }}.tar.gz.sha256" \
+            --clobber

@@ -448,6 +448,7 @@ run_old_style tests/busybox/ip/ip-addr-show-prints-state
 run_old_style tests/busybox/ip/ip-addr-add-preserves-existing-ipv4-state
 run_old_style tests/busybox/ip/ip-addr-del-removes-only-target-state
 run_old_style tests/busybox/ip/ip-addr-flush-dev-and-to-state
+run_old_style tests/busybox/ip/ip-addr-show-and-flush-filter-label-and-scope-state
 run_old_style tests/busybox/ip/ip-6-addr-show-filters-family
 run_old_style tests/busybox/ip/ip-link-set-updates-state
 run_old_style tests/busybox/ip/ip-link-set-flags-and-qlen-state

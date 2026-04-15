@@ -1,0 +1,23 @@
+state=$(mktemp "${TMPDIR:-/tmp}/seed-net-state.XXXXXX")
+trap 'rm -f "$state"' EXIT HUP INT TERM
+
+cat >"$state" <<'EOF'
+iface	2	eth0	67	1500	0	1000	02:00:00:00:00:01	0	0	0	0
+addr	eth0	inet	10.0.0.2	24		10.0.0.255	eth0:1	link
+addr	eth0	inet	10.0.1.2	24		10.0.1.255		global
+EOF
+
+SEED_NET_STATE="$state" busybox ip addr show dev eth0 label eth0:1 scope link >out
+grep 'inet 10.0.0.2/24 brd 10.0.0.255 scope link eth0 label eth0:1' out
+if grep '10.0.1.2/24' out >/dev/null; then
+	echo "ip unexpectedly included unmatched address metadata" >&2
+	exit 1
+fi
+
+SEED_NET_STATE="$state" busybox ip addr flush dev eth0 label eth0:1 scope link
+SEED_NET_STATE="$state" busybox ip addr show dev eth0 >out2
+if grep '10.0.0.2/24' out2 >/dev/null; then
+	echo "ip unexpectedly left flushed label/scope address behind" >&2
+	exit 1
+fi
+grep '10.0.1.2/24' out2

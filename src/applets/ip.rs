@@ -58,8 +58,8 @@ fn run_addr(family: Option<AddressFamily>, args: &[String]) -> Result<(), Vec<Ap
                 if filter.dev.as_deref().is_some_and(|dev| dev != interface.name) {
                     continue;
                 }
-                if has_visible_addresses(&interface, family, &filter.prefix) {
-                    print_addr_interface(&interface, family, &filter.prefix);
+                if has_visible_addresses(&interface, family, &filter) {
+                    print_addr_interface(&interface, family, &filter);
                 }
             }
             Ok(())
@@ -73,6 +73,7 @@ fn run_addr(family: Option<AddressFamily>, args: &[String]) -> Result<(), Vec<Ap
                 for address in interface.addresses {
                     if family.is_some_and(|expected| expected != address.family)
                         || !matches_addr_filter(&address, &filter.prefix)
+                        || !matches_label_scope(&address, &filter.label, &filter.scope)
                     {
                         continue;
                     }
@@ -84,23 +85,29 @@ fn run_addr(family: Option<AddressFamily>, args: &[String]) -> Result<(), Vec<Ap
         }
         "add" | "del" => {
             let delete = args[0] == "del";
-            let (spec, dev) = parse_addr_change(&args[1..])?;
-            match parse_ip_prefix(&spec, family)? {
+            let change = parse_addr_change(&args[1..], family)?;
+            match &change.prefix {
                 ParsedPrefix::Inet4(address, prefix_len) => {
                     if delete {
-                        remove_address(&dev, AddressFamily::Inet4, &address.to_string()).map_err(io_error(
+                        remove_address(&change.dev, AddressFamily::Inet4, &address.to_string()).map_err(io_error(
                             "clearing IPv4 address",
                             Some("interface".to_string()),
                         ))?;
                     } else {
                         add_address(
-                            &dev,
+                            &change.dev,
                             &InterfaceAddress {
                                 family: AddressFamily::Inet4,
                                 address: address.to_string(),
-                                prefix_len,
-                                peer: None,
-                                broadcast: Some(broadcast_for(address, prefix_len).to_string()),
+                                prefix_len: *prefix_len,
+                                peer: change.peer.clone(),
+                                broadcast: match &change.broadcast {
+                                    Some(Some(value)) => Some(value.clone()),
+                                    Some(None) => Some(broadcast_for(*address, *prefix_len).to_string()),
+                                    None => Some(broadcast_for(*address, *prefix_len).to_string()),
+                                },
+                                label: change.label.clone(),
+                                scope: change.scope.clone(),
                             },
                         )
                         .map_err(io_error(
@@ -111,19 +118,21 @@ fn run_addr(family: Option<AddressFamily>, args: &[String]) -> Result<(), Vec<Ap
                 }
                 ParsedPrefix::Inet6(address, prefix_len) => {
                     if delete {
-                        remove_address(&dev, AddressFamily::Inet6, &address).map_err(io_error(
+                        remove_address(&change.dev, AddressFamily::Inet6, address).map_err(io_error(
                             "clearing IPv6 address",
                             Some("interface".to_string()),
                         ))?;
                     } else {
                         add_address(
-                            &dev,
+                            &change.dev,
                             &InterfaceAddress {
                                 family: AddressFamily::Inet6,
-                                address,
-                                prefix_len,
-                                peer: None,
+                                address: address.clone(),
+                                prefix_len: *prefix_len,
+                                peer: change.peer.clone(),
                                 broadcast: None,
+                                label: change.label.clone(),
+                                scope: change.scope.clone(),
                             },
                         )
                         .map_err(io_error(
@@ -224,6 +233,8 @@ fn run_route(family: Option<AddressFamily>, args: &[String]) -> Result<(), Vec<A
 struct AddrFilter {
     dev: Option<String>,
     prefix: Option<ParsedPrefix>,
+    label: Option<String>,
+    scope: Option<String>,
 }
 
 fn parse_addr_filter(args: &[String]) -> Result<AddrFilter, Vec<AppletError>> {
@@ -245,7 +256,26 @@ fn parse_addr_filter(args: &[String]) -> Result<AddrFilter, Vec<AppletError>> {
                 filter.prefix = Some(parse_ip_prefix(prefix, None)?);
                 index += 2;
             }
-            _ => return Err(vec![AppletError::new(APPLET, "expected 'dev IFACE' or 'to PREFIX'")]),
+            "label" => {
+                let Some(label) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "label")]);
+                };
+                filter.label = Some(label.clone());
+                index += 2;
+            }
+            "scope" => {
+                let Some(scope) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "scope")]);
+                };
+                filter.scope = Some(scope.clone());
+                index += 2;
+            }
+            _ => {
+                return Err(vec![AppletError::new(
+                    APPLET,
+                    "expected 'dev IFACE', 'to PREFIX', 'label PATTERN', or 'scope SCOPE'",
+                )])
+            }
         }
     }
     Ok(filter)
@@ -268,11 +298,88 @@ fn parse_route_dev_filter(args: &[String]) -> Result<Option<String>, Vec<AppletE
     }
 }
 
-fn parse_addr_change(args: &[String]) -> Result<(String, String), Vec<AppletError>> {
-    match args {
-        [spec, label, dev] if label == "dev" => Ok((spec.clone(), dev.clone())),
-        _ => Err(vec![AppletError::new(APPLET, "expected 'ADDR/PREFIX dev IFACE'")]),
+struct AddrChange {
+    prefix: ParsedPrefix,
+    dev: String,
+    peer: Option<String>,
+    broadcast: Option<Option<String>>,
+    label: Option<String>,
+    scope: Option<String>,
+}
+
+fn parse_addr_change(
+    args: &[String],
+    family_hint: Option<AddressFamily>,
+) -> Result<AddrChange, Vec<AppletError>> {
+    let mut prefix = None;
+    let mut dev = None;
+    let mut peer = None;
+    let mut broadcast = None;
+    let mut label = None;
+    let mut scope = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "dev" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "dev")]);
+                };
+                dev = Some(value.clone());
+                index += 2;
+            }
+            "peer" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "peer")]);
+                };
+                let peer_prefix = parse_ip_prefix(value, family_hint)?;
+                peer = Some(match peer_prefix {
+                    ParsedPrefix::Inet4(address, prefix_len) => format!("{address}/{prefix_len}"),
+                    ParsedPrefix::Inet6(address, prefix_len) => format!("{address}/{prefix_len}"),
+                });
+                index += 2;
+            }
+            "broadcast" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "broadcast")]);
+                };
+                broadcast = Some(match value.as_str() {
+                    "+" => None,
+                    "-" => return Err(vec![AppletError::new(APPLET, "broadcast '-' is unsupported")]),
+                    value => Some(parse_ip_addr(value)?.to_string()),
+                });
+                index += 2;
+            }
+            "label" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "label")]);
+                };
+                label = Some(value.clone());
+                index += 2;
+            }
+            "scope" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "scope")]);
+                };
+                scope = Some(value.clone());
+                index += 2;
+            }
+            value => {
+                if prefix.is_some() {
+                    return Err(vec![AppletError::new(APPLET, "extra operand")]);
+                }
+                prefix = Some(parse_ip_prefix(value, family_hint)?);
+                index += 1;
+            }
+        }
     }
+    Ok(AddrChange {
+        prefix: prefix.ok_or_else(|| vec![AppletError::new(APPLET, "missing address")])?,
+        dev: dev.ok_or_else(|| vec![AppletError::new(APPLET, "missing device")])?,
+        peer,
+        broadcast,
+        label,
+        scope,
+    })
 }
 
 fn parse_link_change(args: &[String]) -> Result<(String, LinkChange), Vec<AppletError>> {
@@ -429,35 +536,60 @@ fn parse_route_change(
 fn has_visible_addresses(
     interface: &crate::common::net::InterfaceInfo,
     family: Option<AddressFamily>,
-    prefix: &Option<ParsedPrefix>,
+    filter: &AddrFilter,
 ) -> bool {
     interface
         .addresses
         .iter()
         .any(|address| {
             family.is_none_or(|expected| expected == address.family)
-                && matches_addr_filter(address, prefix)
+                && matches_addr_filter(address, &filter.prefix)
+                && matches_label_scope(address, &filter.label, &filter.scope)
         })
 }
 
 fn print_addr_interface(
     interface: &crate::common::net::InterfaceInfo,
     family: Option<AddressFamily>,
-    prefix: &Option<ParsedPrefix>,
+    filter: &AddrFilter,
 ) {
     print_link_interface(interface);
     for address in &interface.addresses {
         if family.is_some_and(|expected| expected != address.family)
-            || !matches_addr_filter(address, prefix)
+            || !matches_addr_filter(address, &filter.prefix)
+            || !matches_label_scope(address, &filter.label, &filter.scope)
         {
             continue;
         }
         match address.family {
             AddressFamily::Inet4 => {
-                println!("    inet {}/{}", address.address, address.prefix_len);
+                print!("    inet {}/{}", address.address, address.prefix_len);
+                if let Some(peer) = &address.peer {
+                    print!(" peer {peer}");
+                }
+                if let Some(broadcast) = &address.broadcast {
+                    print!(" brd {broadcast}");
+                }
+                print!(
+                    " scope {} {}",
+                    address.scope.as_deref().unwrap_or("global"),
+                    interface.name
+                );
+                if let Some(label) = &address.label {
+                    print!(" label {label}");
+                }
+                println!();
             }
             AddressFamily::Inet6 => {
-                println!("    inet6 {}/{}", address.address, address.prefix_len);
+                print!("    inet6 {}/{}", address.address, address.prefix_len);
+                if let Some(peer) = &address.peer {
+                    print!(" peer {peer}");
+                }
+                print!(" scope {}", address.scope.as_deref().unwrap_or("global"));
+                if let Some(label) = &address.label {
+                    print!(" label {label}");
+                }
+                println!();
             }
         }
     }
@@ -486,6 +618,19 @@ fn matches_addr_filter(
             }),
         _ => false,
     }
+}
+
+fn matches_label_scope(
+    address: &crate::common::net::InterfaceAddress,
+    label: &Option<String>,
+    scope: &Option<String>,
+) -> bool {
+    label
+        .as_deref()
+        .is_none_or(|expected| address.label.as_deref().unwrap_or("") == expected)
+        && scope
+            .as_deref()
+            .is_none_or(|expected| address.scope.as_deref().unwrap_or("global") == expected)
 }
 
 fn print_link_interface(interface: &crate::common::net::InterfaceInfo) {
@@ -615,10 +760,40 @@ mod tests {
 
     #[test]
     fn parses_addr_change() {
-        assert_eq!(
-            parse_addr_change(&args(&["10.0.0.2/24", "dev", "eth0"])).unwrap(),
-            (String::from("10.0.0.2/24"), String::from("eth0"))
-        );
+        let change = parse_addr_change(&args(&["10.0.0.2/24", "dev", "eth0"]), None).unwrap();
+        match change.prefix {
+            super::ParsedPrefix::Inet4(address, prefix) => {
+                assert_eq!(address.to_string(), "10.0.0.2");
+                assert_eq!(prefix, 24);
+            }
+            super::ParsedPrefix::Inet6(_, _) => panic!("expected inet4"),
+        }
+        assert_eq!(change.dev, "eth0");
+    }
+
+    #[test]
+    fn parses_addr_change_metadata() {
+        let change = parse_addr_change(
+            &args(&[
+                "10.0.0.2/24",
+                "peer",
+                "10.0.0.1/24",
+                "broadcast",
+                "+",
+                "label",
+                "eth0:1",
+                "scope",
+                "link",
+                "dev",
+                "eth0",
+            ]),
+            None,
+        )
+        .unwrap();
+        assert_eq!(change.peer.as_deref(), Some("10.0.0.1/24"));
+        assert_eq!(change.broadcast, Some(None));
+        assert_eq!(change.label.as_deref(), Some("eth0:1"));
+        assert_eq!(change.scope.as_deref(), Some("link"));
     }
 
     #[test]

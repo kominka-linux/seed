@@ -26,6 +26,8 @@ pub(crate) struct InterfaceAddress {
     pub(crate) prefix_len: u8,
     pub(crate) peer: Option<String>,
     pub(crate) broadcast: Option<String>,
+    pub(crate) label: Option<String>,
+    pub(crate) scope: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -70,6 +72,8 @@ pub(crate) struct LinkChange {
     pub(crate) multicast: Option<bool>,
     pub(crate) allmulti: Option<bool>,
     pub(crate) promisc: Option<bool>,
+    pub(crate) dynamic: Option<bool>,
+    pub(crate) trailers: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -205,6 +209,16 @@ pub(crate) fn apply_link_change(name: &str, change: &LinkChange) -> io::Result<(
             libc::IFF_PROMISC as u32,
             change.promisc,
         );
+        apply_flag_change(
+            &mut interface.flags,
+            libc::IFF_DYNAMIC as u32,
+            change.dynamic,
+        );
+        apply_flag_change(
+            &mut interface.flags,
+            libc::IFF_NOTRAILERS as u32,
+            change.trailers.map(|value| !value),
+        );
         if let Some(new_name) = &change.new_name {
             interface.name = new_name.clone();
             for route in &mut state.routes {
@@ -241,6 +255,8 @@ pub(crate) fn set_ipv4(name: &str, change: &Ipv4Change) -> io::Result<()> {
                     Some(None) => None,
                     None => None,
                 },
+                label: None,
+                scope: None,
             });
         }
         interface.addresses.sort_by(|left, right| {
@@ -314,6 +330,42 @@ pub(crate) fn broadcast_for(address: Ipv4Addr, prefix_len: u8) -> Ipv4Addr {
     Ipv4Addr::from(u32::from(address) | !mask)
 }
 
+fn parse_scope_value(scope: Option<&str>) -> io::Result<u8> {
+    match scope.unwrap_or("global") {
+        "host" => Ok(libc::RT_SCOPE_HOST),
+        "link" => Ok(libc::RT_SCOPE_LINK),
+        "global" => Ok(libc::RT_SCOPE_UNIVERSE),
+        value => value.parse::<u8>().map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("invalid scope '{value}'"),
+            )
+        }),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn ipv4_scope(address: Ipv4Addr, flags: u32) -> &'static str {
+    if address.is_loopback() || flags & libc::IFF_LOOPBACK as u32 != 0 {
+        "host"
+    } else if address.is_link_local() {
+        "link"
+    } else {
+        "global"
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn ipv6_scope(address: Ipv6Addr) -> &'static str {
+    if address.is_loopback() {
+        "host"
+    } else if address.is_unicast_link_local() {
+        "link"
+    } else {
+        "global"
+    }
+}
+
 pub(crate) fn format_mac(bytes: &[u8]) -> String {
     bytes
         .iter()
@@ -368,6 +420,12 @@ pub(crate) fn interface_flag_names(flags: u32) -> Vec<&'static str> {
     }
     if flags & libc::IFF_NOARP as u32 != 0 {
         names.push("NOARP");
+    }
+    if flags & libc::IFF_DYNAMIC as u32 != 0 {
+        names.push("DYNAMIC");
+    }
+    if flags & libc::IFF_NOTRAILERS as u32 != 0 {
+        names.push("NOTRAILERS");
     }
     if flags & libc::IFF_POINTOPOINT as u32 != 0 {
         names.push("POINTOPOINT");
@@ -474,6 +532,39 @@ fn read_state(path: &Path) -> io::Result<State> {
                         prefix_len: prefix_len.parse().unwrap_or(0),
                         peer: (!peer.is_empty()).then(|| (*peer).to_string()),
                         broadcast: (!broadcast.is_empty()).then(|| (*broadcast).to_string()),
+                        label: None,
+                        scope: None,
+                    });
+                }
+            }
+            [
+                "addr",
+                name,
+                family,
+                address,
+                prefix_len,
+                peer,
+                broadcast,
+                label,
+                scope,
+            ] => {
+                if let Some(interface) = state
+                    .interfaces
+                    .iter_mut()
+                    .find(|interface| interface.name == *name)
+                {
+                    interface.addresses.push(InterfaceAddress {
+                        family: if *family == "inet6" {
+                            AddressFamily::Inet6
+                        } else {
+                            AddressFamily::Inet4
+                        },
+                        address: (*address).to_string(),
+                        prefix_len: prefix_len.parse().unwrap_or(0),
+                        peer: (!peer.is_empty()).then(|| (*peer).to_string()),
+                        broadcast: (!broadcast.is_empty()).then(|| (*broadcast).to_string()),
+                        label: (!label.is_empty()).then(|| (*label).to_string()),
+                        scope: (!scope.is_empty()).then(|| (*scope).to_string()),
                     });
                 }
             }
@@ -523,7 +614,7 @@ fn write_state(path: &Path, state: &State) -> io::Result<()> {
         ));
         for address in &interface.addresses {
             text.push_str(&format!(
-                "addr\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                "addr\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
                 interface.name,
                 match address.family {
                     AddressFamily::Inet4 => "inet",
@@ -532,7 +623,9 @@ fn write_state(path: &Path, state: &State) -> io::Result<()> {
                 address.address,
                 address.prefix_len,
                 address.peer.as_deref().unwrap_or(""),
-                address.broadcast.as_deref().unwrap_or("")
+                address.broadcast.as_deref().unwrap_or(""),
+                address.label.as_deref().unwrap_or(""),
+                address.scope.as_deref().unwrap_or("")
             ));
         }
     }
@@ -681,6 +774,8 @@ fn convert_ifaddr(ifa: &libc::ifaddrs, family: i32) -> Option<InterfaceAddress> 
                 broadcast: (flags & libc::IFF_BROADCAST as u32 != 0)
                     .then(|| peer_or_broadcast.map(|value| value.to_string()))
                     .flatten(),
+                label: None,
+                scope: Some(ipv4_scope(address, flags).to_string()),
             })
         }
         libc::AF_INET6 => {
@@ -692,6 +787,8 @@ fn convert_ifaddr(ifa: &libc::ifaddrs, family: i32) -> Option<InterfaceAddress> 
                 prefix_len,
                 peer: None,
                 broadcast: None,
+                label: None,
+                scope: Some(ipv6_scope(address).to_string()),
             })
         }
         _ => None,
@@ -827,6 +924,8 @@ fn live_apply_link_change(name: &str, change: &LinkChange) -> io::Result<()> {
         || change.multicast.is_some()
         || change.allmulti.is_some()
         || change.promisc.is_some()
+        || change.dynamic.is_some()
+        || change.trailers.is_some()
     {
         let mut flags = get_flags(name)?;
         if let Some(up) = change.up {
@@ -844,6 +943,12 @@ fn live_apply_link_change(name: &str, change: &LinkChange) -> io::Result<()> {
         apply_flag_change(&mut flags, libc::IFF_MULTICAST as u32, change.multicast);
         apply_flag_change(&mut flags, libc::IFF_ALLMULTI as u32, change.allmulti);
         apply_flag_change(&mut flags, libc::IFF_PROMISC as u32, change.promisc);
+        apply_flag_change(&mut flags, libc::IFF_DYNAMIC as u32, change.dynamic);
+        apply_flag_change(
+            &mut flags,
+            libc::IFF_NOTRAILERS as u32,
+            change.trailers.map(|value| !value),
+        );
         set_flags(name, flags)?;
     }
     if let Some(mtu) = change.mtu {
@@ -898,6 +1003,8 @@ fn live_add_ipv4(name: &str, address: &InterfaceAddress) -> io::Result<()> {
         .as_deref()
         .map(|value| {
             value
+                .split_once('/')
+                .map_or(value, |(address, _)| address)
                 .parse::<Ipv4Addr>()
                 .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid peer address"))
         })
@@ -911,6 +1018,7 @@ fn live_add_ipv4(name: &str, address: &InterfaceAddress) -> io::Result<()> {
             })
         })
         .transpose()?;
+    let scope = parse_scope_value(address.scope.as_deref())?;
     let index = if_index(name)?;
     let mut payload = Vec::new();
     append_bytes(
@@ -919,7 +1027,7 @@ fn live_add_ipv4(name: &str, address: &InterfaceAddress) -> io::Result<()> {
             ifa_family: libc::AF_INET as u8,
             ifa_prefixlen: address.prefix_len,
             ifa_flags: 0,
-            ifa_scope: 0,
+            ifa_scope: scope,
             ifa_index: index,
         },
     );
@@ -928,6 +1036,11 @@ fn live_add_ipv4(name: &str, address: &InterfaceAddress) -> io::Result<()> {
     append_rtattr(&mut payload, libc::IFA_ADDRESS, &ipv4.octets());
     if let Some(broadcast) = broadcast {
         append_rtattr(&mut payload, libc::IFA_BROADCAST, &broadcast.octets());
+    }
+    if let Some(label) = &address.label {
+        let mut bytes = label.as_bytes().to_vec();
+        bytes.push(0);
+        append_rtattr(&mut payload, libc::IFA_LABEL, &bytes);
     }
     rtnetlink_request(
         libc::RTM_NEWADDR,
@@ -1025,6 +1138,18 @@ fn live_add_ipv6(name: &str, address: &InterfaceAddress) -> io::Result<()> {
         .address
         .parse::<Ipv6Addr>()
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid IPv6 address"))?;
+    let peer = address
+        .peer
+        .as_deref()
+        .map(|value| {
+            value
+                .split_once('/')
+                .map_or(value, |(address, _)| address)
+                .parse::<Ipv6Addr>()
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid peer address"))
+        })
+        .transpose()?;
+    let scope = parse_scope_value(address.scope.as_deref())?;
     let index = if_index(name)?;
     let mut payload = Vec::new();
     append_bytes(
@@ -1033,13 +1158,21 @@ fn live_add_ipv6(name: &str, address: &InterfaceAddress) -> io::Result<()> {
             ifa_family: libc::AF_INET6 as u8,
             ifa_prefixlen: address.prefix_len,
             ifa_flags: 0,
-            ifa_scope: 0,
+            ifa_scope: scope,
             ifa_index: index,
         },
     );
-    let octets = ipv6.octets();
-    append_rtattr(&mut payload, libc::IFA_ADDRESS, &octets);
-    append_rtattr(&mut payload, libc::IFA_LOCAL, &octets);
+    append_rtattr(&mut payload, libc::IFA_ADDRESS, &ipv6.octets());
+    append_rtattr(
+        &mut payload,
+        libc::IFA_LOCAL,
+        &peer.unwrap_or(ipv6).octets(),
+    );
+    if let Some(label) = &address.label {
+        let mut bytes = label.as_bytes().to_vec();
+        bytes.push(0);
+        append_rtattr(&mut payload, libc::IFA_LABEL, &bytes);
+    }
     rtnetlink_request(
         libc::RTM_NEWADDR,
         (libc::NLM_F_REQUEST | libc::NLM_F_ACK | libc::NLM_F_CREATE | libc::NLM_F_EXCL) as u16,
@@ -1653,6 +1786,8 @@ mod tests {
                 multicast: Some(true),
                 allmulti: Some(true),
                 promisc: Some(true),
+                dynamic: Some(true),
+                trailers: Some(false),
             },
         )
         .unwrap();
@@ -1680,6 +1815,8 @@ mod tests {
                 prefix_len: 64,
                 peer: None,
                 broadcast: None,
+                label: None,
+                scope: None,
             },
         )
         .unwrap();

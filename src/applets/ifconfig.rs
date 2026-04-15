@@ -32,6 +32,8 @@ struct Options {
     multicast: Option<bool>,
     allmulti: Option<bool>,
     promisc: Option<bool>,
+    dynamic: Option<bool>,
+    trailers: Option<bool>,
 }
 
 pub fn main(args: &[String]) -> i32 {
@@ -136,6 +138,10 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
             "-allmulti" => options.allmulti = Some(false),
             "promisc" => options.promisc = Some(true),
             "-promisc" => options.promisc = Some(false),
+            "dynamic" => options.dynamic = Some(true),
+            "-dynamic" => options.dynamic = Some(false),
+            "trailers" => options.trailers = Some(true),
+            "-trailers" => options.trailers = Some(false),
             "add" => {
                 let Some(value) = args.get(index) else {
                     return Err(vec![AppletError::option_requires_arg(APPLET, "add")]);
@@ -195,6 +201,8 @@ fn run_linux(options: &Options) -> Result<(), Vec<AppletError>> {
                 prefix_len: *prefix_len,
                 peer: None,
                 broadcast: None,
+                label: None,
+                scope: None,
             },
         )
         .map_err(io_error("adding address", Some(interface.to_string())))?;
@@ -215,6 +223,8 @@ fn run_linux(options: &Options) -> Result<(), Vec<AppletError>> {
         && options.multicast.is_none()
         && options.allmulti.is_none()
         && options.promisc.is_none()
+        && options.dynamic.is_none()
+        && options.trailers.is_none()
     {
         return Ok(());
     }
@@ -261,6 +271,8 @@ fn run_linux(options: &Options) -> Result<(), Vec<AppletError>> {
             multicast: options.multicast,
             allmulti: options.allmulti,
             promisc: options.promisc,
+            dynamic: options.dynamic,
+            trailers: options.trailers,
         },
     )
     .map_err(io_error("updating link", Some(interface.to_string())))?;
@@ -282,6 +294,8 @@ fn has_changes(options: &Options) -> bool {
         || options.multicast.is_some()
         || options.allmulti.is_some()
         || options.promisc.is_some()
+        || options.dynamic.is_some()
+        || options.trailers.is_some()
         || options.add_address.is_some()
         || options.del_address.is_some()
 }
@@ -363,6 +377,10 @@ fn is_flag_like(value: &str) -> bool {
                 | "-allmulti"
                 | "promisc"
                 | "-promisc"
+                | "dynamic"
+                | "-dynamic"
+                | "trailers"
+                | "-trailers"
                 | "netmask"
                 | "broadcast"
                 | "pointopoint"
@@ -459,6 +477,8 @@ mod tests {
                 multicast: None,
                 allmulti: None,
                 promisc: None,
+                dynamic: None,
+                trailers: None,
             }
         );
     }
@@ -496,6 +516,8 @@ mod tests {
                 multicast: None,
                 allmulti: None,
                 promisc: Some(true),
+                dynamic: None,
+                trailers: None,
             }
         );
     }

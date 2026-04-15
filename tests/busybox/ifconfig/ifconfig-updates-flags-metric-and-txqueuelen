@@ -5,9 +5,11 @@ cat >"$state" <<'EOF'
 iface	2	eth0	67	1500	0	1000	02:00:00:00:00:01	0	0	0	0
 EOF
 
-SEED_NET_STATE="$state" busybox ifconfig eth0 metric 2 txqueuelen 200 -arp promisc
+SEED_NET_STATE="$state" busybox ifconfig eth0 metric 2 txqueuelen 200 -arp promisc dynamic -trailers
 SEED_NET_STATE="$state" busybox ifconfig eth0 >out
 
 grep 'Metric:2  TXqueuelen:200' out
 grep 'NOARP' out
 grep 'PROMISC' out
+grep 'DYNAMIC' out
+grep 'NOTRAILERS' out

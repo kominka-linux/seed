@@ -7,9 +7,9 @@ use std::fs;
 use std::io;
 #[cfg(target_os = "linux")]
 use std::mem;
-use std::net::Ipv4Addr;
 #[cfg(target_os = "linux")]
 use std::net::Ipv6Addr;
+use std::net::{IpAddr, Ipv4Addr};
 #[cfg(target_os = "linux")]
 use std::path::{Path, PathBuf};
 
@@ -61,6 +61,10 @@ pub(crate) struct RouteInfo {
     pub(crate) prefix_len: u8,
     pub(crate) gateway: Option<String>,
     pub(crate) dev: String,
+    pub(crate) source: Option<String>,
+    pub(crate) metric: Option<u32>,
+    pub(crate) table: Option<u32>,
+    pub(crate) protocol: Option<u8>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -637,6 +641,38 @@ fn read_state(path: &Path) -> io::Result<State> {
                     prefix_len: prefix_len.parse().unwrap_or(0),
                     gateway: (!gateway.is_empty()).then(|| (*gateway).to_string()),
                     dev: (*dev).to_string(),
+                    source: None,
+                    metric: None,
+                    table: None,
+                    protocol: None,
+                });
+            }
+            [
+                "route",
+                family,
+                destination,
+                prefix_len,
+                gateway,
+                dev,
+                source,
+                metric,
+                table,
+                protocol,
+            ] => {
+                state.routes.push(RouteInfo {
+                    family: if *family == "inet6" {
+                        AddressFamily::Inet6
+                    } else {
+                        AddressFamily::Inet4
+                    },
+                    destination: (*destination).to_string(),
+                    prefix_len: prefix_len.parse().unwrap_or(0),
+                    gateway: (!gateway.is_empty()).then(|| (*gateway).to_string()),
+                    dev: (*dev).to_string(),
+                    source: (!source.is_empty()).then(|| (*source).to_string()),
+                    metric: (!metric.is_empty()).then(|| metric.parse().unwrap_or(0)),
+                    table: (!table.is_empty()).then(|| table.parse().unwrap_or(0)),
+                    protocol: (!protocol.is_empty()).then(|| protocol.parse().unwrap_or(0)),
                 });
             }
             _ => {}
@@ -692,7 +728,7 @@ fn write_state(path: &Path, state: &State) -> io::Result<()> {
     }
     for route in &state.routes {
         text.push_str(&format!(
-            "route\t{}\t{}\t{}\t{}\t{}\n",
+            "route\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
             match route.family {
                 AddressFamily::Inet4 => "inet",
                 AddressFamily::Inet6 => "inet6",
@@ -700,7 +736,23 @@ fn write_state(path: &Path, state: &State) -> io::Result<()> {
             route.destination,
             route.prefix_len,
             route.gateway.as_deref().unwrap_or(""),
-            route.dev
+            route.dev,
+            route.source.as_deref().unwrap_or(""),
+            route
+                .metric
+                .map(|value| value.to_string())
+                .as_deref()
+                .unwrap_or(""),
+            route
+                .table
+                .map(|value| value.to_string())
+                .as_deref()
+                .unwrap_or(""),
+            route
+                .protocol
+                .map(|value| value.to_string())
+                .as_deref()
+                .unwrap_or("")
         ));
     }
     fs::write(path, text)
@@ -899,14 +951,266 @@ fn ipv6_prefix_len(addr: *const libc::sockaddr) -> Option<u8> {
 
 #[cfg(target_os = "linux")]
 fn live_list_routes() -> io::Result<Vec<RouteInfo>> {
-    let mut routes = parse_ipv4_routes()?;
-    routes.extend(parse_ipv6_routes()?);
+    let mut routes = dump_routes(libc::AF_INET as u8).or_else(|_| parse_ipv4_routes())?;
+    routes.extend(dump_routes(libc::AF_INET6 as u8).or_else(|_| parse_ipv6_routes())?);
     routes.sort_by(|left, right| {
-        left.dev
-            .cmp(&right.dev)
+        left.family
+            .cmp(&right.family)
+            .then(left.table.cmp(&right.table))
             .then(left.destination.cmp(&right.destination))
+            .then(left.prefix_len.cmp(&right.prefix_len))
+            .then(left.dev.cmp(&right.dev))
     });
     Ok(routes)
+}
+
+#[cfg(target_os = "linux")]
+fn dump_routes(family: u8) -> io::Result<Vec<RouteInfo>> {
+    let fd = rtnetlink_socket_fd()?;
+    let mut payload = Vec::new();
+    append_bytes(
+        &mut payload,
+        &RtMsg {
+            rtm_family: family,
+            rtm_dst_len: 0,
+            rtm_src_len: 0,
+            rtm_tos: 0,
+            rtm_table: libc::RT_TABLE_UNSPEC,
+            rtm_protocol: libc::RTPROT_UNSPEC,
+            rtm_scope: libc::RT_SCOPE_UNIVERSE,
+            rtm_type: libc::RTN_UNSPEC,
+            rtm_flags: 0,
+        },
+    );
+
+    let mut message = Vec::with_capacity(mem::size_of::<libc::nlmsghdr>() + payload.len());
+    append_bytes(
+        &mut message,
+        &libc::nlmsghdr {
+            nlmsg_len: (mem::size_of::<libc::nlmsghdr>() + payload.len()) as u32,
+            nlmsg_type: libc::RTM_GETROUTE,
+            nlmsg_flags: (libc::NLM_F_REQUEST | libc::NLM_F_DUMP) as u16,
+            nlmsg_seq: 1,
+            nlmsg_pid: 0,
+        },
+    );
+    message.extend_from_slice(&payload);
+
+    let mut kernel = unsafe { mem::zeroed::<libc::sockaddr_nl>() };
+    kernel.nl_family = libc::AF_NETLINK as libc::sa_family_t;
+
+    // SAFETY: buffer and sockaddr point to initialized memory for sendto.
+    let rc = unsafe {
+        libc::sendto(
+            fd,
+            message.as_ptr() as *const libc::c_void,
+            message.len(),
+            0,
+            &kernel as *const libc::sockaddr_nl as *const libc::sockaddr,
+            mem::size_of::<libc::sockaddr_nl>() as libc::socklen_t,
+        )
+    };
+    if rc < 0 {
+        let err = io::Error::last_os_error();
+        close_fd(fd);
+        return Err(err);
+    }
+
+    let mut routes = Vec::new();
+    let mut buffer = vec![0_u8; 8192];
+    loop {
+        // SAFETY: `buffer` is valid writable memory for recv.
+        let len = unsafe {
+            libc::recv(
+                fd,
+                buffer.as_mut_ptr() as *mut libc::c_void,
+                buffer.len(),
+                0,
+            )
+        };
+        if len < 0 {
+            let err = io::Error::last_os_error();
+            close_fd(fd);
+            return Err(err);
+        }
+        if len == 0 {
+            close_fd(fd);
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "short netlink reply",
+            ));
+        }
+        if parse_route_dump_chunk(&buffer[..len as usize], &mut routes)? {
+            break;
+        }
+    }
+    close_fd(fd);
+    Ok(routes)
+}
+
+#[cfg(target_os = "linux")]
+fn parse_route_dump_chunk(buffer: &[u8], routes: &mut Vec<RouteInfo>) -> io::Result<bool> {
+    let header_len = mem::size_of::<libc::nlmsghdr>();
+    let error_len = mem::size_of::<libc::nlmsgerr>();
+    let mut offset = 0;
+    while offset + header_len <= buffer.len() {
+        // SAFETY: bounds checked above and aligned access is fine for nlmsghdr.
+        let header = unsafe { &*(buffer[offset..].as_ptr() as *const libc::nlmsghdr) };
+        if header.nlmsg_len < header_len as u32 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "malformed netlink reply",
+            ));
+        }
+        let message_end = offset + header.nlmsg_len as usize;
+        if message_end > buffer.len() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "truncated netlink reply",
+            ));
+        }
+        match header.nlmsg_type {
+            value if value == libc::NLMSG_DONE as u16 => return Ok(true),
+            value if value == libc::NLMSG_ERROR as u16 => {
+                if header.nlmsg_len < (header_len + error_len) as u32 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "truncated netlink error",
+                    ));
+                }
+                // SAFETY: bounds checked above for nlmsgerr payload.
+                let error =
+                    unsafe { &*(buffer[offset + header_len..].as_ptr() as *const libc::nlmsgerr) };
+                if error.error != 0 {
+                    return Err(io::Error::from_raw_os_error(-error.error));
+                }
+            }
+            value if value == libc::RTM_NEWROUTE => {
+                if let Some(route) = parse_route_message(&buffer[offset + header_len..message_end])?
+                {
+                    routes.push(route);
+                }
+            }
+            _ => {}
+        }
+        offset += nlmsg_align(header.nlmsg_len as usize);
+    }
+    Ok(false)
+}
+
+#[cfg(target_os = "linux")]
+fn parse_route_message(payload: &[u8]) -> io::Result<Option<RouteInfo>> {
+    let msg_len = mem::size_of::<RtMsg>();
+    if payload.len() < msg_len {
+        return Ok(None);
+    }
+    // SAFETY: bounds checked above and RtMsg is POD.
+    let message = unsafe { &*(payload.as_ptr() as *const RtMsg) };
+    let family = match message.rtm_family as i32 {
+        libc::AF_INET => AddressFamily::Inet4,
+        libc::AF_INET6 => AddressFamily::Inet6,
+        _ => return Ok(None),
+    };
+    if message.rtm_type != libc::RTN_UNICAST {
+        return Ok(None);
+    }
+
+    let mut destination = match family {
+        AddressFamily::Inet4 => Ipv4Addr::UNSPECIFIED.to_string(),
+        AddressFamily::Inet6 => Ipv6Addr::UNSPECIFIED.to_string(),
+    };
+    let mut gateway = None;
+    let mut dev = None;
+    let mut source = None;
+    let mut metric = None;
+    let mut table = Some(message.rtm_table as u32);
+    let protocol = Some(message.rtm_protocol);
+    let mut offset = msg_len;
+    let attr_len = mem::size_of::<RtAttr>();
+    while offset + attr_len <= payload.len() {
+        // SAFETY: bounds checked above and RtAttr is POD.
+        let attr = unsafe { &*(payload[offset..].as_ptr() as *const RtAttr) };
+        if attr.rta_len < attr_len as u16 {
+            break;
+        }
+        let end = offset + attr.rta_len as usize;
+        if end > payload.len() {
+            break;
+        }
+        let data = &payload[offset + attr_len..end];
+        match attr.rta_type {
+            value if value == libc::RTA_DST => {
+                destination = parse_route_address(family, data)?.to_string();
+            }
+            value if value == libc::RTA_GATEWAY => {
+                gateway = Some(parse_route_address(family, data)?.to_string());
+            }
+            value if value == libc::RTA_PREFSRC => {
+                source = Some(parse_route_address(family, data)?.to_string());
+            }
+            value if value == libc::RTA_PRIORITY && data.len() >= 4 => {
+                metric = Some(u32::from_ne_bytes(data[..4].try_into().unwrap_or([0; 4])));
+            }
+            value if value == libc::RTA_OIF && data.len() >= 4 => {
+                let index = u32::from_ne_bytes(data[..4].try_into().unwrap_or([0; 4]));
+                dev = Some(if_name(index)?);
+            }
+            value if value == libc::RTA_TABLE && data.len() >= 4 => {
+                table = Some(u32::from_ne_bytes(data[..4].try_into().unwrap_or([0; 4])));
+            }
+            _ => {}
+        }
+        offset += nlmsg_align(attr.rta_len as usize);
+    }
+
+    let Some(dev) = dev else {
+        return Ok(None);
+    };
+    Ok(Some(RouteInfo {
+        family,
+        destination,
+        prefix_len: message.rtm_dst_len,
+        gateway,
+        dev,
+        source,
+        metric,
+        table,
+        protocol,
+    }))
+}
+
+#[cfg(target_os = "linux")]
+fn parse_route_address(family: AddressFamily, data: &[u8]) -> io::Result<IpAddr> {
+    match family {
+        AddressFamily::Inet4 if data.len() >= 4 => Ok(IpAddr::V4(Ipv4Addr::from(
+            <[u8; 4]>::try_from(&data[..4]).unwrap_or([0; 4]),
+        ))),
+        AddressFamily::Inet6 if data.len() >= 16 => Ok(IpAddr::V6(Ipv6Addr::from(
+            <[u8; 16]>::try_from(&data[..16]).unwrap_or([0; 16]),
+        ))),
+        AddressFamily::Inet4 => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "short IPv4 route attribute",
+        )),
+        AddressFamily::Inet6 => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "short IPv6 route attribute",
+        )),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn if_name(index: u32) -> io::Result<String> {
+    let mut buffer = [0; libc::IFNAMSIZ];
+    // SAFETY: buffer points to writable memory for if_indextoname.
+    let name = unsafe { libc::if_indextoname(index, buffer.as_mut_ptr()) };
+    if name.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `name` points into `buffer`, which remains live for this conversion.
+    Ok(unsafe { CStr::from_ptr(name) }
+        .to_string_lossy()
+        .into_owned())
 }
 
 #[cfg(target_os = "linux")]
@@ -931,6 +1235,10 @@ fn parse_ipv4_routes() -> io::Result<Vec<RouteInfo>> {
                     .filter(|gateway| *gateway != Ipv4Addr::UNSPECIFIED)
                     .map(|value| value.to_string()),
                 dev: fields[0].to_string(),
+                source: None,
+                metric: fields.get(6).and_then(|value| value.parse().ok()),
+                table: Some(libc::RT_TABLE_MAIN as u32),
+                protocol: Some(libc::RTPROT_UNSPEC),
             })
         })
         .collect())
@@ -959,6 +1267,12 @@ fn parse_ipv6_routes() -> io::Result<Vec<RouteInfo>> {
                 prefix_len,
                 gateway: (gateway != Ipv6Addr::UNSPECIFIED).then(|| gateway.to_string()),
                 dev: fields[9].to_string(),
+                source: None,
+                metric: fields
+                    .get(5)
+                    .and_then(|value| u32::from_str_radix(value, 16).ok()),
+                table: Some(libc::RT_TABLE_MAIN as u32),
+                protocol: Some(libc::RTPROT_UNSPEC),
             })
         })
         .collect())
@@ -1156,48 +1470,17 @@ fn live_remove_ipv4(name: &str, address: &str) -> io::Result<()> {
 
 #[cfg(target_os = "linux")]
 fn live_route_change(route: &RouteInfo, request: libc::c_ulong) -> io::Result<()> {
-    if route.family == AddressFamily::Inet6 {
-        let request_type = match request {
-            libc::SIOCADDRT => libc::RTM_NEWROUTE,
-            libc::SIOCDELRT => libc::RTM_DELROUTE,
-            _ => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "unsupported route request",
-                ));
-            }
-        };
-        return live_ipv6_route_change(route, request_type);
-    }
-    let mut entry = unsafe { mem::zeroed::<libc::rtentry>() };
-    entry.rt_flags = libc::RTF_UP
-        | if route.gateway.is_some() {
-            libc::RTF_GATEWAY
-        } else {
-            0
-        };
-    if route.prefix_len == 32 {
-        entry.rt_flags |= libc::RTF_HOST;
-    }
-    entry.rt_dst = sockaddr_from_ipv4(route.destination.parse().unwrap_or(Ipv4Addr::UNSPECIFIED));
-    entry.rt_genmask = sockaddr_from_ipv4(prefix_to_netmask(route.prefix_len));
-    entry.rt_gateway = sockaddr_from_ipv4(
-        route
-            .gateway
-            .as_deref()
-            .unwrap_or("0.0.0.0")
-            .parse()
-            .unwrap_or(Ipv4Addr::UNSPECIFIED),
-    );
-    let dev = CString::new(route.dev.as_str())
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "device contains NUL byte"))?;
-    entry.rt_dev = dev.as_ptr() as *mut libc::c_char;
-    let fd = socket_fd()?;
-    // SAFETY: `entry` points to a valid rtentry for the duration of the ioctl.
-    let rc = unsafe { libc::ioctl(fd, request as _, &entry) };
-    let err = io::Error::last_os_error();
-    close_fd(fd);
-    if rc == 0 { Ok(()) } else { Err(err) }
+    let request_type = match request {
+        libc::SIOCADDRT => libc::RTM_NEWROUTE,
+        libc::SIOCDELRT => libc::RTM_DELROUTE,
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "unsupported route request",
+            ));
+        }
+    };
+    live_netlink_route_change(route, request_type)
 }
 
 #[cfg(target_os = "linux")]
@@ -1286,35 +1569,23 @@ fn live_remove_ipv6(name: &str, address: &str) -> io::Result<()> {
 }
 
 #[cfg(target_os = "linux")]
-fn live_ipv6_route_change(route: &RouteInfo, request_type: u16) -> io::Result<()> {
-    let destination = route.destination.parse::<Ipv6Addr>().map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "invalid IPv6 route destination",
-        )
-    })?;
-    let gateway = route
-        .gateway
-        .as_deref()
-        .map(|gateway| {
-            gateway.parse::<Ipv6Addr>().map_err(|_| {
-                io::Error::new(io::ErrorKind::InvalidInput, "invalid IPv6 route gateway")
-            })
-        })
-        .transpose()?;
+fn live_netlink_route_change(route: &RouteInfo, request_type: u16) -> io::Result<()> {
     let index = if_index(&route.dev)?;
-
+    let table = route.table.unwrap_or(libc::RT_TABLE_MAIN as u32);
     let mut payload = Vec::new();
     append_bytes(
         &mut payload,
         &RtMsg {
-            rtm_family: libc::AF_INET6 as u8,
+            rtm_family: match route.family {
+                AddressFamily::Inet4 => libc::AF_INET as u8,
+                AddressFamily::Inet6 => libc::AF_INET6 as u8,
+            },
             rtm_dst_len: route.prefix_len,
             rtm_src_len: 0,
             rtm_tos: 0,
-            rtm_table: libc::RT_TABLE_MAIN,
-            rtm_protocol: libc::RTPROT_BOOT,
-            rtm_scope: if gateway.is_some() {
+            rtm_table: table.min(u8::MAX as u32) as u8,
+            rtm_protocol: route.protocol.unwrap_or(libc::RTPROT_BOOT),
+            rtm_scope: if route.gateway.is_some() {
                 libc::RT_SCOPE_UNIVERSE
             } else {
                 libc::RT_SCOPE_LINK
@@ -1323,13 +1594,25 @@ fn live_ipv6_route_change(route: &RouteInfo, request_type: u16) -> io::Result<()
             rtm_flags: 0,
         },
     );
-    if route.prefix_len != 0 {
-        append_rtattr(&mut payload, libc::RTA_DST, &destination.octets());
+    append_route_addr(
+        &mut payload,
+        route.family,
+        libc::RTA_DST,
+        &route.destination,
+    )?;
+    if let Some(gateway) = &route.gateway {
+        append_route_addr(&mut payload, route.family, libc::RTA_GATEWAY, gateway)?;
     }
-    if let Some(gateway) = gateway {
-        append_rtattr(&mut payload, libc::RTA_GATEWAY, &gateway.octets());
+    if let Some(source) = &route.source {
+        append_route_addr(&mut payload, route.family, libc::RTA_PREFSRC, source)?;
     }
     append_rtattr(&mut payload, libc::RTA_OIF, &index.to_ne_bytes());
+    if let Some(metric) = route.metric {
+        append_rtattr(&mut payload, libc::RTA_PRIORITY, &metric.to_ne_bytes());
+    }
+    if table > u8::MAX as u32 {
+        append_rtattr(&mut payload, libc::RTA_TABLE, &table.to_ne_bytes());
+    }
 
     let flags = if request_type == libc::RTM_NEWROUTE {
         (libc::NLM_F_REQUEST | libc::NLM_F_ACK | libc::NLM_F_CREATE | libc::NLM_F_EXCL) as u16
@@ -1337,6 +1620,34 @@ fn live_ipv6_route_change(route: &RouteInfo, request_type: u16) -> io::Result<()
         (libc::NLM_F_REQUEST | libc::NLM_F_ACK) as u16
     };
     rtnetlink_request(request_type, flags, &payload)
+}
+
+#[cfg(target_os = "linux")]
+fn append_route_addr(
+    payload: &mut Vec<u8>,
+    family: AddressFamily,
+    attr: u16,
+    value: &str,
+) -> io::Result<()> {
+    match family {
+        AddressFamily::Inet4 => {
+            let address = value.parse::<Ipv4Addr>().map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidInput, "invalid IPv4 route address")
+            })?;
+            if address != Ipv4Addr::UNSPECIFIED {
+                append_rtattr(payload, attr, &address.octets());
+            }
+        }
+        AddressFamily::Inet6 => {
+            let address = value.parse::<Ipv6Addr>().map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidInput, "invalid IPv6 route address")
+            })?;
+            if address != Ipv6Addr::UNSPECIFIED {
+                append_rtattr(payload, attr, &address.octets());
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
@@ -1934,6 +2245,10 @@ mod tests {
             prefix_len: 0,
             gateway: Some(String::from("10.0.0.1")),
             dev: String::from("eth0"),
+            source: Some(String::from("10.0.0.2")),
+            metric: Some(10),
+            table: Some(100),
+            protocol: Some(libc::RTPROT_STATIC),
         })
         .unwrap();
         del_route(&RouteInfo {
@@ -1942,6 +2257,10 @@ mod tests {
             prefix_len: 16,
             gateway: None,
             dev: String::from("eth0"),
+            source: None,
+            metric: None,
+            table: None,
+            protocol: None,
         })
         .unwrap();
         add_address(
@@ -1969,6 +2288,10 @@ mod tests {
         assert_eq!(state.interfaces[0].irq, 5);
         assert_eq!(state.interfaces[0].addresses[0].address, "10.0.0.2");
         assert_eq!(state.routes.len(), 1);
+        assert_eq!(state.routes[0].source.as_deref(), Some("10.0.0.2"));
+        assert_eq!(state.routes[0].metric, Some(10));
+        assert_eq!(state.routes[0].table, Some(100));
+        assert_eq!(state.routes[0].protocol, Some(libc::RTPROT_STATIC));
         let _ = fs::remove_file(path);
     }
 }

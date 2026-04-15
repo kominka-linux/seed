@@ -454,6 +454,7 @@ run_old_style tests/busybox/ip/ip-6-addr-show-filters-family
 run_old_style tests/busybox/ip/ip-link-set-updates-state
 run_old_style tests/busybox/ip/ip-link-set-flags-and-qlen-state
 run_old_style tests/busybox/ip/ip-route-add-updates-state
+run_old_style tests/busybox/ip/ip-route-adds-attributes-state
 run_old_style tests/busybox/ip/ip-route-replace-and-flush-state
 run_old_style tests/busybox/ip/ip-6-route-add-updates-state
 run_old_style tests/busybox/netstat/netstat-lnt-shows-listening-socket

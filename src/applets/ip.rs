@@ -10,6 +10,7 @@ use crate::common::net::{
 };
 
 const APPLET: &str = "ip";
+const RTPROT_RA: u8 = 9;
 
 pub fn main(args: &[String]) -> i32 {
     finish(run(args))
@@ -474,6 +475,10 @@ fn parse_route_change(
     let mut prefix_len = None;
     let mut gateway = None;
     let mut dev = None;
+    let mut source = None;
+    let mut metric = None;
+    let mut table = None;
+    let mut protocol = None;
     let mut family = family_hint;
     let mut index = 0;
 
@@ -497,6 +502,36 @@ fn parse_route_change(
                     IpAddr::V6(_) => AddressFamily::Inet6,
                 });
                 gateway = Some(parsed.to_string());
+                index += 2;
+            }
+            "src" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "src")]);
+                };
+                source = Some(value.clone());
+                index += 2;
+            }
+            "metric" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "metric")]);
+                };
+                metric = Some(value.parse().map_err(|_| {
+                    vec![AppletError::new(APPLET, format!("invalid metric '{value}'"))]
+                })?);
+                index += 2;
+            }
+            "table" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "table")]);
+                };
+                table = Some(parse_route_table(value)?);
+                index += 2;
+            }
+            "proto" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "proto")]);
+                };
+                protocol = Some(parse_route_protocol(value)?);
                 index += 2;
             }
             "dev" => {
@@ -524,12 +559,30 @@ fn parse_route_change(
         }
     }
 
+    let family = family.unwrap_or(AddressFamily::Inet4);
+    let source = source
+        .map(|value| match (family, parse_ip_addr(&value)?) {
+            (AddressFamily::Inet4, IpAddr::V4(address)) => Ok(address.to_string()),
+            (AddressFamily::Inet6, IpAddr::V6(address)) => Ok(address.to_string()),
+            (AddressFamily::Inet4, _) => {
+                Err(vec![AppletError::new(APPLET, "IPv4 route requires IPv4 src")])
+            }
+            (AddressFamily::Inet6, _) => {
+                Err(vec![AppletError::new(APPLET, "IPv6 route requires IPv6 src")])
+            }
+        })
+        .transpose()?;
+
     Ok(RouteInfo {
-        family: family.unwrap_or(AddressFamily::Inet4),
+        family,
         destination: destination.ok_or_else(|| vec![AppletError::new(APPLET, "missing route destination")])?,
         prefix_len: prefix_len.unwrap_or(32),
         gateway,
         dev: dev.ok_or_else(|| vec![AppletError::new(APPLET, "missing route device")])?,
+        source,
+        metric,
+        table,
+        protocol,
     })
 }
 
@@ -665,21 +718,83 @@ fn parse_on_off(applet: &'static str, option: &str, value: &str) -> Result<bool,
 }
 
 fn print_route(route: &RouteInfo) {
+    let mut parts = Vec::new();
     if route.prefix_len == 0
         && matches!(
             route.destination.as_str(),
             "0.0.0.0" | "::" | "::0" | "0:0:0:0:0:0:0:0"
         )
     {
-        match &route.gateway {
-            Some(gateway) => println!("default via {} dev {}", gateway, route.dev),
-            None => println!("default dev {}", route.dev),
-        }
+        parts.push(String::from("default"));
     } else {
-        match &route.gateway {
-            Some(gateway) => println!("{}/{} via {} dev {}", route.destination, route.prefix_len, gateway, route.dev),
-            None => println!("{}/{} dev {}", route.destination, route.prefix_len, route.dev),
-        }
+        parts.push(format!("{}/{}", route.destination, route.prefix_len));
+    }
+    if let Some(gateway) = &route.gateway {
+        parts.push(format!("via {gateway}"));
+    }
+    parts.push(format!("dev {}", route.dev));
+    if let Some(protocol) = route.protocol.filter(|protocol| *protocol != libc::RTPROT_BOOT) {
+        parts.push(format!("proto {}", format_route_protocol(protocol)));
+    }
+    if let Some(source) = &route.source {
+        parts.push(format!("src {source}"));
+    }
+    if let Some(metric) = route.metric {
+        parts.push(format!("metric {metric}"));
+    }
+    if let Some(table) = route.table.filter(|table| *table != libc::RT_TABLE_MAIN as u32) {
+        parts.push(format!("table {}", format_route_table(table)));
+    }
+    println!("{}", parts.join(" "));
+}
+
+fn parse_route_table(value: &str) -> Result<u32, Vec<AppletError>> {
+    match value {
+        "default" => Ok(libc::RT_TABLE_DEFAULT as u32),
+        "main" => Ok(libc::RT_TABLE_MAIN as u32),
+        "local" => Ok(libc::RT_TABLE_LOCAL as u32),
+        _ => value.parse::<u32>().map_err(|_| {
+            vec![AppletError::new(
+                APPLET,
+                format!("invalid table '{value}'"),
+            )]
+        }),
+    }
+}
+
+fn format_route_table(value: u32) -> String {
+    match value {
+        value if value == libc::RT_TABLE_DEFAULT as u32 => String::from("default"),
+        value if value == libc::RT_TABLE_MAIN as u32 => String::from("main"),
+        value if value == libc::RT_TABLE_LOCAL as u32 => String::from("local"),
+        _ => value.to_string(),
+    }
+}
+
+fn parse_route_protocol(value: &str) -> Result<u8, Vec<AppletError>> {
+    match value {
+        "redirect" => Ok(libc::RTPROT_REDIRECT),
+        "kernel" => Ok(libc::RTPROT_KERNEL),
+        "boot" => Ok(libc::RTPROT_BOOT),
+        "static" => Ok(libc::RTPROT_STATIC),
+        "ra" => Ok(RTPROT_RA),
+        _ => value.parse::<u8>().map_err(|_| {
+            vec![AppletError::new(
+                APPLET,
+                format!("invalid proto '{value}'"),
+            )]
+        }),
+    }
+}
+
+fn format_route_protocol(value: u8) -> String {
+    match value {
+        value if value == libc::RTPROT_REDIRECT => String::from("redirect"),
+        value if value == libc::RTPROT_KERNEL => String::from("kernel"),
+        value if value == libc::RTPROT_BOOT => String::from("boot"),
+        value if value == libc::RTPROT_STATIC => String::from("static"),
+        value if value == RTPROT_RA => String::from("ra"),
+        _ => value.to_string(),
     }
 }
 
@@ -852,5 +967,30 @@ mod tests {
         assert_eq!(route.family, AddressFamily::Inet6);
         assert_eq!(route.destination, "::");
         assert_eq!(route.gateway.as_deref(), Some("fe80::1"));
+    }
+
+    #[test]
+    fn parses_route_change_attributes() {
+        let route = parse_route_change(
+            None,
+            &args(&[
+                "10.0.1.0/24",
+                "dev",
+                "eth0",
+                "src",
+                "10.0.0.2",
+                "metric",
+                "10",
+                "table",
+                "100",
+                "proto",
+                "static",
+            ]),
+        )
+        .unwrap();
+        assert_eq!(route.source.as_deref(), Some("10.0.0.2"));
+        assert_eq!(route.metric, Some(10));
+        assert_eq!(route.table, Some(100));
+        assert_eq!(route.protocol, Some(libc::RTPROT_STATIC));
     }
 }

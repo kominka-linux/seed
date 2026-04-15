@@ -1,0 +1,7 @@
+state=$(mktemp "${TMPDIR:-/tmp}/seed-net-state.XXXXXX")
+trap 'rm -f "$state"' EXIT HUP INT TERM
+
+SEED_NET_STATE="$state" busybox ip route add 10.0.1.0/24 via 10.0.0.1 dev eth0 src 10.0.0.2 metric 10 table 100 proto static
+SEED_NET_STATE="$state" busybox ip route show >out
+
+grep '^10.0.1.0/24 via 10.0.0.1 dev eth0 proto static src 10.0.0.2 metric 10 table 100$' out

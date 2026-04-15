@@ -84,3 +84,10 @@ ip -6 route del 2001:db8:55::/64 dev lo
 ip -6 route show | grep -F '2001:db8:55::/64 dev lo' >/dev/null && exit 1 || true
 
 printf 'phase7b: ip-ipv6-route-ok\n'
+
+ip route add 198.51.100.0/24 dev lo src 127.0.0.1 metric 10 proto static
+ip route show | grep -F '198.51.100.0/24 dev lo proto static src 127.0.0.1 metric 10' >/dev/null
+ip route del 198.51.100.0/24 dev lo src 127.0.0.1 metric 10 proto static
+ip route show | grep -F '198.51.100.0/24 dev lo proto static src 127.0.0.1 metric 10' >/dev/null && exit 1 || true
+
+printf 'phase7b: ip-ipv4-route-attrs-ok\n'

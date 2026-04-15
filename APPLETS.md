@@ -46,20 +46,19 @@ This file tracks applet-specific limitations that are important to keep visible 
   - several common directives are accepted and ignored
 - `ip`
   - family-aware `-4` / `-6` display exists for `addr` and `route`
-  - `addr` now covers `show`, `add`, `del`, and `flush` with `dev` / `to` filtering
-  - `route` now covers `show`, `add`, `append`, `del`, `change`, `replace`, and `flush`
+  - `addr` now covers `show`, `add`, `del`, and `flush` with `dev` / `to` / `label` / `scope` filtering
+  - `route` now covers `show`, `add`, `append`, `del`, `change`, `replace`, and `flush`, including `src`, `metric`, `table`, and `proto`
   - `link set` now covers `up` / `down`, `arp`, `multicast`, `allmulti`, `promisc`, `mtu`, `qlen`, `name`, and `address`
   - still much smaller than full BusyBox `ip`
   - no `neigh`, `rule`, `tunnel`, or broader `iproute2`-style object families
-  - address metadata like `peer`, `label`, and `scope` are still missing
-  - route attributes like `metric`, `src`, `table`, and `proto` are still missing
 - `ifconfig`
   - display includes IPv4 and IPv6 addresses
   - IPv6 address `add` / `del` now works against the live kernel path too
   - classic link flags now include `arp`, `allmulti`, `multicast`, `promisc`, `metric`, and `txqueuelen`
+  - hardware-map knobs now include `mem_start`, `io_addr`, and `irq`
   - link mutation remains Ethernet-oriented
   - only `hw ether` is supported
-  - older or niche knobs like `trailers`, `dynamic`, `mem_start`, `io_addr`, `irq`, `outfill`, and `keepalive` are still missing
+  - older or niche knobs like `trailers`, `dynamic`, `outfill`, and `keepalive` are still missing
 - `netstat`
   - family-aware socket and route display exists
   - process display via `-p` now resolves socket inodes back to `/proc`

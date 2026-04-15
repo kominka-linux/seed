@@ -21,25 +21,38 @@ const NUD_FAILED: u16 = 0x20;
 const NUD_NOARP: u16 = 0x40;
 const NUD_PERMANENT: u16 = 0x80;
 
+#[derive(Clone, Copy)]
+struct GlobalOptions {
+    family: Option<AddressFamily>,
+    link_family: bool,
+    oneline: bool,
+}
+
 pub fn main(args: &[String]) -> i32 {
     finish(run(args))
 }
 
 fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
-    let (family, command_args) = parse_global_family(args)?;
-    run_linux(family, command_args)
+    let (options, command_args) = parse_global_options(args)?;
+    run_linux(options, command_args)
 }
 
-fn run_linux(family: Option<AddressFamily>, args: &[String]) -> Result<(), Vec<AppletError>> {
+fn run_linux(options: GlobalOptions, args: &[String]) -> Result<(), Vec<AppletError>> {
     let Some(command) = args.first().map(String::as_str) else {
         return Err(vec![AppletError::new(APPLET, "missing command")]);
     };
+    if options.link_family && command != "link" {
+        return Err(vec![AppletError::new(
+            APPLET,
+            "family 'link' is only valid with 'ip link'",
+        )]);
+    }
     match command {
-        "addr" | "address" => run_addr(family, &args[1..]),
-        "link" => run_link(&args[1..]),
-        "neigh" => run_neigh(family, &args[1..]),
-        "rule" => run_rule(family, &args[1..]),
-        "route" => run_route(family, &args[1..]),
+        "addr" | "address" => run_addr(options.family, options.oneline, &args[1..]),
+        "link" => run_link(options.oneline, &args[1..]),
+        "neigh" => run_neigh(options.family, &args[1..]),
+        "rule" => run_rule(options.family, &args[1..]),
+        "route" => run_route(options.family, &args[1..]),
         _ => Err(vec![AppletError::new(
             APPLET,
             format!("unsupported command '{command}'"),
@@ -47,21 +60,47 @@ fn run_linux(family: Option<AddressFamily>, args: &[String]) -> Result<(), Vec<A
     }
 }
 
-fn parse_global_family(args: &[String]) -> Result<(Option<AddressFamily>, &[String]), Vec<AppletError>> {
-    let mut family = None;
+fn parse_global_options(args: &[String]) -> Result<(GlobalOptions, &[String]), Vec<AppletError>> {
+    let mut options = GlobalOptions {
+        family: None,
+        link_family: false,
+        oneline: false,
+    };
     let mut index = 0;
     while let Some(arg) = args.get(index) {
         match arg.as_str() {
-            "-4" => family = Some(AddressFamily::Inet4),
-            "-6" => family = Some(AddressFamily::Inet6),
+            "-4" => options.family = Some(AddressFamily::Inet4),
+            "-6" => options.family = Some(AddressFamily::Inet6),
+            "-o" | "-oneline" => options.oneline = true,
+            "-f" | "-family" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "f")]);
+                };
+                match value.as_str() {
+                    "inet" => options.family = Some(AddressFamily::Inet4),
+                    "inet6" => options.family = Some(AddressFamily::Inet6),
+                    "link" => options.link_family = true,
+                    _ => {
+                        return Err(vec![AppletError::new(
+                            APPLET,
+                            format!("invalid family '{value}'"),
+                        )])
+                    }
+                }
+                index += 1;
+            }
             _ => break,
         }
         index += 1;
     }
-    Ok((family, &args[index..]))
+    Ok((options, &args[index..]))
 }
 
-fn run_addr(family: Option<AddressFamily>, args: &[String]) -> Result<(), Vec<AppletError>> {
+fn run_addr(
+    family: Option<AddressFamily>,
+    oneline: bool,
+    args: &[String],
+) -> Result<(), Vec<AppletError>> {
     match args.first().map(String::as_str).unwrap_or("show") {
         "show" | "list" => {
             let filter = parse_addr_filter(&args[1..])?;
@@ -71,7 +110,7 @@ fn run_addr(family: Option<AddressFamily>, args: &[String]) -> Result<(), Vec<Ap
                     continue;
                 }
                 if has_visible_addresses(&interface, family, &filter) {
-                    print_addr_interface(&interface, family, &filter);
+                    print_addr_interface(&interface, family, &filter, oneline);
                 }
             }
             Ok(())
@@ -163,7 +202,7 @@ fn run_addr(family: Option<AddressFamily>, args: &[String]) -> Result<(), Vec<Ap
     }
 }
 
-fn run_link(args: &[String]) -> Result<(), Vec<AppletError>> {
+fn run_link(oneline: bool, args: &[String]) -> Result<(), Vec<AppletError>> {
     match args.first().map(String::as_str).unwrap_or("show") {
         "show" | "list" => {
             let dev = parse_optional_dev(&args[1..])?;
@@ -172,7 +211,7 @@ fn run_link(args: &[String]) -> Result<(), Vec<AppletError>> {
                 if dev.as_deref().is_some_and(|dev| dev != interface.name) {
                     continue;
                 }
-                print_link_interface(&interface);
+                print_link_interface(&interface, oneline);
             }
             Ok(())
         }
@@ -827,8 +866,8 @@ fn print_addr_interface(
     interface: &crate::common::net::InterfaceInfo,
     family: Option<AddressFamily>,
     filter: &AddrFilter,
+    oneline: bool,
 ) {
-    print_link_interface(interface);
     for address in &interface.addresses {
         if family.is_some_and(|expected| expected != address.family)
             || !matches_addr_filter(address, &filter.prefix)
@@ -836,9 +875,18 @@ fn print_addr_interface(
         {
             continue;
         }
+        if oneline {
+            print!("{}: {}    ", interface.index, interface.name);
+        } else {
+            print_link_interface(interface, false);
+        }
         match address.family {
             AddressFamily::Inet4 => {
-                print!("    inet {}/{}", address.address, address.prefix_len);
+                if oneline {
+                    print!("inet {}/{}", address.address, address.prefix_len);
+                } else {
+                    print!("    inet {}/{}", address.address, address.prefix_len);
+                }
                 if let Some(peer) = &address.peer {
                     print!(" peer {peer}");
                 }
@@ -853,16 +901,26 @@ fn print_addr_interface(
                 if let Some(label) = &address.label {
                     print!(" label {label}");
                 }
+                if oneline {
+                    print!(r"\       valid_lft forever preferred_lft forever");
+                }
                 println!();
             }
             AddressFamily::Inet6 => {
-                print!("    inet6 {}/{}", address.address, address.prefix_len);
+                if oneline {
+                    print!("inet6 {}/{}", address.address, address.prefix_len);
+                } else {
+                    print!("    inet6 {}/{}", address.address, address.prefix_len);
+                }
                 if let Some(peer) = &address.peer {
                     print!(" peer {peer}");
                 }
                 print!(" scope {}", address.scope.as_deref().unwrap_or("global"));
                 if let Some(label) = &address.label {
                     print!(" label {label}");
+                }
+                if oneline {
+                    print!(r"\       valid_lft forever preferred_lft forever");
                 }
                 println!();
             }
@@ -944,24 +1002,40 @@ fn matches_neigh_filter(
         }
 }
 
-fn print_link_interface(interface: &crate::common::net::InterfaceInfo) {
-    println!(
-        "{}: {}: <{}> mtu {} qlen {}",
-        interface.index,
-        interface.name,
-        interface_flag_names(interface.flags).join(","),
-        interface.mtu,
-        interface.tx_queue_len,
-    );
-    println!(
-        "    link/ether {}",
-        interface
-            .mac
-            .as_deref()
-            .and_then(|value| parse_mac(value).ok())
-            .map(|bytes| format_mac(&bytes))
-            .unwrap_or_else(|| String::from("00:00:00:00:00:00"))
-    );
+fn print_link_interface(interface: &crate::common::net::InterfaceInfo, oneline: bool) {
+    let kind = if interface.flags & libc::IFF_LOOPBACK as u32 != 0 {
+        "loopback"
+    } else {
+        "ether"
+    };
+    let mac = interface
+        .mac
+        .as_deref()
+        .and_then(|value| parse_mac(value).ok())
+        .map(|bytes| format_mac(&bytes))
+        .unwrap_or_else(|| String::from("00:00:00:00:00:00"));
+    if oneline {
+        println!(
+            "{}: {}: <{}> mtu {} qlen {}\\    link/{} {}",
+            interface.index,
+            interface.name,
+            interface_flag_names(interface.flags).join(","),
+            interface.mtu,
+            interface.tx_queue_len,
+            kind,
+            mac
+        );
+    } else {
+        println!(
+            "{}: {}: <{}> mtu {} qlen {}",
+            interface.index,
+            interface.name,
+            interface_flag_names(interface.flags).join(","),
+            interface.mtu,
+            interface.tx_queue_len,
+        );
+        println!("    link/{kind} {mac}");
+    }
 }
 
 fn print_neigh(neighbor: &NeighborInfo) {
@@ -1226,7 +1300,7 @@ fn io_error(
 #[cfg(test)]
 mod tests {
     use super::{
-        AddressFamily, NUD_STALE, parse_addr_change, parse_global_family, parse_ip_prefix,
+        AddressFamily, NUD_STALE, parse_addr_change, parse_global_options, parse_ip_prefix,
         parse_link_change, parse_neigh_filter, parse_route_change, parse_rule_change,
     };
     use std::net::Ipv4Addr;
@@ -1305,8 +1379,8 @@ mod tests {
     #[test]
     fn parses_global_family_flag() {
         let values = args(&["-6", "route", "show"]);
-        let (family, rest) = parse_global_family(&values).unwrap();
-        assert_eq!(family, Some(AddressFamily::Inet6));
+        let (options, rest) = parse_global_options(&values).unwrap();
+        assert_eq!(options.family, Some(AddressFamily::Inet6));
         assert_eq!(rest, args(&["route", "show"]));
     }
 
@@ -1405,5 +1479,21 @@ mod tests {
         assert_eq!(rule.fwmark, Some(0x10));
         assert_eq!(rule.priority, Some(100));
         assert_eq!(rule.table, 200);
+    }
+
+    #[test]
+    fn parses_family_option() {
+        let values = args(&["-f", "inet6", "route", "show"]);
+        let (options, rest) = parse_global_options(&values).unwrap();
+        assert_eq!(options.family, Some(AddressFamily::Inet6));
+        assert_eq!(rest, args(&["route", "show"]));
+    }
+
+    #[test]
+    fn parses_oneline_option() {
+        let values = args(&["-o", "addr", "show"]);
+        let (options, rest) = parse_global_options(&values).unwrap();
+        assert!(options.oneline);
+        assert_eq!(rest, args(&["addr", "show"]));
     }
 }

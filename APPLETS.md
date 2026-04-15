@@ -45,7 +45,8 @@ This file tracks applet-specific limitations that are important to keep visible 
   - config surface is still a BusyBox-style subset
   - several common directives are accepted and ignored
 - `ip`
-  - family-aware `-4` / `-6` display exists for `addr` and `route`
+  - family-aware `-4` / `-6` display exists for `addr`, `route`, `neigh`, and `rule`
+  - global `-f inet|inet6|link` and `-o` are now accepted
   - `addr` now covers `show`, `add`, `del`, and `flush` with `dev` / `to` / `label` / `scope` filtering
   - `neigh` now covers `show` and `flush` with `to` / `dev` / `nud` filtering
   - `rule` now covers `list`, `add`, and `del` with `from`, `to`, `iif`, `oif`, `fwmark`, `priority`, and `lookup/table`

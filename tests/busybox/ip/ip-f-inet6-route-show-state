@@ -1,0 +1,15 @@
+state=$(mktemp "${TMPDIR:-/tmp}/seed-net-state.XXXXXX")
+trap 'rm -f "$state"' EXIT HUP INT TERM
+
+cat >"$state" <<'EOF'
+route	inet	0.0.0.0	0	10.0.0.1	eth0				
+route	inet6	::	0	fe80::1	eth0				
+EOF
+
+SEED_NET_STATE="$state" busybox ip -f inet6 route show >out
+
+grep '^default via fe80::1 dev eth0$' out
+if grep -q '10.0.0.1' out; then
+	echo "ip -f inet6 unexpectedly showed IPv4 route" >&2
+	exit 1
+fi

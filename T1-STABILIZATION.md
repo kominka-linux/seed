@@ -125,7 +125,7 @@ Status:
 - `udhcpd` now honors `DHCPDECLINE` with `decline_time` and reoffers the next address.
 - `udhcpc` / `udhcpd` now preserve BOOTP `siaddr`, `sname`, and `boot_file` end to end for client script execution.
 - `ip` and `netstat` now expose family-aware `-4` / `-6` display paths with IPv6 route coverage.
-- `ip` now covers `addr flush`, `neigh show/flush`, `rule list/add/del`, `route replace/change/flush`, route attributes (`src`, `metric`, `table`, `proto`), and the higher-value `link set` admin flags (`arp`, `multicast`, `allmulti`, `promisc`, `qlen`).
+- `ip` now covers BusyBox-style global `-f inet|inet6|link` and `-o`, plus `addr flush`, `neigh show/flush`, `rule list/add/del`, `route replace/change/flush`, route attributes (`src`, `metric`, `table`, `proto`), and the higher-value `link set` admin flags (`arp`, `multicast`, `allmulti`, `promisc`, `qlen`).
 - `netstat -p` now resolves live sockets back to `PID/Program name` via `/proc` scanning.
 - `ping` / `ping6` now cover interface binding plus the core `-I` / `-i` / `-w` / `-t` option set.
 - `ifconfig` now covers classic admin flags plus `metric`, `txqueuelen`, `mem_start`, `io_addr`, and `irq`, in addition to IPv4/IPv6 address add/del.
@@ -243,3 +243,4 @@ That gate is expected to cover:
   - widened `ip route` with `src`, `metric`, `table`, and `proto`, moved live route listing/mutation onto the rtnetlink path, and added both state-backed and privileged Linux coverage for the new route attributes
   - added `ip neigh show|flush` with `to`, `dev`, and `nud` filtering, backed by both the state test backend and live rtnetlink neighbor dumps/deletes
   - added `ip rule list|add|del` with `from`, `to`, `iif`, `oif`, `fwmark`, `priority`, and `lookup/table`, backed by both the state test backend and live rtnetlink rule dumps/mutation
+  - added BusyBox-style global `ip -f FAMILY` parsing and `-o` acceptance, with focused `inet6 route` and parser coverage

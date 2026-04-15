@@ -20,6 +20,8 @@ struct Options {
     output_dir: Option<String>,
     no_check_certificate: bool,
     ca_certificate: Option<String>,
+    headers: Vec<String>,
+    post_data: Option<String>,
 }
 
 pub fn main(args: &[String]) -> i32 {
@@ -59,6 +61,14 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
             options.ca_certificate = Some(val.to_owned());
             continue;
         }
+        if let Some(val) = arg.strip_prefix("--header=") {
+            options.headers.push(val.to_owned());
+            continue;
+        }
+        if let Some(val) = arg.strip_prefix("--post-data=") {
+            options.post_data = Some(val.to_owned());
+            continue;
+        }
 
         match arg {
             "-O" => {
@@ -71,8 +81,16 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
                 options.ca_certificate =
                     Some(cursor.next_value(APPLET, "ca-certificate")?.to_owned());
             }
+            "--header" => {
+                options
+                    .headers
+                    .push(cursor.next_value(APPLET, "header")?.to_owned());
+            }
             "--no-check-certificate" => {
                 options.no_check_certificate = true;
+            }
+            "--post-data" => {
+                options.post_data = Some(cursor.next_value(APPLET, "post-data")?.to_owned());
             }
             _ if !arg.starts_with("--") => {
                 for flag in arg[1..].chars() {
@@ -148,10 +166,26 @@ fn load_ca_certs(path: &str) -> Result<Vec<ureq::tls::Certificate<'static>>, App
 
 fn fetch_url(agent: &Agent, url: &str, options: &Options) -> Result<(), AppletError> {
     let output_path = output_path(url, options)?;
-    let mut response = agent
-        .get(url)
-        .call()
-        .map_err(|err| AppletError::new(APPLET, format!("fetching {url}: {err}")))?;
+    let mut request = ureq::http::Request::builder().uri(url);
+    request = if options.post_data.is_some() {
+        request.method("POST")
+    } else {
+        request.method("GET")
+    };
+    for header in &options.headers {
+        let (name, value) = split_header(header)?;
+        request = request.header(name, value);
+    }
+    let mut response = if let Some(post_data) = options.post_data.as_deref() {
+        agent.run(request.body(post_data.as_bytes()).map_err(|err| {
+            AppletError::new(APPLET, format!("building request for {url}: {err}"))
+        })?)
+    } else {
+        agent.run(request.body(()).map_err(|err| {
+            AppletError::new(APPLET, format!("building request for {url}: {err}"))
+        })?)
+    }
+    .map_err(|err| AppletError::new(APPLET, format!("fetching {url}: {err}")))?;
 
     if output_path.as_os_str() == "-" {
         let mut out = stdout();
@@ -216,13 +250,32 @@ fn path_for_error(path: &Path) -> &str {
     path.to_str().unwrap_or("<non-utf8 path>")
 }
 
+fn split_header(header: &str) -> Result<(&str, &str), AppletError> {
+    let Some((name, value)) = header.split_once(':') else {
+        return Err(AppletError::new(
+            APPLET,
+            format!("invalid header '{header}': expected 'Name: Value'"),
+        ));
+    };
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(AppletError::new(
+            APPLET,
+            format!("invalid header '{header}': empty header name"),
+        ));
+    }
+    Ok((name, value.trim()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Options, default_filename, output_path, parse_args};
     use crate::common::unix;
+    use std::collections::HashMap;
     use std::fs;
     use std::io::{Read, Write};
     use std::net::TcpListener;
+    use std::sync::mpsc;
     use std::thread;
 
     fn args(v: &[&str]) -> Vec<String> {
@@ -244,6 +297,30 @@ mod tests {
         assert!(options.quiet);
         assert_eq!(options.output_document.as_deref(), Some("out"));
         assert_eq!(options.output_dir.as_deref(), Some("dir"));
+        assert_eq!(urls, vec![String::from("http://example.com")]);
+    }
+
+    #[test]
+    fn parse_supports_post_data_and_headers() {
+        let (options, urls) = parse_args(&args(&[
+            "-q",
+            "--post-data={\"arch\":\"x86_64\"}",
+            "--header",
+            "Authorization: Bearer test-token",
+            "--header=Content-Type: application/json",
+            "http://example.com",
+        ]))
+        .expect("parse");
+
+        assert!(options.quiet);
+        assert_eq!(options.post_data.as_deref(), Some("{\"arch\":\"x86_64\"}"));
+        assert_eq!(
+            options.headers,
+            vec![
+                String::from("Authorization: Bearer test-token"),
+                String::from("Content-Type: application/json"),
+            ]
+        );
         assert_eq!(urls, vec![String::from("http://example.com")]);
     }
 
@@ -343,6 +420,37 @@ mod tests {
         server.join();
     }
 
+    #[test]
+    fn wget_posts_data_with_headers() {
+        let dir = unix::temp_dir("wget");
+        let output = dir.join("foo");
+        let payload = r#"{"arch":"x86_64","pkg":"seed"}"#;
+        let server = spawn_inspecting_test_server(b"ok");
+
+        let status = super::main(&args(&[
+            "-q",
+            "-O",
+            output.to_str().expect("utf-8 path"),
+            "--post-data",
+            payload,
+            "--header",
+            "Authorization: Bearer test-token",
+            "--header",
+            "Content-Type: application/json",
+            &server.url,
+        ]));
+        assert_eq!(status, 0);
+        assert_eq!(fs::read(&output).expect("read output"), b"ok");
+
+        let request = server.join_with_request();
+        assert_eq!(request.request_line, "POST / HTTP/1.1");
+        assert_eq!(request.header("authorization"), Some("Bearer test-token"));
+        assert_eq!(request.header("content-type"), Some("application/json"));
+        assert_eq!(request.body, payload.as_bytes());
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
     struct TestServer {
         url: String,
         handle: thread::JoinHandle<()>,
@@ -351,6 +459,32 @@ mod tests {
     impl TestServer {
         fn join(self) {
             self.handle.join().expect("server thread");
+        }
+    }
+
+    struct InspectingTestServer {
+        url: String,
+        handle: thread::JoinHandle<()>,
+        request_rx: mpsc::Receiver<CapturedRequest>,
+    }
+
+    impl InspectingTestServer {
+        fn join_with_request(self) -> CapturedRequest {
+            let request = self.request_rx.recv().expect("captured request");
+            self.handle.join().expect("server thread");
+            request
+        }
+    }
+
+    struct CapturedRequest {
+        request_line: String,
+        headers: HashMap<String, String>,
+        body: Vec<u8>,
+    }
+
+    impl CapturedRequest {
+        fn header(&self, name: &str) -> Option<&str> {
+            self.headers.get(name).map(String::as_str)
         }
     }
 
@@ -373,6 +507,80 @@ mod tests {
         TestServer {
             url: format!("http://{addr}/"),
             handle,
+        }
+    }
+
+    fn spawn_inspecting_test_server(body: &'static [u8]) -> InspectingTestServer {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+        let addr = listener.local_addr().expect("listener addr");
+        let (request_tx, request_rx) = mpsc::sync_channel(1);
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let request = read_request(&mut stream);
+            request_tx.send(request).expect("send request");
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            )
+            .expect("write headers");
+            stream.write_all(body).expect("write body");
+        });
+
+        InspectingTestServer {
+            url: format!("http://{addr}/"),
+            handle,
+            request_rx,
+        }
+    }
+
+    fn read_request(stream: &mut std::net::TcpStream) -> CapturedRequest {
+        let mut buffer = Vec::new();
+        let mut chunk = [0_u8; 1024];
+        let header_end = loop {
+            let read = stream.read(&mut chunk).expect("read request");
+            assert!(read > 0, "request ended before headers");
+            buffer.extend_from_slice(&chunk[..read]);
+            if let Some(pos) = buffer.windows(4).position(|window| window == b"\r\n\r\n") {
+                break pos;
+            }
+        };
+
+        let headers_raw = std::str::from_utf8(&buffer[..header_end])
+            .expect("utf-8 headers")
+            .to_string();
+        let content_length = headers_raw
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                if name.eq_ignore_ascii_case("content-length") {
+                    Some(value.trim().parse::<usize>().expect("content length"))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0);
+        let body_start = header_end + 4;
+
+        while buffer.len() < body_start + content_length {
+            let read = stream.read(&mut chunk).expect("read request body");
+            assert!(read > 0, "request ended before body");
+            buffer.extend_from_slice(&chunk[..read]);
+        }
+
+        let mut lines = headers_raw.lines();
+        let request_line = lines.next().expect("request line").to_string();
+        let headers = lines
+            .filter_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                Some((name.trim().to_ascii_lowercase(), value.trim().to_string()))
+            })
+            .collect();
+
+        CapturedRequest {
+            request_line,
+            headers,
+            body: buffer[body_start..body_start + content_length].to_vec(),
         }
     }
 

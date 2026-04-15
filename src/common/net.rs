@@ -94,32 +94,7 @@ pub(crate) fn add_address(name: &str, address: &InterfaceAddress) -> io::Result<
     }
 
     match address.family {
-        AddressFamily::Inet4 => {
-            let ipv4 = address
-                .address
-                .parse::<Ipv4Addr>()
-                .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid IPv4 address"))?;
-            let broadcast = match &address.broadcast {
-                Some(value) => Some(Some(value.parse::<Ipv4Addr>().map_err(|_| {
-                    io::Error::new(io::ErrorKind::InvalidInput, "invalid broadcast address")
-                })?)),
-                None => None,
-            };
-            let peer = address.peer.as_deref().map(|value| {
-                value.parse::<Ipv4Addr>().map_err(|_| {
-                    io::Error::new(io::ErrorKind::InvalidInput, "invalid peer address")
-                })
-            });
-            set_ipv4(
-                name,
-                &Ipv4Change {
-                    address: Some(ipv4),
-                    prefix_len: Some(address.prefix_len),
-                    broadcast,
-                    peer: peer.transpose()?,
-                },
-            )
-        }
+        AddressFamily::Inet4 => live_add_ipv4(name, address),
         AddressFamily::Inet6 => live_add_ipv6(name, address),
     }
 }
@@ -140,7 +115,7 @@ pub(crate) fn remove_address(name: &str, family: AddressFamily, address: &str) -
     }
 
     match family {
-        AddressFamily::Inet4 => clear_ipv4(name),
+        AddressFamily::Inet4 => live_remove_ipv4(name, address),
         AddressFamily::Inet6 => live_remove_ipv6(name, address),
     }
 }
@@ -242,19 +217,6 @@ pub(crate) fn set_ipv4(name: &str, change: &Ipv4Change) -> io::Result<()> {
         return write_state(&path, &state);
     }
     live_set_ipv4(name, change)
-}
-
-#[cfg(target_os = "linux")]
-pub(crate) fn clear_ipv4(name: &str) -> io::Result<()> {
-    set_ipv4(
-        name,
-        &Ipv4Change {
-            address: None,
-            prefix_len: Some(0),
-            broadcast: Some(None),
-            peer: None,
-        },
-    )
 }
 
 #[cfg(target_os = "linux")]
@@ -819,6 +781,92 @@ fn live_set_ipv4(name: &str, change: &Ipv4Change) -> io::Result<()> {
         )?;
     }
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn live_add_ipv4(name: &str, address: &InterfaceAddress) -> io::Result<()> {
+    let ipv4 = address
+        .address
+        .parse::<Ipv4Addr>()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid IPv4 address"))?;
+    let peer = address
+        .peer
+        .as_deref()
+        .map(|value| {
+            value
+                .parse::<Ipv4Addr>()
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid peer address"))
+        })
+        .transpose()?;
+    let broadcast = address
+        .broadcast
+        .as_deref()
+        .map(|value| {
+            value.parse::<Ipv4Addr>().map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidInput, "invalid broadcast address")
+            })
+        })
+        .transpose()?;
+    let index = if_index(name)?;
+    let mut payload = Vec::new();
+    append_bytes(
+        &mut payload,
+        &IfAddrMsg {
+            ifa_family: libc::AF_INET as u8,
+            ifa_prefixlen: address.prefix_len,
+            ifa_flags: 0,
+            ifa_scope: 0,
+            ifa_index: index,
+        },
+    );
+    let local = peer.unwrap_or(ipv4);
+    append_rtattr(&mut payload, libc::IFA_LOCAL, &local.octets());
+    append_rtattr(&mut payload, libc::IFA_ADDRESS, &ipv4.octets());
+    if let Some(broadcast) = broadcast {
+        append_rtattr(&mut payload, libc::IFA_BROADCAST, &broadcast.octets());
+    }
+    rtnetlink_request(
+        libc::RTM_NEWADDR,
+        (libc::NLM_F_REQUEST | libc::NLM_F_ACK | libc::NLM_F_CREATE | libc::NLM_F_EXCL) as u16,
+        &payload,
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn live_remove_ipv4(name: &str, address: &str) -> io::Result<()> {
+    let ipv4 = address
+        .parse::<Ipv4Addr>()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid IPv4 address"))?;
+    let index = if_index(name)?;
+    let prefix_len = list_interfaces()?
+        .into_iter()
+        .find(|interface| interface.name == name)
+        .and_then(|interface| {
+            interface.addresses.into_iter().find_map(|existing| {
+                (existing.family == AddressFamily::Inet4 && existing.address == address)
+                    .then_some(existing.prefix_len)
+            })
+        })
+        .unwrap_or(32);
+    let mut payload = Vec::new();
+    append_bytes(
+        &mut payload,
+        &IfAddrMsg {
+            ifa_family: libc::AF_INET as u8,
+            ifa_prefixlen: prefix_len,
+            ifa_flags: 0,
+            ifa_scope: 0,
+            ifa_index: index,
+        },
+    );
+    let octets = ipv4.octets();
+    append_rtattr(&mut payload, libc::IFA_LOCAL, &octets);
+    append_rtattr(&mut payload, libc::IFA_ADDRESS, &octets);
+    rtnetlink_request(
+        libc::RTM_DELADDR,
+        (libc::NLM_F_REQUEST | libc::NLM_F_ACK) as u16,
+        &payload,
+    )
 }
 
 #[cfg(target_os = "linux")]

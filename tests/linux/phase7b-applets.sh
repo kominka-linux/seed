@@ -57,12 +57,26 @@ ip -6 addr show dev lo | grep -F 'inet6 2001:db8:7::2/128' >/dev/null && exit 1 
 
 printf 'phase7b: ip-ipv6-addr-ok\n'
 
+ip addr add 127.0.0.2/32 dev lo
+ip addr show dev lo | grep -F 'inet 127.0.0.2/32' >/dev/null
+ip addr del 127.0.0.2/32 dev lo
+ip addr show dev lo | grep -F 'inet 127.0.0.2/32' >/dev/null && exit 1 || true
+
+printf 'phase7b: ip-ipv4-addr-ok\n'
+
 ifconfig lo add 2001:db8:7::3/128
 ifconfig lo | grep -F 'inet6 addr: 2001:db8:7::3/128' >/dev/null
 ifconfig lo del 2001:db8:7::3
 ifconfig lo | grep -F 'inet6 addr: 2001:db8:7::3/128' >/dev/null && exit 1 || true
 
 printf 'phase7b: ifconfig-ipv6-addr-ok\n'
+
+ifconfig lo add 127.0.0.3/32
+ifconfig lo | grep -F 'inet addr:127.0.0.3' >/dev/null
+ifconfig lo del 127.0.0.3
+ifconfig lo | grep -F 'inet addr:127.0.0.3' >/dev/null && exit 1 || true
+
+printf 'phase7b: ifconfig-ipv4-addr-ok\n'
 
 ip -6 route add 2001:db8:55::/64 dev lo
 ip -6 route show | grep -F '2001:db8:55::/64 dev lo' >/dev/null

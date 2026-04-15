@@ -4,9 +4,9 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use crate::common::applet::finish;
 use crate::common::error::AppletError;
 use crate::common::net::{
-    AddressFamily, InterfaceAddress, Ipv4Change, LinkChange, RouteInfo, add_address, add_route,
-    apply_link_change, broadcast_for, clear_ipv4, del_route, format_mac, interface_flag_names,
-    list_interfaces, list_routes, parse_mac, parse_prefix, remove_address, set_ipv4,
+    AddressFamily, InterfaceAddress, LinkChange, RouteInfo, add_address, add_route,
+    apply_link_change, broadcast_for, del_route, format_mac, interface_flag_names, list_interfaces,
+    list_routes, parse_mac, parse_prefix, remove_address,
 };
 
 const APPLET: &str = "ip";
@@ -70,18 +70,19 @@ fn run_addr(family: Option<AddressFamily>, args: &[String]) -> Result<(), Vec<Ap
             match parse_ip_prefix(&spec, family)? {
                 ParsedPrefix::Inet4(address, prefix_len) => {
                     if delete {
-                        clear_ipv4(&dev).map_err(io_error(
+                        remove_address(&dev, AddressFamily::Inet4, &address.to_string()).map_err(io_error(
                             "clearing IPv4 address",
                             Some("interface".to_string()),
                         ))?;
                     } else {
-                        set_ipv4(
+                        add_address(
                             &dev,
-                            &Ipv4Change {
-                                address: Some(address),
-                                prefix_len: Some(prefix_len),
-                                broadcast: Some(Some(broadcast_for(address, prefix_len))),
+                            &InterfaceAddress {
+                                family: AddressFamily::Inet4,
+                                address: address.to_string(),
+                                prefix_len,
                                 peer: None,
+                                broadcast: Some(broadcast_for(address, prefix_len).to_string()),
                             },
                         )
                         .map_err(io_error(

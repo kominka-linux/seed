@@ -1,0 +1,20 @@
+state=$(mktemp "${TMPDIR:-/tmp}/seed-net-state.XXXXXX")
+trap 'rm -f "$state"' EXIT HUP INT TERM
+
+cat >"$state" <<'EOF'
+iface	2	eth0	67	1500	02:00:00:00:00:01	0	0	0	0
+addr	eth0	inet	10.0.0.2	24		10.0.0.255
+EOF
+
+SEED_NET_STATE="$state" busybox ifconfig eth0 add 10.0.0.3/24
+SEED_NET_STATE="$state" busybox ifconfig eth0 > out
+grep 'inet addr:10.0.0.2' out
+grep 'inet addr:10.0.0.3' out
+
+SEED_NET_STATE="$state" busybox ifconfig eth0 del 10.0.0.2
+SEED_NET_STATE="$state" busybox ifconfig eth0 > out2
+if grep 'inet addr:10.0.0.2' out2 >/dev/null; then
+	echo "ifconfig unexpectedly left deleted IPv4 address behind" >&2
+	exit 1
+fi
+grep 'inet addr:10.0.0.3' out2

@@ -47,7 +47,7 @@ jobs:
       - name: Verify static binary
         run: |
           binary="target/${{ matrix.target }}/release-wget/wget"
-          file "$binary" | tee /dev/stderr | grep -q "statically linked"
+          file "$binary" | tee /dev/stderr | grep -Eq "statically linked|static-pie linked"
           ! readelf -d "$binary" | grep -q NEEDED
 
       - name: Prepare binary

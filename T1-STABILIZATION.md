@@ -125,6 +125,7 @@ Status:
 - `udhcpd` now honors `DHCPDECLINE` with `decline_time` and reoffers the next address.
 - `udhcpc` / `udhcpd` now preserve BOOTP `siaddr`, `sname`, and `boot_file` end to end for client script execution.
 - `ip` and `netstat` now expose family-aware `-4` / `-6` display paths with IPv6 route coverage.
+- `netstat -p` now resolves live sockets back to `PID/Program name` via `/proc` scanning.
 - `ping` / `ping6` now cover interface binding plus the core `-I` / `-i` / `-w` / `-t` option set.
 - `ifconfig` now has state-backed `add` / `del` address coverage, including IPv6.
 - `ip` and `ifconfig` now have privileged Linux coverage for live IPv6 address mutation, and `ip` now has live IPv6 route mutation coverage too.
@@ -230,6 +231,7 @@ That gate is expected to cover:
   - closed the `udhcpd` decline-handling gap so the built-in server now respects client-side ARP conflict detection
   - wired BOOTP `siaddr`, `sname`, and `boot_file` through `udhcpd` replies and `udhcpc` script env export, with a new end-to-end shell test
   - added family-aware `ip -4/-6` and `netstat -4/-6` coverage with IPv6 route display and state-backed IPv6 route mutation tests
+  - added `netstat -p` with live inode-to-process resolution and a shell test against a real listening Python socket
   - widened `ifconfig` with state-backed address `add` / `del` coverage, including IPv6
   - widened `ping` / `ping6` with `-I`, `-i`, `-w`, and `-t`, plus loopback interface-binding coverage
   - added a real rtnetlink-backed live IPv6 mutation path for `ip` / `ifconfig`, with privileged Linux coverage for loopback address and route changes

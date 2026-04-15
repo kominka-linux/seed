@@ -2,7 +2,7 @@ use std::env;
 use std::fs;
 use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::common::applet::finish;
 use crate::common::args::{ArgCursor, ArgToken};
@@ -21,6 +21,7 @@ struct Options {
     route: bool,
     wide: bool,
     family: Option<AddressFamily>,
+    program: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,6 +42,8 @@ struct SocketEntry {
     remote_addr: String,
     remote_port: u16,
     state: Option<&'static str>,
+    inode: Option<u64>,
+    program: Option<String>,
 }
 
 pub fn main(args: &[String]) -> i32 {
@@ -80,6 +83,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
                         'W' => options.wide = true,
                         '4' => options.family = Some(AddressFamily::Inet4),
                         '6' => options.family = Some(AddressFamily::Inet6),
+                        'p' => options.program = true,
                         _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
                     }
                 }
@@ -103,6 +107,14 @@ fn print_sockets(options: &Options) -> Result<(), Vec<AppletError>> {
     }
 
     entries.retain(|entry| include_socket(options, entry));
+    if options.program {
+        let programs = socket_programs().map_err(io_error("reading", Some(proc_root().display().to_string())))?;
+        for entry in &mut entries {
+            entry.program = entry
+                .inode
+                .and_then(|inode| programs.get(&inode).cloned());
+        }
+    }
     entries.sort_by(|left, right| {
         protocol_name(left.protocol)
             .cmp(protocol_name(right.protocol))
@@ -111,20 +123,40 @@ fn print_sockets(options: &Options) -> Result<(), Vec<AppletError>> {
     });
 
     println!("Active Internet connections");
-    println!(
-        "{:<5} {:>6} {:>6} {:<23} {:<23} State",
-        "Proto", "Recv-Q", "Send-Q", "Local Address", "Foreign Address"
-    );
-    for entry in entries {
+    if options.program {
         println!(
-            "{:<5} {:>6} {:>6} {:<23} {:<23} {}",
-            protocol_name(entry.protocol),
-            entry.recv_q,
-            entry.send_q,
-            format_endpoint(&entry.local_addr, entry.local_port),
-            format_endpoint(&entry.remote_addr, entry.remote_port),
-            entry.state.unwrap_or("")
+            "{:<5} {:>6} {:>6} {:<23} {:<23} {:<11} PID/Program name",
+            "Proto", "Recv-Q", "Send-Q", "Local Address", "Foreign Address", "State"
         );
+    } else {
+        println!(
+            "{:<5} {:>6} {:>6} {:<23} {:<23} State",
+            "Proto", "Recv-Q", "Send-Q", "Local Address", "Foreign Address"
+        );
+    }
+    for entry in entries {
+        if options.program {
+            println!(
+                "{:<5} {:>6} {:>6} {:<23} {:<23} {:<11} {}",
+                protocol_name(entry.protocol),
+                entry.recv_q,
+                entry.send_q,
+                format_endpoint(&entry.local_addr, entry.local_port),
+                format_endpoint(&entry.remote_addr, entry.remote_port),
+                entry.state.unwrap_or(""),
+                entry.program.as_deref().unwrap_or("-"),
+            );
+        } else {
+            println!(
+                "{:<5} {:>6} {:>6} {:<23} {:<23} {}",
+                protocol_name(entry.protocol),
+                entry.recv_q,
+                entry.send_q,
+                format_endpoint(&entry.local_addr, entry.local_port),
+                format_endpoint(&entry.remote_addr, entry.remote_port),
+                entry.state.unwrap_or("")
+            );
+        }
     }
     Ok(())
 }
@@ -248,7 +280,7 @@ fn parse_socket_table(protocol: Protocol, text: &str) -> Result<Vec<SocketEntry>
 
 fn parse_socket_line(protocol: Protocol, line: &str) -> Result<SocketEntry, Vec<AppletError>> {
     let fields = line.split_whitespace().collect::<Vec<_>>();
-    if fields.len() < 5 {
+    if fields.len() < 10 {
         return Err(vec![AppletError::new(APPLET, "malformed socket table entry")]);
     }
 
@@ -266,6 +298,8 @@ fn parse_socket_line(protocol: Protocol, line: &str) -> Result<SocketEntry, Vec<
         remote_addr,
         remote_port,
         state,
+        inode: fields[9].parse::<u64>().ok(),
+        program: None,
     })
 }
 
@@ -367,12 +401,89 @@ fn proc_path(protocol: Protocol) -> PathBuf {
     if let Some(path) = env::var_os(env_name) {
         return PathBuf::from(path);
     }
-    PathBuf::from(match protocol {
+    proc_root().join(match protocol {
         Protocol::Tcp => "/proc/net/tcp",
         Protocol::Tcp6 => "/proc/net/tcp6",
         Protocol::Udp => "/proc/net/udp",
         Protocol::Udp6 => "/proc/net/udp6",
-    })
+    }.trim_start_matches("/proc/"))
+}
+
+fn proc_root() -> PathBuf {
+    env::var_os("SEED_PROC_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/proc"))
+}
+
+fn socket_programs() -> io::Result<std::collections::HashMap<u64, String>> {
+    let mut programs = std::collections::HashMap::new();
+    for entry in fs::read_dir(proc_root())? {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let Ok(pid) = name.parse::<u32>() else {
+            continue;
+        };
+        let Some(program_name) = process_name(pid) else {
+            continue;
+        };
+        let fd_dir = entry.path().join("fd");
+        let Ok(fds) = fs::read_dir(fd_dir) else {
+            continue;
+        };
+        for fd in fds {
+            let Ok(fd) = fd else {
+                continue;
+            };
+            let Ok(target) = fs::read_link(fd.path()) else {
+                continue;
+            };
+            let Some(inode) = socket_inode(&target) else {
+                continue;
+            };
+            programs
+                .entry(inode)
+                .or_insert_with(|| format!("{pid}/{program_name}"));
+        }
+    }
+    Ok(programs)
+}
+
+fn process_name(pid: u32) -> Option<String> {
+    let proc_dir = proc_root().join(pid.to_string());
+    let comm = fs::read_to_string(proc_dir.join("comm"))
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    if comm.is_some() {
+        return comm;
+    }
+
+    let cmdline = fs::read(proc_dir.join("cmdline")).ok()?;
+    let first = cmdline.split(|byte| *byte == 0).next().unwrap_or(&[]);
+    if first.is_empty() {
+        return None;
+    }
+    let command = String::from_utf8_lossy(first);
+    Some(
+        Path::new(command.as_ref())
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or(command.as_ref())
+            .to_string(),
+    )
+}
+
+fn socket_inode(target: &Path) -> Option<u64> {
+    let target = target.to_str()?;
+    let inode = target
+        .strip_prefix("socket:[")?
+        .strip_suffix(']')?;
+    inode.parse::<u64>().ok()
 }
 
 fn io_error(
@@ -386,8 +497,9 @@ fn io_error(
 mod tests {
     use super::{
         AddressFamily, Protocol, format_endpoint, parse_args, parse_ipv4_hex, parse_ipv6_hex,
-        parse_socket_line, parse_state,
+        parse_socket_line, parse_state, socket_inode,
     };
+    use std::path::Path;
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     #[test]
@@ -413,6 +525,7 @@ mod tests {
         assert_eq!(entry.state, Some("LISTEN"));
         assert_eq!(entry.send_q, 2);
         assert_eq!(entry.recv_q, 1);
+        assert_eq!(entry.inode, Some(1));
     }
 
     #[test]
@@ -430,9 +543,16 @@ mod tests {
 
     #[test]
     fn parses_family_flags() {
-        let options = parse_args(&["-6".to_string(), "-rn".to_string()]).unwrap();
+        let options = parse_args(&["-6".to_string(), "-prn".to_string()]).unwrap();
         assert_eq!(options.family, Some(AddressFamily::Inet6));
         assert!(options.route);
         assert!(options.numeric);
+        assert!(options.program);
+    }
+
+    #[test]
+    fn parses_socket_inode_symlink() {
+        assert_eq!(socket_inode(Path::new("socket:[12345]")), Some(12345));
+        assert_eq!(socket_inode(Path::new("/tmp/file")), None);
     }
 }

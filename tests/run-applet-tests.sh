@@ -447,9 +447,10 @@ if [ "$is_linux" -eq 1 ]; then
 	run_old_style tests/busybox/ip/ip-link-set-updates-state
 	run_old_style tests/busybox/ip/ip-route-add-updates-state
 	run_old_style tests/busybox/ip/ip-6-route-add-updates-state
-	run_old_style tests/busybox/netstat/netstat-lnt-shows-listening-socket
-	run_old_style tests/busybox/netstat/netstat-rn-prints-state-backed-route
-	run_old_style tests/busybox/netstat/netstat-6-rn-prints-state-backed-route
+run_old_style tests/busybox/netstat/netstat-lnt-shows-listening-socket
+run_old_style tests/busybox/netstat/netstat-plnt-shows-process
+run_old_style tests/busybox/netstat/netstat-rn-prints-state-backed-route
+run_old_style tests/busybox/netstat/netstat-6-rn-prints-state-backed-route
 	run_old_style tests/busybox/ping/ping-c-1-reaches-loopback
 	run_old_style tests/busybox/ping/ping-I-lo-reaches-loopback
 	run_old_style tests/busybox/ping6/ping6-c-1-reaches-loopback

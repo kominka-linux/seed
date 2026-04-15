@@ -54,6 +54,7 @@ This file tracks applet-specific limitations that are important to keep visible 
   - only `hw ether` is supported
 - `netstat`
   - family-aware socket and route display exists
+  - process display via `-p` now resolves socket inodes back to `/proc`
   - still only the current small option subset
 - `ping` / `ping6`
   - supports `-I`, `-i`, `-w`, and `-t`

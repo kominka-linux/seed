@@ -42,6 +42,8 @@ pub(crate) struct InterfaceInfo {
     pub(crate) name: String,
     pub(crate) flags: u32,
     pub(crate) mtu: u32,
+    pub(crate) metric: u32,
+    pub(crate) tx_queue_len: u32,
     pub(crate) mac: Option<String>,
     pub(crate) addresses: Vec<InterfaceAddress>,
     pub(crate) stats: InterfaceStats,
@@ -60,8 +62,14 @@ pub(crate) struct RouteInfo {
 pub(crate) struct LinkChange {
     pub(crate) up: Option<bool>,
     pub(crate) mtu: Option<u32>,
+    pub(crate) metric: Option<u32>,
+    pub(crate) tx_queue_len: Option<u32>,
     pub(crate) address: Option<String>,
     pub(crate) new_name: Option<String>,
+    pub(crate) arp: Option<bool>,
+    pub(crate) multicast: Option<bool>,
+    pub(crate) allmulti: Option<bool>,
+    pub(crate) promisc: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -168,9 +176,35 @@ pub(crate) fn apply_link_change(name: &str, change: &LinkChange) -> io::Result<(
         if let Some(mtu) = change.mtu {
             interface.mtu = mtu;
         }
+        if let Some(metric) = change.metric {
+            interface.metric = metric;
+        }
+        if let Some(tx_queue_len) = change.tx_queue_len {
+            interface.tx_queue_len = tx_queue_len;
+        }
         if let Some(address) = &change.address {
             interface.mac = Some(address.clone());
         }
+        apply_flag_change(
+            &mut interface.flags,
+            libc::IFF_NOARP as u32,
+            change.arp.map(|value| !value),
+        );
+        apply_flag_change(
+            &mut interface.flags,
+            libc::IFF_MULTICAST as u32,
+            change.multicast,
+        );
+        apply_flag_change(
+            &mut interface.flags,
+            libc::IFF_ALLMULTI as u32,
+            change.allmulti,
+        );
+        apply_flag_change(
+            &mut interface.flags,
+            libc::IFF_PROMISC as u32,
+            change.promisc,
+        );
         if let Some(new_name) = &change.new_name {
             interface.name = new_name.clone();
             for route in &mut state.routes {
@@ -326,8 +360,14 @@ pub(crate) fn interface_flag_names(flags: u32) -> Vec<&'static str> {
     if flags & libc::IFF_MULTICAST as u32 != 0 {
         names.push("MULTICAST");
     }
+    if flags & libc::IFF_ALLMULTI as u32 != 0 {
+        names.push("ALLMULTI");
+    }
     if flags & libc::IFF_PROMISC as u32 != 0 {
         names.push("PROMISC");
+    }
+    if flags & libc::IFF_NOARP as u32 != 0 {
+        names.push("NOARP");
     }
     if flags & libc::IFF_POINTOPOINT as u32 != 0 {
         names.push("POINTOPOINT");
@@ -375,6 +415,39 @@ fn read_state(path: &Path) -> io::Result<State> {
                     name: (*name).to_string(),
                     flags: flags.parse().unwrap_or(0),
                     mtu: mtu.parse().unwrap_or(0),
+                    metric: 0,
+                    tx_queue_len: 0,
+                    mac: (!mac.is_empty()).then(|| (*mac).to_string()),
+                    addresses: Vec::new(),
+                    stats: InterfaceStats {
+                        rx_bytes: rx_bytes.parse().unwrap_or(0),
+                        rx_packets: rx_packets.parse().unwrap_or(0),
+                        tx_bytes: tx_bytes.parse().unwrap_or(0),
+                        tx_packets: tx_packets.parse().unwrap_or(0),
+                    },
+                });
+            }
+            [
+                "iface",
+                index,
+                name,
+                flags,
+                mtu,
+                metric,
+                tx_queue_len,
+                mac,
+                rx_bytes,
+                rx_packets,
+                tx_bytes,
+                tx_packets,
+            ] => {
+                state.interfaces.push(InterfaceInfo {
+                    index: index.parse().unwrap_or(0),
+                    name: (*name).to_string(),
+                    flags: flags.parse().unwrap_or(0),
+                    mtu: mtu.parse().unwrap_or(0),
+                    metric: metric.parse().unwrap_or(0),
+                    tx_queue_len: tx_queue_len.parse().unwrap_or(0),
                     mac: (!mac.is_empty()).then(|| (*mac).to_string()),
                     addresses: Vec::new(),
                     stats: InterfaceStats {
@@ -435,11 +508,13 @@ fn write_state(path: &Path, state: &State) -> io::Result<()> {
     let mut text = String::new();
     for interface in &state.interfaces {
         text.push_str(&format!(
-            "iface\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+            "iface\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
             interface.index,
             interface.name,
             interface.flags,
             interface.mtu,
+            interface.metric,
+            interface.tx_queue_len,
             interface.mac.as_deref().unwrap_or(""),
             interface.stats.rx_bytes,
             interface.stats.rx_packets,
@@ -510,6 +585,7 @@ fn read_sys_interfaces() -> io::Result<Vec<InterfaceInfo>> {
             .unwrap_or(0);
         let flags = read_sys_u32(&path.join("flags")).unwrap_or(0);
         let mtu = read_sys_u32(&path.join("mtu")).unwrap_or(0);
+        let tx_queue_len = read_sys_u32(&path.join("tx_queue_len")).unwrap_or(0);
         let mac = fs::read_to_string(path.join("address"))
             .ok()
             .map(|value| value.trim().to_string());
@@ -524,6 +600,13 @@ fn read_sys_interfaces() -> io::Result<Vec<InterfaceInfo>> {
             name,
             flags,
             mtu,
+            metric: get_metric(
+                path.file_name()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or(""),
+            )
+            .unwrap_or(0),
+            tx_queue_len,
             mac,
             addresses: Vec::new(),
             stats,
@@ -739,17 +822,38 @@ fn parse_ipv6_hex(value: &str) -> Option<Ipv6Addr> {
 
 #[cfg(target_os = "linux")]
 fn live_apply_link_change(name: &str, change: &LinkChange) -> io::Result<()> {
-    if let Some(up) = change.up {
+    if change.up.is_some()
+        || change.arp.is_some()
+        || change.multicast.is_some()
+        || change.allmulti.is_some()
+        || change.promisc.is_some()
+    {
         let mut flags = get_flags(name)?;
-        if up {
-            flags |= libc::IFF_UP as u32;
-        } else {
-            flags &= !(libc::IFF_UP as u32);
+        if let Some(up) = change.up {
+            if up {
+                flags |= libc::IFF_UP as u32;
+            } else {
+                flags &= !(libc::IFF_UP as u32);
+            }
         }
+        apply_flag_change(
+            &mut flags,
+            libc::IFF_NOARP as u32,
+            change.arp.map(|value| !value),
+        );
+        apply_flag_change(&mut flags, libc::IFF_MULTICAST as u32, change.multicast);
+        apply_flag_change(&mut flags, libc::IFF_ALLMULTI as u32, change.allmulti);
+        apply_flag_change(&mut flags, libc::IFF_PROMISC as u32, change.promisc);
         set_flags(name, flags)?;
     }
     if let Some(mtu) = change.mtu {
         set_mtu(name, mtu)?;
+    }
+    if let Some(metric) = change.metric {
+        set_metric(name, metric)?;
+    }
+    if let Some(tx_queue_len) = change.tx_queue_len {
+        set_tx_queue_len(name, tx_queue_len)?;
     }
     if let Some(address) = &change.address {
         set_hwaddr(name, &parse_mac(address)?)?;
@@ -1263,6 +1367,45 @@ fn set_mtu(name: &str, mtu: u32) -> io::Result<()> {
 }
 
 #[cfg(target_os = "linux")]
+fn get_metric(name: &str) -> io::Result<u32> {
+    let fd = socket_fd()?;
+    let mut ifreq = Ifreq::new(name)?;
+    // SAFETY: `ifreq` points to writable memory for the ioctl result.
+    let rc = unsafe { libc::ioctl(fd, libc::SIOCGIFMETRIC as _, &mut ifreq) };
+    let err = io::Error::last_os_error();
+    close_fd(fd);
+    if rc == 0 {
+        Ok(unsafe { ifreq.ifru.ivalue } as u32)
+    } else {
+        Err(err)
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn set_metric(name: &str, metric: u32) -> io::Result<()> {
+    let fd = socket_fd()?;
+    let mut ifreq = Ifreq::new(name)?;
+    ifreq.ifru.ivalue = metric as libc::c_int;
+    // SAFETY: `ifreq` points to a valid ifreq with metric populated.
+    let rc = unsafe { libc::ioctl(fd, libc::SIOCSIFMETRIC as _, &ifreq) };
+    let err = io::Error::last_os_error();
+    close_fd(fd);
+    if rc == 0 { Ok(()) } else { Err(err) }
+}
+
+#[cfg(target_os = "linux")]
+fn set_tx_queue_len(name: &str, tx_queue_len: u32) -> io::Result<()> {
+    let fd = socket_fd()?;
+    let mut ifreq = Ifreq::new(name)?;
+    ifreq.ifru.ivalue = tx_queue_len as libc::c_int;
+    // SAFETY: `ifreq` points to a valid ifreq with queue length populated.
+    let rc = unsafe { libc::ioctl(fd, libc::SIOCSIFTXQLEN as _, &ifreq) };
+    let err = io::Error::last_os_error();
+    close_fd(fd);
+    if rc == 0 { Ok(()) } else { Err(err) }
+}
+
+#[cfg(target_os = "linux")]
 fn set_sockaddr(name: &str, request: libc::c_ulong, address: Ipv4Addr) -> io::Result<()> {
     let fd = socket_fd()?;
     let mut ifreq = Ifreq::new(name)?;
@@ -1357,11 +1500,21 @@ fn copy_name_bytes(target: &mut [libc::c_char; libc::IFNAMSIZ], name: &str) -> i
 }
 
 #[cfg(target_os = "linux")]
+fn apply_flag_change(flags: &mut u32, mask: u32, enabled: Option<bool>) {
+    match enabled {
+        Some(true) => *flags |= mask,
+        Some(false) => *flags &= !mask,
+        None => {}
+    }
+}
+
+#[cfg(target_os = "linux")]
 #[repr(C)]
 union IfreqUnion {
     addr: libc::sockaddr,
     flags: libc::c_short,
     mtu: libc::c_int,
+    ivalue: libc::c_int,
     name: [libc::c_char; libc::IFNAMSIZ],
 }
 
@@ -1468,6 +1621,8 @@ mod tests {
             name: String::from("eth0"),
             flags: libc::IFF_UP as u32,
             mtu: 1500,
+            metric: 0,
+            tx_queue_len: 1000,
             mac: Some(String::from("02:00:00:00:00:01")),
             addresses: Vec::new(),
             stats: super::InterfaceStats::default(),
@@ -1490,8 +1645,14 @@ mod tests {
             &LinkChange {
                 up: Some(false),
                 mtu: Some(1400),
+                metric: Some(2),
+                tx_queue_len: Some(500),
                 address: None,
                 new_name: None,
+                arp: Some(false),
+                multicast: Some(true),
+                allmulti: Some(true),
+                promisc: Some(true),
             },
         )
         .unwrap();
@@ -1527,6 +1688,8 @@ mod tests {
         // SAFETY: the test holds the global env lock for the full mutation window.
         unsafe { std::env::remove_var("SEED_NET_STATE") };
         assert_eq!(state.interfaces[0].mtu, 1400);
+        assert_eq!(state.interfaces[0].metric, 2);
+        assert_eq!(state.interfaces[0].tx_queue_len, 500);
         assert_eq!(state.interfaces[0].addresses[0].address, "10.0.0.2");
         assert_eq!(state.routes.len(), 1);
         let _ = fs::remove_file(path);

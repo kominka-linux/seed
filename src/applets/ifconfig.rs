@@ -24,8 +24,14 @@ struct Options {
     broadcast: Option<Option<Ipv4Addr>>,
     pointopoint: Option<Ipv4Addr>,
     mtu: Option<u32>,
+    metric: Option<u32>,
+    tx_queue_len: Option<u32>,
     hwaddr: Option<String>,
     up: Option<bool>,
+    arp: Option<bool>,
+    multicast: Option<bool>,
+    allmulti: Option<bool>,
+    promisc: Option<bool>,
 }
 
 pub fn main(args: &[String]) -> i32 {
@@ -63,15 +69,20 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
                 options.netmask = Some(parse_ipv4(value)?);
             }
             "broadcast" => {
-                let Some(value) = args.get(index) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "broadcast")]);
-                };
-                index += 1;
-                options.broadcast = Some(if value == "+" {
-                    None
+                if let Some(value) = args.get(index) {
+                    if !is_flag_like(value) {
+                        index += 1;
+                        options.broadcast = Some(if value == "+" {
+                            None
+                        } else {
+                            Some(parse_ipv4(value)?)
+                        });
+                    } else {
+                        options.broadcast = Some(None);
+                    }
                 } else {
-                    Some(parse_ipv4(value)?)
-                });
+                    options.broadcast = Some(None);
+                }
             }
             "pointopoint" | "dstaddr" => {
                 let Some(value) = args.get(index) else {
@@ -86,6 +97,20 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
                 };
                 index += 1;
                 options.mtu = Some(parse_u32("mtu", value)?);
+            }
+            "metric" => {
+                let Some(value) = args.get(index) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "metric")]);
+                };
+                index += 1;
+                options.metric = Some(parse_u32("metric", value)?);
+            }
+            "txqueuelen" => {
+                let Some(value) = args.get(index) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "txqueuelen")]);
+                };
+                index += 1;
+                options.tx_queue_len = Some(parse_u32("txqueuelen", value)?);
             }
             "hw" => {
                 let Some(kind) = args.get(index) else {
@@ -103,6 +128,14 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
             }
             "up" => options.up = Some(true),
             "down" => options.up = Some(false),
+            "arp" => options.arp = Some(true),
+            "-arp" => options.arp = Some(false),
+            "multicast" => options.multicast = Some(true),
+            "-multicast" => options.multicast = Some(false),
+            "allmulti" => options.allmulti = Some(true),
+            "-allmulti" => options.allmulti = Some(false),
+            "promisc" => options.promisc = Some(true),
+            "-promisc" => options.promisc = Some(false),
             "add" => {
                 let Some(value) = args.get(index) else {
                     return Err(vec![AppletError::option_requires_arg(APPLET, "add")]);
@@ -172,11 +205,25 @@ fn run_linux(options: &Options) -> Result<(), Vec<AppletError>> {
             .map_err(io_error("removing address", Some(interface.to_string())))?;
     }
 
-    if options.address.is_none() && options.up.is_none() && options.mtu.is_none() && options.hwaddr.is_none() {
+    if options.address.is_none()
+        && options.up.is_none()
+        && options.mtu.is_none()
+        && options.metric.is_none()
+        && options.tx_queue_len.is_none()
+        && options.hwaddr.is_none()
+        && options.arp.is_none()
+        && options.multicast.is_none()
+        && options.allmulti.is_none()
+        && options.promisc.is_none()
+    {
         return Ok(());
     }
 
-    if options.address.is_some() || options.netmask.is_some() || options.broadcast.is_some() || options.pointopoint.is_some() {
+    if options.address.is_some()
+        || options.netmask.is_some()
+        || options.broadcast.is_some()
+        || options.pointopoint.is_some()
+    {
         let prefix_len = options
             .prefix_len
             .or_else(|| options.netmask.map(|mask| u32::from(mask).count_ones() as u8))
@@ -206,8 +253,14 @@ fn run_linux(options: &Options) -> Result<(), Vec<AppletError>> {
         &LinkChange {
             up: options.up,
             mtu: options.mtu,
+            metric: options.metric,
+            tx_queue_len: options.tx_queue_len,
             address: options.hwaddr.clone(),
             new_name: None,
+            arp: options.arp,
+            multicast: options.multicast,
+            allmulti: options.allmulti,
+            promisc: options.promisc,
         },
     )
     .map_err(io_error("updating link", Some(interface.to_string())))?;
@@ -221,8 +274,14 @@ fn has_changes(options: &Options) -> bool {
         || options.broadcast.is_some()
         || options.pointopoint.is_some()
         || options.mtu.is_some()
+        || options.metric.is_some()
+        || options.tx_queue_len.is_some()
         || options.hwaddr.is_some()
         || options.up.is_some()
+        || options.arp.is_some()
+        || options.multicast.is_some()
+        || options.allmulti.is_some()
+        || options.promisc.is_some()
         || options.add_address.is_some()
         || options.del_address.is_some()
 }
@@ -275,9 +334,11 @@ fn print_interface(interface: &crate::common::net::InterfaceInfo) {
         }
     }
     println!(
-        "          {}  MTU:{}",
+        "          {}  MTU:{}  Metric:{}  TXqueuelen:{}",
         interface_flag_names(interface.flags).join(" "),
-        interface.mtu
+        interface.mtu,
+        interface.metric,
+        interface.tx_queue_len,
     );
     println!(
         "          RX packets:{} bytes:{}  TX packets:{} bytes:{}",
@@ -286,6 +347,33 @@ fn print_interface(interface: &crate::common::net::InterfaceInfo) {
         interface.stats.tx_packets,
         interface.stats.tx_bytes
     );
+}
+
+fn is_flag_like(value: &str) -> bool {
+    value.starts_with('-')
+        || matches!(
+            value,
+            "up"
+                | "down"
+                | "arp"
+                | "-arp"
+                | "multicast"
+                | "-multicast"
+                | "allmulti"
+                | "-allmulti"
+                | "promisc"
+                | "-promisc"
+                | "netmask"
+                | "broadcast"
+                | "pointopoint"
+                | "dstaddr"
+                | "metric"
+                | "mtu"
+                | "txqueuelen"
+                | "hw"
+                | "add"
+                | "del"
+        )
 }
 
 fn parse_ipv4(value: &str) -> Result<Ipv4Addr, Vec<AppletError>> {
@@ -363,8 +451,51 @@ mod tests {
                 broadcast: None,
                 pointopoint: None,
                 mtu: Some(1400),
+                metric: None,
+                tx_queue_len: None,
                 hwaddr: None,
                 up: Some(true),
+                arp: None,
+                multicast: None,
+                allmulti: None,
+                promisc: None,
+            }
+        );
+    }
+
+    #[test]
+    fn parses_link_flags_and_queue_length() {
+        let options = parse_args(&args(&[
+            "eth0",
+            "metric",
+            "2",
+            "txqueuelen",
+            "200",
+            "-arp",
+            "promisc",
+        ]))
+        .unwrap();
+        assert_eq!(
+            options,
+            Options {
+                all: false,
+                interface: Some(String::from("eth0")),
+                address: None,
+                prefix_len: None,
+                add_address: None,
+                del_address: None,
+                netmask: None,
+                broadcast: None,
+                pointopoint: None,
+                mtu: None,
+                metric: Some(2),
+                tx_queue_len: Some(200),
+                hwaddr: None,
+                up: None,
+                arp: Some(false),
+                multicast: None,
+                allmulti: None,
+                promisc: Some(true),
             }
         );
     }

@@ -1,0 +1,24 @@
+state=$(mktemp "${TMPDIR:-/tmp}/seed-net-state.XXXXXX")
+trap 'rm -f "$state"' EXIT HUP INT TERM
+
+cat >"$state" <<'EOF'
+iface	2	eth0	67	1500	0	1000	02:00:00:00:00:01	0	0	0	0
+route	inet	0.0.0.0	0	10.0.0.1	eth0
+route	inet6	::	0	fe80::1	eth0
+EOF
+
+SEED_NET_STATE="$state" busybox ip route replace default via 10.0.0.254 dev eth0
+SEED_NET_STATE="$state" busybox ip route show >out
+grep 'default via 10.0.0.254 dev eth0' out
+if grep 'default via 10.0.0.1 dev eth0' out >/dev/null; then
+	echo "ip unexpectedly left replaced IPv4 route behind" >&2
+	exit 1
+fi
+
+SEED_NET_STATE="$state" busybox ip -6 route flush dev eth0
+SEED_NET_STATE="$state" busybox ip route show >out2
+grep 'default via 10.0.0.254 dev eth0' out2
+if grep 'default via fe80::1 dev eth0' out2 >/dev/null; then
+	echo "ip unexpectedly left flushed IPv6 route behind" >&2
+	exit 1
+fi

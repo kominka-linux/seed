@@ -443,13 +443,17 @@ run_old_style tests/busybox/ifconfig/ifconfig-lists-state-backed-interface
 run_old_style tests/busybox/ifconfig/ifconfig-updates-address-and-mtu
 run_old_style tests/busybox/ifconfig/ifconfig-adds-and-removes-inet4-state
 run_old_style tests/busybox/ifconfig/ifconfig-adds-and-removes-inet6-state
+run_old_style tests/busybox/ifconfig/ifconfig-updates-flags-metric-and-txqueuelen
 run_old_style tests/busybox/ip/ip-addr-show-prints-state
 run_old_style tests/busybox/ip/ip-addr-add-preserves-existing-ipv4-state
 run_old_style tests/busybox/ip/ip-addr-del-removes-only-target-state
+run_old_style tests/busybox/ip/ip-addr-flush-dev-and-to-state
 run_old_style tests/busybox/ip/ip-6-addr-show-filters-family
 run_old_style tests/busybox/ip/ip-link-set-updates-state
+run_old_style tests/busybox/ip/ip-link-set-flags-and-qlen-state
 run_old_style tests/busybox/ip/ip-route-add-updates-state
-	run_old_style tests/busybox/ip/ip-6-route-add-updates-state
+run_old_style tests/busybox/ip/ip-route-replace-and-flush-state
+run_old_style tests/busybox/ip/ip-6-route-add-updates-state
 run_old_style tests/busybox/netstat/netstat-lnt-shows-listening-socket
 run_old_style tests/busybox/netstat/netstat-plnt-shows-process
 run_old_style tests/busybox/netstat/netstat-rn-prints-state-backed-route

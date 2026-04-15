@@ -52,14 +52,32 @@ fn parse_global_family(args: &[String]) -> Result<(Option<AddressFamily>, &[Stri
 fn run_addr(family: Option<AddressFamily>, args: &[String]) -> Result<(), Vec<AppletError>> {
     match args.first().map(String::as_str).unwrap_or("show") {
         "show" | "list" => {
-            let dev = parse_dev_filter(&args[1..])?;
+            let filter = parse_addr_filter(&args[1..])?;
             let interfaces = list_interfaces().map_err(io_error("listing interfaces", None))?;
             for interface in interfaces {
-                if dev.as_deref().is_some_and(|dev| dev != interface.name) {
+                if filter.dev.as_deref().is_some_and(|dev| dev != interface.name) {
                     continue;
                 }
-                if has_visible_addresses(&interface, family) {
-                    print_addr_interface(&interface, family);
+                if has_visible_addresses(&interface, family, &filter.prefix) {
+                    print_addr_interface(&interface, family, &filter.prefix);
+                }
+            }
+            Ok(())
+        }
+        "flush" => {
+            let filter = parse_addr_filter(&args[1..])?;
+            for interface in list_interfaces().map_err(io_error("listing interfaces", None))? {
+                if filter.dev.as_deref().is_some_and(|dev| dev != interface.name) {
+                    continue;
+                }
+                for address in interface.addresses {
+                    if family.is_some_and(|expected| expected != address.family)
+                        || !matches_addr_filter(&address, &filter.prefix)
+                    {
+                        continue;
+                    }
+                    remove_address(&interface.name, address.family, &address.address)
+                        .map_err(io_error("clearing address", Some("interface".to_string())))?;
                 }
             }
             Ok(())
@@ -160,12 +178,37 @@ fn run_route(family: Option<AddressFamily>, args: &[String]) -> Result<(), Vec<A
             }
             Ok(())
         }
-        "add" | "del" => {
+        "flush" => {
+            let dev = parse_route_dev_filter(&args[1..])?;
+            for route in list_routes().map_err(io_error("listing routes", None))? {
+                if family.is_some_and(|expected| expected != route.family) {
+                    continue;
+                }
+                if dev.as_deref().is_some_and(|expected| expected != route.dev) {
+                    continue;
+                }
+                del_route(&route).map_err(io_error("deleting route", None))?;
+            }
+            Ok(())
+        }
+        "add" | "append" | "del" | "change" | "replace" => {
             let delete = args[0] == "del";
+            let replace = matches!(args[0].as_str(), "change" | "replace");
             let route = parse_route_change(family, &args[1..])?;
             if delete {
                 del_route(&route).map_err(io_error("deleting route", None))?;
             } else {
+                if replace {
+                    for existing in list_routes().map_err(io_error("listing routes", None))? {
+                        if existing.family == route.family
+                            && existing.destination == route.destination
+                            && existing.prefix_len == route.prefix_len
+                            && existing.dev == route.dev
+                        {
+                            del_route(&existing).map_err(io_error("deleting route", None))?;
+                        }
+                    }
+                }
                 add_route(&route).map_err(io_error("adding route", None))?;
             }
             Ok(())
@@ -177,12 +220,35 @@ fn run_route(family: Option<AddressFamily>, args: &[String]) -> Result<(), Vec<A
     }
 }
 
-fn parse_dev_filter(args: &[String]) -> Result<Option<String>, Vec<AppletError>> {
-    match args {
-        [] => Ok(None),
-        [label, dev] if label == "dev" => Ok(Some(dev.clone())),
-        _ => Err(vec![AppletError::new(APPLET, "expected 'dev IFACE'")]),
+#[derive(Default)]
+struct AddrFilter {
+    dev: Option<String>,
+    prefix: Option<ParsedPrefix>,
+}
+
+fn parse_addr_filter(args: &[String]) -> Result<AddrFilter, Vec<AppletError>> {
+    let mut filter = AddrFilter::default();
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "dev" => {
+                let Some(dev) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "dev")]);
+                };
+                filter.dev = Some(dev.clone());
+                index += 2;
+            }
+            "to" => {
+                let Some(prefix) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "to")]);
+                };
+                filter.prefix = Some(parse_ip_prefix(prefix, None)?);
+                index += 2;
+            }
+            _ => return Err(vec![AppletError::new(APPLET, "expected 'dev IFACE' or 'to PREFIX'")]),
+        }
     }
+    Ok(filter)
 }
 
 fn parse_optional_dev(args: &[String]) -> Result<Option<String>, Vec<AppletError>> {
@@ -191,6 +257,14 @@ fn parse_optional_dev(args: &[String]) -> Result<Option<String>, Vec<AppletError
         [name] => Ok(Some(name.clone())),
         [label, dev] if label == "dev" => Ok(Some(dev.clone())),
         _ => Err(vec![AppletError::new(APPLET, "extra operand")]),
+    }
+}
+
+fn parse_route_dev_filter(args: &[String]) -> Result<Option<String>, Vec<AppletError>> {
+    match args {
+        [] => Ok(None),
+        [label, dev] if label == "dev" => Ok(Some(dev.clone())),
+        _ => Err(vec![AppletError::new(APPLET, "expected 'dev IFACE'")]),
     }
 }
 
@@ -218,12 +292,49 @@ fn parse_link_change(args: &[String]) -> Result<(String, LinkChange), Vec<Applet
                 change.up = Some(false);
                 index += 1;
             }
+            "arp" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "arp")]);
+                };
+                change.arp = Some(parse_on_off(APPLET, "arp", value)?);
+                index += 2;
+            }
+            "multicast" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "multicast")]);
+                };
+                change.multicast = Some(parse_on_off(APPLET, "multicast", value)?);
+                index += 2;
+            }
+            "allmulticast" | "allmulti" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "allmulticast")]);
+                };
+                change.allmulti = Some(parse_on_off(APPLET, "allmulticast", value)?);
+                index += 2;
+            }
+            "promisc" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "promisc")]);
+                };
+                change.promisc = Some(parse_on_off(APPLET, "promisc", value)?);
+                index += 2;
+            }
             "mtu" => {
                 let Some(value) = args.get(index + 1) else {
                     return Err(vec![AppletError::option_requires_arg(APPLET, "mtu")]);
                 };
                 change.mtu = Some(value.parse().map_err(|_| {
                     vec![AppletError::new(APPLET, format!("invalid mtu '{value}'"))]
+                })?);
+                index += 2;
+            }
+            "qlen" | "txqueuelen" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "qlen")]);
+                };
+                change.tx_queue_len = Some(value.parse().map_err(|_| {
+                    vec![AppletError::new(APPLET, format!("invalid qlen '{value}'"))]
                 })?);
                 index += 2;
             }
@@ -318,20 +429,27 @@ fn parse_route_change(
 fn has_visible_addresses(
     interface: &crate::common::net::InterfaceInfo,
     family: Option<AddressFamily>,
+    prefix: &Option<ParsedPrefix>,
 ) -> bool {
     interface
         .addresses
         .iter()
-        .any(|address| family.is_none_or(|expected| expected == address.family))
+        .any(|address| {
+            family.is_none_or(|expected| expected == address.family)
+                && matches_addr_filter(address, prefix)
+        })
 }
 
 fn print_addr_interface(
     interface: &crate::common::net::InterfaceInfo,
     family: Option<AddressFamily>,
+    prefix: &Option<ParsedPrefix>,
 ) {
     print_link_interface(interface);
     for address in &interface.addresses {
-        if family.is_some_and(|expected| expected != address.family) {
+        if family.is_some_and(|expected| expected != address.family)
+            || !matches_addr_filter(address, prefix)
+        {
             continue;
         }
         match address.family {
@@ -345,13 +463,39 @@ fn print_addr_interface(
     }
 }
 
+fn matches_addr_filter(
+    address: &crate::common::net::InterfaceAddress,
+    prefix: &Option<ParsedPrefix>,
+) -> bool {
+    let Some(prefix) = prefix else {
+        return true;
+    };
+    match (address.family, prefix) {
+        (AddressFamily::Inet4, ParsedPrefix::Inet4(expected, prefix_len)) => address
+            .address
+            .parse::<Ipv4Addr>()
+            .ok()
+            .is_some_and(|candidate| prefix_matches_ipv4(candidate, *expected, *prefix_len)),
+        (AddressFamily::Inet6, ParsedPrefix::Inet6(expected, prefix_len)) => address
+            .address
+            .parse::<Ipv6Addr>()
+            .ok()
+            .zip(expected.parse::<Ipv6Addr>().ok())
+            .is_some_and(|(candidate, expected)| {
+                prefix_matches_ipv6(candidate, expected, *prefix_len)
+            }),
+        _ => false,
+    }
+}
+
 fn print_link_interface(interface: &crate::common::net::InterfaceInfo) {
     println!(
-        "{}: {}: <{}> mtu {}",
+        "{}: {}: <{}> mtu {} qlen {}",
         interface.index,
         interface.name,
         interface_flag_names(interface.flags).join(","),
-        interface.mtu
+        interface.mtu,
+        interface.tx_queue_len,
     );
     println!(
         "    link/ether {}",
@@ -362,6 +506,17 @@ fn print_link_interface(interface: &crate::common::net::InterfaceInfo) {
             .map(|bytes| format_mac(&bytes))
             .unwrap_or_else(|| String::from("00:00:00:00:00:00"))
     );
+}
+
+fn parse_on_off(applet: &'static str, option: &str, value: &str) -> Result<bool, Vec<AppletError>> {
+    match value {
+        "on" => Ok(true),
+        "off" => Ok(false),
+        _ => Err(vec![AppletError::new(
+            applet,
+            format!("expected '{option} on|off'"),
+        )]),
+    }
 }
 
 fn print_route(route: &RouteInfo) {
@@ -423,6 +578,26 @@ fn parse_ip_prefix(
     }
 }
 
+fn prefix_matches_ipv4(address: Ipv4Addr, expected: Ipv4Addr, prefix_len: u8) -> bool {
+    let mask = if prefix_len == 0 {
+        0
+    } else {
+        u32::MAX << (32 - prefix_len)
+    };
+    (u32::from(address) & mask) == (u32::from(expected) & mask)
+}
+
+fn prefix_matches_ipv6(address: Ipv6Addr, expected: Ipv6Addr, prefix_len: u8) -> bool {
+    let address = u128::from_be_bytes(address.octets());
+    let expected = u128::from_be_bytes(expected.octets());
+    let mask = if prefix_len == 0 {
+        0
+    } else {
+        u128::MAX << (128 - prefix_len)
+    };
+    (address & mask) == (expected & mask)
+}
+
 fn io_error(
     action: &'static str,
     path: Option<String>,
@@ -448,10 +623,23 @@ mod tests {
 
     #[test]
     fn parses_link_change() {
-        let (name, change) = parse_link_change(&args(&["dev", "eth0", "mtu", "1400", "up"])).unwrap();
+        let (name, change) = parse_link_change(&args(&[
+            "dev",
+            "eth0",
+            "mtu",
+            "1400",
+            "up",
+            "arp",
+            "off",
+            "qlen",
+            "200",
+        ]))
+        .unwrap();
         assert_eq!(name, "eth0");
         assert_eq!(change.mtu, Some(1400));
         assert_eq!(change.up, Some(true));
+        assert_eq!(change.arp, Some(false));
+        assert_eq!(change.tx_queue_len, Some(200));
     }
 
     #[test]

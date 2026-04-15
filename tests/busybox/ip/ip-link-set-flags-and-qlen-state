@@ -1,0 +1,18 @@
+state=$(mktemp "${TMPDIR:-/tmp}/seed-net-state.XXXXXX")
+trap 'rm -f "$state"' EXIT HUP INT TERM
+
+cat >"$state" <<'EOF'
+iface	2	eth0	67	1500	0	1000	02:00:00:00:00:01	0	0	0	0
+EOF
+
+SEED_NET_STATE="$state" busybox ip link set dev eth0 arp off multicast off allmulti on promisc on qlen 200
+SEED_NET_STATE="$state" busybox ip link show dev eth0 >out
+
+grep 'qlen 200$' out
+grep 'NOARP' out
+grep 'ALLMULTI' out
+grep 'PROMISC' out
+if grep 'MULTICAST' out >/dev/null; then
+	echo "ip unexpectedly left multicast enabled" >&2
+	exit 1
+fi

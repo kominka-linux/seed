@@ -1,0 +1,48 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 3 ]; then
+	echo "usage: prepare-release-artifact <binary-path> <artifact-base> <applet-list>" >&2
+	exit 1
+fi
+
+binary_path=$1
+artifact_base=$2
+applet_list=$3
+
+if [ ! -f "$binary_path" ]; then
+	echo "prepare-release-artifact: missing binary: $binary_path" >&2
+	exit 1
+fi
+
+if [ ! -f "$applet_list" ]; then
+	echo "prepare-release-artifact: missing applet list: $applet_list" >&2
+	exit 1
+fi
+
+dist_dir=dist
+stage_dir=$(mktemp -d "${TMPDIR:-/tmp}/seed-release.XXXXXX")
+trap 'rm -rf "$stage_dir"' EXIT HUP INT TERM
+
+root="$stage_dir/$artifact_base"
+bin_dir="$root/bin"
+share_dir="$root/share/seed"
+
+mkdir -p "$bin_dir" "$share_dir" "$dist_dir"
+install -m755 "$binary_path" "$bin_dir/seed"
+ln "$bin_dir/seed" "$bin_dir/busybox"
+cp "$applet_list" "$share_dir/applets.txt"
+
+while IFS= read -r applet; do
+	[ -n "$applet" ] || continue
+	case "$applet" in
+		seed|busybox)
+			continue
+			;;
+	esac
+	ln "$bin_dir/seed" "$bin_dir/$applet"
+done < "$applet_list"
+
+archive_path="$dist_dir/$artifact_base.tar.gz"
+tar -C "$stage_dir" -czf "$archive_path" "$artifact_base"
+sha256sum "$archive_path" > "$archive_path.sha256"

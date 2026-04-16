@@ -1,0 +1,106 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset_suffix }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            asset_suffix: linux-x86_64
+            target: x86_64-unknown-linux-musl
+            target_env: X86_64_UNKNOWN_LINUX_MUSL
+          - runner: ubuntu-24.04-arm
+            asset_suffix: linux-aarch64
+            target: aarch64-unknown-linux-musl
+            target_env: AARCH64_UNKNOWN_LINUX_MUSL
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install musl toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq musl-tools file binutils
+
+      - name: Build release binary
+        run: |
+          rustup target add "${{ matrix.target }}"
+          export "CARGO_TARGET_${{ matrix.target_env }}_LINKER=musl-gcc"
+          cargo build --quiet \
+            --release \
+            --target "${{ matrix.target }}" \
+            --bin seed
+
+      - name: Verify static binary
+        run: |
+          binary="target/${{ matrix.target }}/release/seed"
+          file "$binary" | tee /dev/stderr | grep -Eq "statically linked|static-pie linked"
+          ! readelf -d "$binary" | grep -q NEEDED
+
+      - name: Generate applet list
+        run: |
+          mkdir -p dist
+          cargo run --quiet --features docgen --bin seed-docgen -- list > dist/applets.txt
+
+      - name: Package release archive
+        run: |
+          bin/prepare-release-artifact \
+            "target/${{ matrix.target }}/release/seed" \
+            "seed-${{ matrix.asset_suffix }}" \
+            dist/applets.txt
+
+      - name: Verify packaged hardlinks
+        run: |
+          verify_dir=$(mktemp -d)
+          trap 'rm -rf "$verify_dir"' EXIT HUP INT TERM
+          tar -xzf "dist/seed-${{ matrix.asset_suffix }}.tar.gz" -C "$verify_dir"
+          root="$verify_dir/seed-${{ matrix.asset_suffix }}"
+          test "$(stat -c '%i' "$root/bin/seed")" = "$(stat -c '%i' "$root/bin/busybox")"
+          test "$(stat -c '%i' "$root/bin/seed")" = "$(stat -c '%i' "$root/bin/awk")"
+          test -s "$root/share/seed/applets.txt"
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: seed-${{ matrix.asset_suffix }}
+          path: |
+            dist/seed-${{ matrix.asset_suffix }}.tar.gz
+            dist/seed-${{ matrix.asset_suffix }}.tar.gz.sha256
+          if-no-files-found: error
+
+  release:
+    name: Create release
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Download archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: seed-${{ github.sha }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/* --clobber
+          else
+            gh release create "$RELEASE_TAG" dist/* \
+              --title "$RELEASE_TAG" \
+              --notes "Full seed multicall release built from ${GITHUB_SHA}."
+          fi

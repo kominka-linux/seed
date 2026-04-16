@@ -749,6 +749,7 @@ run_old_style_ls tests/busybox/ls/ls-h-works
 run_old_style_ls tests/busybox/ls/ls-indicator-flags-work
 run_old_style_ls tests/busybox/ls/ls-i-works
 run_old_style_ls tests/busybox/ls/ls-l-works
+run_old_style_ls tests/busybox/ls/ls-long-variant-flags-work
 run_old_style_ls tests/busybox/ls/ls-l-symlink-to-dir-works
 run_old_style_ls tests/busybox/ls/ls-multiple-targets-works
 run_old_style_ls tests/busybox/ls/ls-R-works

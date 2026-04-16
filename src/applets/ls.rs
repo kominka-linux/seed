@@ -16,6 +16,9 @@ struct Options {
     hidden_mode: HiddenMode,
     indicator_style: IndicatorStyle,
     list_directory_itself: bool,
+    numeric_ids: bool,
+    omit_group: bool,
+    omit_owner: bool,
     recursive: bool,
     reverse_sort: bool,
     show_inode: bool,
@@ -176,9 +179,21 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
                     'U' => options.sort_mode = SortMode::Unsorted,
                     'a' => options.hidden_mode = HiddenMode::All,
                     'd' => options.list_directory_itself = true,
+                    'g' => {
+                        options.long_format = true;
+                        options.omit_owner = true;
+                    }
                     'h' => options.human_readable = true,
                     'i' => options.show_inode = true,
                     'l' => options.long_format = true,
+                    'n' => {
+                        options.long_format = true;
+                        options.numeric_ids = true;
+                    }
+                    'o' => {
+                        options.long_format = true;
+                        options.omit_group = true;
+                    }
                     'p' => options.indicator_style = IndicatorStyle::Slash,
                     'R' => options.recursive = true,
                     'r' => options.reverse_sort = true,
@@ -450,7 +465,7 @@ struct LongWidths {
 }
 
 impl LongWidths {
-    fn from_entries(entries: &[LongEntry], _options: Options) -> Self {
+    fn from_entries(entries: &[LongEntry], options: Options) -> Self {
         let mut widths = Self {
             inode: 0,
             links: 1,
@@ -460,10 +475,16 @@ impl LongWidths {
         };
 
         for entry in entries {
-            widths.inode = widths.inode.max(entry.inode.len());
+            if options.show_inode {
+                widths.inode = widths.inode.max(entry.inode.len());
+            }
             widths.links = widths.links.max(entry.links.len());
-            widths.owner = widths.owner.max(entry.owner.len());
-            widths.group = widths.group.max(entry.group.len());
+            if !entry.owner.is_empty() {
+                widths.owner = widths.owner.max(entry.owner.len());
+            }
+            if !entry.group.is_empty() {
+                widths.group = widths.group.max(entry.group.len());
+            }
             widths.size = widths.size.max(entry.size.len());
         }
 
@@ -485,12 +506,27 @@ fn build_long_entry(entry: &Entry, options: Options) -> Result<LongEntry, Applet
         None
     };
 
+    let owner = if options.omit_owner {
+        String::new()
+    } else if options.numeric_ids {
+        entry.metadata.uid().to_string()
+    } else {
+        unix::lookup_user(entry.metadata.uid())
+    };
+    let group = if options.omit_group {
+        String::new()
+    } else if options.numeric_ids {
+        entry.metadata.gid().to_string()
+    } else {
+        unix::lookup_group(entry.metadata.gid())
+    };
+
     Ok(LongEntry {
         inode: entry.metadata.ino().to_string(),
         mode: format_mode(entry)?,
         links: entry.metadata.nlink().to_string(),
-        owner: unix::lookup_user(entry.metadata.uid()),
-        group: unix::lookup_group(entry.metadata.gid()),
+        owner,
+        group,
         size,
         modified: unix::format_recent_mtime(APPLET, entry.metadata.mtime())?,
         name: display_name(entry, options),
@@ -503,20 +539,23 @@ fn format_long_entry(entry: &LongEntry, widths: LongWidths) -> String {
     if widths.inode > 0 {
         line.push_str(&format!("{:>inode_width$} ", entry.inode, inode_width = widths.inode));
     }
-    line.push_str(&format!(
-        "{} {:>links$} {:owner_width$} {:group_width$} {:>size_width$} {} {}",
-        entry.mode,
-        entry.links,
-        entry.owner,
-        entry.group,
-        entry.size,
-        entry.modified,
-        entry.name,
-        links = widths.links,
-        owner_width = widths.owner,
-        group_width = widths.group,
-        size_width = widths.size,
-    ));
+    line.push_str(&entry.mode);
+    line.push(' ');
+    line.push_str(&format!("{:>links$}", entry.links, links = widths.links));
+    if widths.owner > 0 {
+        line.push(' ');
+        line.push_str(&format!("{:owner_width$}", entry.owner, owner_width = widths.owner));
+    }
+    if widths.group > 0 {
+        line.push(' ');
+        line.push_str(&format!("{:group_width$}", entry.group, group_width = widths.group));
+    }
+    line.push(' ');
+    line.push_str(&format!("{:>size_width$}", entry.size, size_width = widths.size));
+    line.push(' ');
+    line.push_str(&entry.modified);
+    line.push(' ');
+    line.push_str(&entry.name);
     if let Some(target) = &entry.symlink_target {
         line.push_str(" -> ");
         line.push_str(target);
@@ -622,6 +661,7 @@ mod tests {
     use crate::common::unix;
     use std::fs;
     use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::MetadataExt;
     use std::path::PathBuf;
 
     struct TempDir {
@@ -834,6 +874,18 @@ mod tests {
         let (options, paths) = parse_args(&["-i".to_owned(), "dir".to_owned()]).expect("parse");
 
         assert!(options.show_inode);
+        assert_eq!(paths, vec!["dir"]);
+    }
+
+    #[test]
+    fn parses_long_format_variants() {
+        let (options, paths) =
+            parse_args(&["-ngo".to_owned(), "dir".to_owned()]).expect("parse");
+
+        assert!(options.long_format);
+        assert!(options.numeric_ids);
+        assert!(options.omit_owner);
+        assert!(options.omit_group);
         assert_eq!(paths, vec!["dir"]);
     }
 
@@ -1199,6 +1251,71 @@ mod tests {
         let first = output.split_whitespace().next().expect("inode column");
         assert!(first.chars().all(|ch| ch.is_ascii_digit()));
         assert!(output.contains(&file.display().to_string()));
+    }
+
+    #[test]
+    fn numeric_ids_use_uid_and_gid_columns() {
+        let tempdir = TempDir::new();
+        let file = tempdir.path().join("file");
+        fs::write(&file, b"x").expect("write file");
+        let metadata = fs::metadata(&file).expect("metadata");
+
+        let output = render_target(
+            file.to_str().expect("utf8 path"),
+            Options {
+                long_format: true,
+                numeric_ids: true,
+                ..Options::default()
+            },
+        )
+        .expect("render numeric ids");
+
+        assert!(output.contains(&format!(" {} ", metadata.uid())));
+        assert!(output.contains(&format!(" {} ", metadata.gid())));
+    }
+
+    #[test]
+    fn group_variant_omits_owner_column() {
+        let tempdir = TempDir::new();
+        let file = tempdir.path().join("file");
+        fs::write(&file, b"x").expect("write file");
+        let metadata = fs::metadata(&file).expect("metadata");
+
+        let output = render_target(
+            file.to_str().expect("utf8 path"),
+            Options {
+                long_format: true,
+                omit_owner: true,
+                numeric_ids: true,
+                ..Options::default()
+            },
+        )
+        .expect("render -g");
+
+        assert!(!output.contains(&format!(" {} {} ", metadata.uid(), metadata.gid())));
+        assert!(output.contains(&format!(" {} ", metadata.gid())));
+    }
+
+    #[test]
+    fn owner_variant_omits_group_column() {
+        let tempdir = TempDir::new();
+        let file = tempdir.path().join("file");
+        fs::write(&file, b"x").expect("write file");
+        let metadata = fs::metadata(&file).expect("metadata");
+
+        let output = render_target(
+            file.to_str().expect("utf8 path"),
+            Options {
+                long_format: true,
+                omit_group: true,
+                numeric_ids: true,
+                ..Options::default()
+            },
+        )
+        .expect("render -o");
+
+        assert!(output.contains(&format!(" {} ", metadata.uid())));
+        assert!(!output.contains(&format!(" {} {} ", metadata.uid(), metadata.gid())));
     }
 
     #[test]

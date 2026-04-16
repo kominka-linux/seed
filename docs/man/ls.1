@@ -1,9 +1,82 @@
 .TH "ls" "1" "" "seed 0.1.0"
 .SH NAME
-ls \- seed applet
+ls \- list directory contents
 .SH SYNOPSIS
-.B ls [ARGS...]
+.B ls
+[\fIOPTIONS\fR] [\fIFILE\fR...]
+.br
+.B ls \-\-help
 .SH DESCRIPTION
-ls is a seed multicall applet. Detailed applet\-specific documentation has not been authored yet.
+ls lists files and directories. With no operands it lists the current directory.
 .PP
-Use 'ls \-\-help' for a short usage summary.
+By default, directory operands are traversed and hidden entries are omitted. Sorting defaults to name order.
+.SH OPTIONS
+.TP
+.B \-1
+Print one entry per line.
+.TP
+.B \-a
+Include entries whose names start with '.'.
+.TP
+.B \-A
+Include hidden entries except '.' and '..'.
+.TP
+.B \-d
+List directory operands themselves instead of their contents.
+.TP
+.B \-F
+Append indicators to certain names: '/' for directories, '@' for symlinks, '*' for executables, and '|' for FIFOs.
+.TP
+.B \-g
+Use long format but omit the owner field.
+.TP
+.B \-h
+With long format, print human\-readable sizes.
+.TP
+.B \-i
+Show inode numbers.
+.TP
+.B \-l
+Use long format.
+.TP
+.B \-n
+Use long format with numeric user and group IDs.
+.TP
+.B \-o
+Use long format but omit the group field.
+.TP
+.B \-p
+Append '/' to directory names.
+.TP
+.B \-R
+List subdirectories recursively.
+.TP
+.B \-r
+Reverse the selected sort order.
+.TP
+.B \-s
+Show allocated block counts.
+.TP
+.B \-S
+Sort by size, largest first.
+.TP
+.B \-t
+Sort by modification time, newest first.
+.TP
+.B \-U
+Do not sort directory entries.
+.TP
+.B \-\-help
+Show a short usage summary.
+.SH EXAMPLES
+.TP
+.B ls \-la
+Show all entries in the current directory in long format.
+.TP
+.B ls \-ld dir link
+Show metadata for directory operands without traversing them.
+.TP
+.B ls \-1R tree
+Recursively list a directory tree with one entry per line.
+.SH SEE ALSO
+find(1), stat(1)

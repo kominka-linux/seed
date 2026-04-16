@@ -12,6 +12,7 @@ pub fn short_help(applet: &str) -> String {
 #[cfg(feature = "multicall")]
 fn specific_short_help(applet: &str) -> Option<&'static str> {
     match applet {
+        "ls" => Some(crate::applets::ls::short_help()),
         "tar" => Some(crate::applets::tar::short_help()),
         #[cfg(feature = "wget")]
         "wget" => Some(crate::wget::short_help()),

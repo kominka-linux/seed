@@ -10,6 +10,33 @@ use crate::common::error::AppletError;
 use crate::common::unix::{self, FileKind};
 
 const APPLET: &str = "ls";
+const SHORT_HELP: &str = "\
+ls - list directory contents
+
+usage: ls [OPTIONS] [FILE...]
+
+Options:
+  -1  one entry per line
+  -a  include entries starting with .
+  -A  include hidden entries except . and ..
+  -d  list directories themselves, not their contents
+  -F  append file type indicators
+  -g  long format without owner
+  -h  human-readable sizes with -l
+  -i  show inode numbers
+  -l  long format
+  -n  long format with numeric uid/gid
+  -o  long format without group
+  -p  append / to directories
+  -R  recurse into subdirectories
+  -r  reverse sort order
+  -s  show allocated blocks
+  -S  sort by size
+  -t  sort by modification time
+  -U  do not sort
+
+Try 'man ls' for details.
+";
 
 #[derive(Clone, Copy, Debug, Default)]
 struct Options {
@@ -84,6 +111,10 @@ struct Target {
 
 pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
+}
+
+pub(crate) fn short_help() -> &'static str {
+    SHORT_HELP
 }
 
 fn run(args: &[std::ffi::OsString]) -> AppletResult {

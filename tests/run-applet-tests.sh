@@ -790,6 +790,7 @@ run_old_style tests/busybox/mv/mv-preserves-hard-links
 run_old_style tests/busybox/mv/mv-preserves-links
 run_old_style tests/busybox/mv/mv-refuses-mv-dir-to-subdir
 run_old_style tests/busybox/mv/mv-removes-source-file
+run_old_style tests/busybox/mv/mv-T-does-not-move-into-directory
 
 run_old_style tests/busybox/nologin/nologin-exits-nonzero-and-prints-default-message
 run_old_style tests/busybox/nologin/nologin-rejects-extra-operand

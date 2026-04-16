@@ -1,0 +1,9 @@
+printf 'ok\n' > src
+mkdir dst
+
+if busybox mv -T src dst >/dev/null 2>&1; then
+	exit 1
+fi
+
+test -f src
+test ! -e dst/src

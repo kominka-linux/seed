@@ -13,6 +13,7 @@ const APPLET: &str = "ls";
 
 #[derive(Clone, Copy, Debug, Default)]
 struct Options {
+    list_directory_itself: bool,
     single_column: bool,
     human_readable: bool,
     long_format: bool,
@@ -89,8 +90,16 @@ fn render_targets(targets: &[String], options: Options) -> (String, Vec<AppletEr
 
     let mut output = String::new();
 
-    for file in files {
-        match render_file(&file.display, &file.path, file.metadata, options) {
+    if !files.is_empty() {
+        let entries = files
+            .into_iter()
+            .map(|file| Entry {
+                name: file.display,
+                path: file.path,
+                metadata: file.metadata,
+            })
+            .collect::<Vec<_>>();
+        match render_entries(&entries, options, false) {
             Ok(text) => output.push_str(&text),
             Err(err) => errors.push(err),
         }
@@ -128,6 +137,7 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
             for flag in arg[1..].chars() {
                 match flag {
                     '1' => options.single_column = true,
+                    'd' => options.list_directory_itself = true,
                     'h' => options.human_readable = true,
                     'l' => options.long_format = true,
                     's' => options.show_blocks = true,
@@ -148,7 +158,15 @@ fn render_target(path: &str, options: Options) -> Result<String, AppletError> {
     if target.lists_directory {
         render_directory(&target.path, options)
     } else {
-        render_file(&target.display, &target.path, target.metadata, options)
+        render_entries(
+            &[Entry {
+                name: target.display,
+                path: target.path,
+                metadata: target.metadata,
+            }],
+            options,
+            false,
+        )
     }
 }
 
@@ -167,6 +185,9 @@ fn classify_target(path: &str, options: Options) -> Result<Target, AppletError> 
 }
 
 fn should_list_directory(path: &Path, metadata: &fs::Metadata, options: Options) -> bool {
+    if options.list_directory_itself {
+        return false;
+    }
     metadata.is_dir()
         || (!options.long_format
             && metadata.file_type().is_symlink()
@@ -197,20 +218,6 @@ fn render_directory(path: &Path, options: Options) -> Result<String, AppletError
     entries.sort_by(|left, right| left.name.as_bytes().cmp(right.name.as_bytes()));
 
     render_entries(&entries, options, true)
-}
-
-fn render_file(
-    display: &str,
-    path: &Path,
-    metadata: fs::Metadata,
-    options: Options,
-) -> Result<String, AppletError> {
-    let entry = Entry {
-        name: display.to_owned(),
-        path: path.to_path_buf(),
-        metadata,
-    };
-    render_entries(&[entry], options, false)
 }
 
 fn render_entries(
@@ -527,11 +534,45 @@ mod tests {
     }
 
     #[test]
+    fn long_format_uses_shared_widths_for_multiple_file_operands() {
+        let tempdir = TempDir::new();
+        let small = tempdir.path().join("a");
+        let link = tempdir.path().join("link");
+        fs::write(&small, b"x").expect("write small file");
+        std::os::unix::fs::symlink(&small, &link).expect("create symlink");
+
+        let (output, errors) = render_targets(
+            &[
+                small.to_str().expect("utf8 path").to_owned(),
+                link.to_str().expect("utf8 path").to_owned(),
+            ],
+            Options {
+                long_format: true,
+                ..Options::default()
+            },
+        );
+
+        assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+        let lines = output.lines().collect::<Vec<_>>();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains(" 1 "));
+        assert!(lines[1].contains(" -> "));
+    }
+
+    #[test]
     fn double_dash_stops_option_parsing() {
         let (options, paths) = parse_args(&["--".to_owned(), "-file".to_owned()]).expect("parse");
 
         assert!(!options.long_format);
         assert_eq!(paths, vec!["-file"]);
+    }
+
+    #[test]
+    fn parses_directory_flag() {
+        let (options, paths) = parse_args(&["-d".to_owned(), "dir".to_owned()]).expect("parse");
+
+        assert!(options.list_directory_itself);
+        assert_eq!(paths, vec!["dir"]);
     }
 
     #[test]
@@ -548,6 +589,46 @@ mod tests {
             .expect("render symlink target");
 
         assert_eq!(output, "A\nB\n");
+    }
+
+    #[test]
+    fn directory_flag_lists_directory_operand_itself() {
+        let tempdir = TempDir::new();
+        let dir = tempdir.path().join("dir");
+        fs::create_dir(&dir).expect("create dir");
+        fs::write(dir.join("A"), b"x").expect("write A");
+
+        let output = render_target(
+            dir.to_str().expect("utf8 path"),
+            Options {
+                list_directory_itself: true,
+                ..Options::default()
+            },
+        )
+        .expect("render dir with -d");
+
+        assert_eq!(output, format!("{}\n", dir.display()));
+    }
+
+    #[test]
+    fn directory_flag_lists_symlink_to_directory_itself() {
+        let tempdir = TempDir::new();
+        let dir = tempdir.path().join("dir");
+        let link = tempdir.path().join("link");
+        fs::create_dir(&dir).expect("create dir");
+        fs::write(dir.join("A"), b"x").expect("write A");
+        std::os::unix::fs::symlink(&dir, &link).expect("create symlink");
+
+        let output = render_target(
+            link.to_str().expect("utf8 path"),
+            Options {
+                list_directory_itself: true,
+                ..Options::default()
+            },
+        )
+        .expect("render symlink with -d");
+
+        assert_eq!(output, format!("{}\n", link.display()));
     }
 
     #[test]

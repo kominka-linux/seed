@@ -742,6 +742,7 @@ run_old_style tests/busybox/tar/tar_with_link_with_size
 run_old_style tests/busybox/tar/tar_with_prefix_fields
 
 run_old_style_ls tests/busybox/ls/ls-1-works
+run_old_style_ls tests/busybox/ls/ls-d-works
 run_old_style_ls tests/busybox/ls/ls-double-dash-works
 run_old_style_ls tests/busybox/ls/ls-h-works
 run_old_style_ls tests/busybox/ls/ls-l-works

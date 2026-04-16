@@ -1,10 +1,21 @@
 use std::fmt;
 use std::io;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AppletErrorKind {
+    Other,
+    Io,
+    Syscall,
+    Config,
+    InvalidInput,
+    InvalidData,
+}
+
 #[derive(Debug)]
 pub struct AppletError {
     applet: &'static str,
     message: String,
+    kind: AppletErrorKind,
 }
 
 impl AppletError {
@@ -21,9 +32,18 @@ impl AppletError {
     }
 
     pub fn new(applet: &'static str, message: impl Into<String>) -> Self {
+        Self::new_with_kind(applet, message, AppletErrorKind::Other)
+    }
+
+    pub fn new_with_kind(
+        applet: &'static str,
+        message: impl Into<String>,
+        kind: AppletErrorKind,
+    ) -> Self {
         Self {
             applet,
             message: message.into(),
+            kind,
         }
     }
 
@@ -32,7 +52,35 @@ impl AppletError {
             Some(path) => format!("{action} {path}: {err}"),
             None => format!("{action}: {err}"),
         };
-        Self::new(applet, detail)
+        Self::new_with_kind(applet, detail, AppletErrorKind::Io)
+    }
+
+    pub fn from_syscall(applet: &'static str, syscall: &str, err: io::Error) -> Self {
+        Self::new_with_kind(
+            applet,
+            format!("{syscall} failed: {err}"),
+            AppletErrorKind::Syscall,
+        )
+    }
+
+    pub fn from_config(applet: &'static str, context: &str, message: impl Into<String>) -> Self {
+        Self::new_with_kind(
+            applet,
+            format!("{context}: {}", message.into()),
+            AppletErrorKind::Config,
+        )
+    }
+
+    pub fn invalid_data(applet: &'static str, message: impl Into<String>) -> Self {
+        Self::new_with_kind(applet, message, AppletErrorKind::InvalidData)
+    }
+
+    pub fn kind(&self) -> AppletErrorKind {
+        self.kind
+    }
+
+    pub fn remap_applet(self, applet: &'static str) -> Self {
+        Self::new_with_kind(applet, self.to_string(), self.kind)
     }
 
     pub fn print(&self) {
@@ -40,15 +88,27 @@ impl AppletError {
     }
 
     pub fn invalid_option(applet: &'static str, flag: char) -> Self {
-        Self::new(applet, Self::invalid_option_message(flag))
+        Self::new_with_kind(
+            applet,
+            Self::invalid_option_message(flag),
+            AppletErrorKind::InvalidInput,
+        )
     }
 
     pub fn option_requires_arg(applet: &'static str, option: &str) -> Self {
-        Self::new(applet, Self::option_requires_arg_message(option))
+        Self::new_with_kind(
+            applet,
+            Self::option_requires_arg_message(option),
+            AppletErrorKind::InvalidInput,
+        )
     }
 
     pub fn unrecognized_option(applet: &'static str, option: &str) -> Self {
-        Self::new(applet, Self::unrecognized_option_message(option))
+        Self::new_with_kind(
+            applet,
+            Self::unrecognized_option_message(option),
+            AppletErrorKind::InvalidInput,
+        )
     }
 }
 

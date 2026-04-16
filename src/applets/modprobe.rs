@@ -299,11 +299,11 @@ fn run_module_command(command: &str, module: &str, params: &[String]) -> AppletR
 }
 
 fn wrap_module_error(error: AppletError) -> Vec<AppletError> {
-    vec![AppletError::new(APPLET, error.to_string())]
+    vec![error.remap_applet(APPLET)]
 }
 
 fn map_module_error(error: AppletError) -> AppletError {
-    AppletError::new(APPLET, error.to_string())
+    error.remap_applet(APPLET)
 }
 
 #[cfg(test)]

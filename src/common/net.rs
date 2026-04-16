@@ -13,6 +13,9 @@ use std::net::{IpAddr, Ipv4Addr};
 #[cfg(target_os = "linux")]
 use std::path::{Path, PathBuf};
 
+#[cfg(target_os = "linux")]
+mod state;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub(crate) enum AddressFamily {
     Inet4,
@@ -118,284 +121,124 @@ pub(crate) struct Ipv4Change {
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn add_address(name: &str, address: &InterfaceAddress) -> io::Result<()> {
-    if let Some(path) = state_path() {
-        let mut state = read_state(&path)?;
-        let interface = state
-            .interfaces
-            .iter_mut()
-            .find(|interface| interface.name == name)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "interface not found"))?;
-        interface.addresses.retain(|existing| {
-            !(existing.family == address.family && existing.address == address.address)
-        });
-        interface.addresses.push(address.clone());
-        interface.addresses.sort_by(|left, right| {
-            left.family
-                .cmp(&right.family)
-                .then(left.address.cmp(&right.address))
-        });
-        return write_state(&path, &state);
-    }
+enum Backend {
+    Live,
+    State(PathBuf),
+}
 
-    match address.family {
-        AddressFamily::Inet4 => live_add_ipv4(name, address),
-        AddressFamily::Inet6 => live_add_ipv6(name, address),
+#[cfg(target_os = "linux")]
+fn backend() -> Backend {
+    state_path().map_or(Backend::Live, Backend::State)
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn add_address(name: &str, address: &InterfaceAddress) -> io::Result<()> {
+    match backend() {
+        Backend::State(path) => state::add_address(&path, name, address),
+        Backend::Live => match address.family {
+            AddressFamily::Inet4 => live_add_ipv4(name, address),
+            AddressFamily::Inet6 => live_add_ipv6(name, address),
+        },
     }
 }
 
 #[cfg(target_os = "linux")]
 pub(crate) fn remove_address(name: &str, family: AddressFamily, address: &str) -> io::Result<()> {
-    if let Some(path) = state_path() {
-        let mut state = read_state(&path)?;
-        let interface = state
-            .interfaces
-            .iter_mut()
-            .find(|interface| interface.name == name)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "interface not found"))?;
-        interface
-            .addresses
-            .retain(|existing| !(existing.family == family && existing.address == address));
-        return write_state(&path, &state);
-    }
-
-    match family {
-        AddressFamily::Inet4 => live_remove_ipv4(name, address),
-        AddressFamily::Inet6 => live_remove_ipv6(name, address),
+    match backend() {
+        Backend::State(path) => state::remove_address(&path, name, family, address),
+        Backend::Live => match family {
+            AddressFamily::Inet4 => live_remove_ipv4(name, address),
+            AddressFamily::Inet6 => live_remove_ipv6(name, address),
+        },
     }
 }
 
 #[cfg(target_os = "linux")]
 pub(crate) fn list_interfaces() -> io::Result<Vec<InterfaceInfo>> {
-    if let Some(path) = state_path() {
-        let state = read_state(&path)?;
-        let mut interfaces = state.interfaces;
-        interfaces.sort_by(|left, right| {
-            left.index
-                .cmp(&right.index)
-                .then(left.name.cmp(&right.name))
-        });
-        return Ok(interfaces);
+    match backend() {
+        Backend::State(path) => state::list_interfaces(&path),
+        Backend::Live => live_list_interfaces(),
     }
-    live_list_interfaces()
 }
 
 #[cfg(target_os = "linux")]
 pub(crate) fn list_routes() -> io::Result<Vec<RouteInfo>> {
-    if let Some(path) = state_path() {
-        let mut routes = read_state(&path)?.routes;
-        routes.sort_by(|left, right| {
-            left.dev
-                .cmp(&right.dev)
-                .then(left.destination.cmp(&right.destination))
-        });
-        return Ok(routes);
+    match backend() {
+        Backend::State(path) => state::list_routes(&path),
+        Backend::Live => live_list_routes(),
     }
-    live_list_routes()
 }
 
 #[cfg(target_os = "linux")]
 pub(crate) fn list_neighbors() -> io::Result<Vec<NeighborInfo>> {
-    if let Some(path) = state_path() {
-        let mut neighbors = read_state(&path)?.neighbors;
-        neighbors.sort_by(|left, right| {
-            left.family
-                .cmp(&right.family)
-                .then(left.dev.cmp(&right.dev))
-                .then(left.address.cmp(&right.address))
-        });
-        return Ok(neighbors);
+    match backend() {
+        Backend::State(path) => state::list_neighbors(&path),
+        Backend::Live => live_list_neighbors(),
     }
-    live_list_neighbors()
 }
 
 #[cfg(target_os = "linux")]
 pub(crate) fn list_rules() -> io::Result<Vec<RuleInfo>> {
-    if let Some(path) = state_path() {
-        let mut rules = read_state(&path)?.rules;
-        rules.sort_by(|left, right| {
-            left.priority
-                .cmp(&right.priority)
-                .then(left.family.cmp(&right.family))
-                .then(left.table.cmp(&right.table))
-        });
-        return Ok(rules);
+    match backend() {
+        Backend::State(path) => state::list_rules(&path),
+        Backend::Live => live_list_rules(),
     }
-    live_list_rules()
 }
 
 #[cfg(target_os = "linux")]
 pub(crate) fn del_neighbor(neighbor: &NeighborInfo) -> io::Result<()> {
-    if let Some(path) = state_path() {
-        let mut state = read_state(&path)?;
-        state.neighbors.retain(|existing| existing != neighbor);
-        return write_state(&path, &state);
+    match backend() {
+        Backend::State(path) => state::del_neighbor(&path, neighbor),
+        Backend::Live => live_del_neighbor(neighbor),
     }
-    live_del_neighbor(neighbor)
 }
 
 #[cfg(target_os = "linux")]
 pub(crate) fn add_rule(rule: &RuleInfo) -> io::Result<()> {
-    if let Some(path) = state_path() {
-        let mut state = read_state(&path)?;
-        state.rules.retain(|existing| existing != rule);
-        state.rules.push(rule.clone());
-        return write_state(&path, &state);
+    match backend() {
+        Backend::State(path) => state::add_rule(&path, rule),
+        Backend::Live => live_rule_change(rule, libc::RTM_NEWRULE),
     }
-    live_rule_change(rule, libc::RTM_NEWRULE)
 }
 
 #[cfg(target_os = "linux")]
 pub(crate) fn del_rule(rule: &RuleInfo) -> io::Result<()> {
-    if let Some(path) = state_path() {
-        let mut state = read_state(&path)?;
-        state.rules.retain(|existing| existing != rule);
-        return write_state(&path, &state);
+    match backend() {
+        Backend::State(path) => state::del_rule(&path, rule),
+        Backend::Live => live_rule_change(rule, libc::RTM_DELRULE),
     }
-    live_rule_change(rule, libc::RTM_DELRULE)
 }
 
 #[cfg(target_os = "linux")]
 pub(crate) fn apply_link_change(name: &str, change: &LinkChange) -> io::Result<()> {
-    if let Some(path) = state_path() {
-        let mut state = read_state(&path)?;
-        let interface = state
-            .interfaces
-            .iter_mut()
-            .find(|interface| interface.name == name)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "interface not found"))?;
-        if let Some(up) = change.up {
-            if up {
-                interface.flags |= libc::IFF_UP as u32;
-            } else {
-                interface.flags &= !(libc::IFF_UP as u32);
-            }
-        }
-        if let Some(mtu) = change.mtu {
-            interface.mtu = mtu;
-        }
-        if let Some(metric) = change.metric {
-            interface.metric = metric;
-        }
-        if let Some(tx_queue_len) = change.tx_queue_len {
-            interface.tx_queue_len = tx_queue_len;
-        }
-        if let Some(mem_start) = change.mem_start {
-            interface.mem_start = mem_start;
-        }
-        if let Some(io_addr) = change.io_addr {
-            interface.io_addr = io_addr;
-        }
-        if let Some(irq) = change.irq {
-            interface.irq = irq;
-        }
-        if let Some(address) = &change.address {
-            interface.mac = Some(address.clone());
-        }
-        apply_flag_change(
-            &mut interface.flags,
-            libc::IFF_NOARP as u32,
-            change.arp.map(|value| !value),
-        );
-        apply_flag_change(
-            &mut interface.flags,
-            libc::IFF_MULTICAST as u32,
-            change.multicast,
-        );
-        apply_flag_change(
-            &mut interface.flags,
-            libc::IFF_ALLMULTI as u32,
-            change.allmulti,
-        );
-        apply_flag_change(
-            &mut interface.flags,
-            libc::IFF_PROMISC as u32,
-            change.promisc,
-        );
-        apply_flag_change(
-            &mut interface.flags,
-            libc::IFF_DYNAMIC as u32,
-            change.dynamic,
-        );
-        apply_flag_change(
-            &mut interface.flags,
-            libc::IFF_NOTRAILERS as u32,
-            change.trailers.map(|value| !value),
-        );
-        if let Some(new_name) = &change.new_name {
-            interface.name = new_name.clone();
-            for route in &mut state.routes {
-                if route.dev == name {
-                    route.dev = new_name.clone();
-                }
-            }
-        }
-        return write_state(&path, &state);
+    match backend() {
+        Backend::State(path) => state::apply_link_change(&path, name, change),
+        Backend::Live => live_apply_link_change(name, change),
     }
-    live_apply_link_change(name, change)
 }
 
 #[cfg(target_os = "linux")]
 pub(crate) fn set_ipv4(name: &str, change: &Ipv4Change) -> io::Result<()> {
-    if let Some(path) = state_path() {
-        let mut state = read_state(&path)?;
-        let interface = state
-            .interfaces
-            .iter_mut()
-            .find(|interface| interface.name == name)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "interface not found"))?;
-        interface
-            .addresses
-            .retain(|address| address.family != AddressFamily::Inet4);
-        if let Some(address) = change.address {
-            interface.addresses.push(InterfaceAddress {
-                family: AddressFamily::Inet4,
-                address: address.to_string(),
-                prefix_len: change.prefix_len.unwrap_or(32),
-                peer: change.peer.map(|peer| peer.to_string()),
-                broadcast: match change.broadcast {
-                    Some(Some(value)) => Some(value.to_string()),
-                    Some(None) => None,
-                    None => None,
-                },
-                label: None,
-                scope: None,
-            });
-        }
-        interface.addresses.sort_by(|left, right| {
-            left.family
-                .cmp(&right.family)
-                .then(left.address.cmp(&right.address))
-        });
-        return write_state(&path, &state);
+    match backend() {
+        Backend::State(path) => state::set_ipv4(&path, name, change),
+        Backend::Live => live_set_ipv4(name, change),
     }
-    live_set_ipv4(name, change)
 }
 
 #[cfg(target_os = "linux")]
 pub(crate) fn add_route(route: &RouteInfo) -> io::Result<()> {
-    if let Some(path) = state_path() {
-        let mut state = read_state(&path)?;
-        state.routes.retain(|existing| existing != route);
-        state.routes.push(route.clone());
-        state.routes.sort_by(|left, right| {
-            left.dev
-                .cmp(&right.dev)
-                .then(left.destination.cmp(&right.destination))
-        });
-        return write_state(&path, &state);
+    match backend() {
+        Backend::State(path) => state::add_route(&path, route),
+        Backend::Live => live_route_change(route, libc::SIOCADDRT),
     }
-    live_route_change(route, libc::SIOCADDRT)
 }
 
 #[cfg(target_os = "linux")]
 pub(crate) fn del_route(route: &RouteInfo) -> io::Result<()> {
-    if let Some(path) = state_path() {
-        let mut state = read_state(&path)?;
-        state.routes.retain(|existing| existing != route);
-        return write_state(&path, &state);
+    match backend() {
+        Backend::State(path) => state::del_route(&path, route),
+        Backend::Live => live_route_change(route, libc::SIOCDELRT),
     }
-    live_route_change(route, libc::SIOCDELRT)
 }
 
 pub(crate) fn parse_prefix(spec: &str) -> io::Result<(Ipv4Addr, u8)> {
@@ -537,403 +380,8 @@ pub(crate) fn interface_flag_names(flags: u32) -> Vec<&'static str> {
 }
 
 #[cfg(target_os = "linux")]
-#[derive(Clone, Debug, Default)]
-struct State {
-    interfaces: Vec<InterfaceInfo>,
-    routes: Vec<RouteInfo>,
-    neighbors: Vec<NeighborInfo>,
-    rules: Vec<RuleInfo>,
-}
-
-#[cfg(target_os = "linux")]
 fn state_path() -> Option<PathBuf> {
     std::env::var_os("SEED_NET_STATE").map(PathBuf::from)
-}
-
-#[cfg(target_os = "linux")]
-fn read_state(path: &Path) -> io::Result<State> {
-    let text = match fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(State::default()),
-        Err(err) => return Err(err),
-    };
-    let mut state = State::default();
-    for line in text.lines() {
-        let fields = line.split('\t').collect::<Vec<_>>();
-        match fields.as_slice() {
-            [
-                "iface",
-                index,
-                name,
-                flags,
-                mtu,
-                mac,
-                rx_bytes,
-                rx_packets,
-                tx_bytes,
-                tx_packets,
-            ] => {
-                state.interfaces.push(InterfaceInfo {
-                    index: index.parse().unwrap_or(0),
-                    name: (*name).to_string(),
-                    flags: flags.parse().unwrap_or(0),
-                    mtu: mtu.parse().unwrap_or(0),
-                    metric: 0,
-                    tx_queue_len: 0,
-                    mem_start: 0,
-                    io_addr: 0,
-                    irq: 0,
-                    mac: (!mac.is_empty()).then(|| (*mac).to_string()),
-                    addresses: Vec::new(),
-                    stats: InterfaceStats {
-                        rx_bytes: rx_bytes.parse().unwrap_or(0),
-                        rx_packets: rx_packets.parse().unwrap_or(0),
-                        tx_bytes: tx_bytes.parse().unwrap_or(0),
-                        tx_packets: tx_packets.parse().unwrap_or(0),
-                    },
-                });
-            }
-            [
-                "iface",
-                index,
-                name,
-                flags,
-                mtu,
-                metric,
-                tx_queue_len,
-                mac,
-                rx_bytes,
-                rx_packets,
-                tx_bytes,
-                tx_packets,
-            ] => {
-                state.interfaces.push(InterfaceInfo {
-                    index: index.parse().unwrap_or(0),
-                    name: (*name).to_string(),
-                    flags: flags.parse().unwrap_or(0),
-                    mtu: mtu.parse().unwrap_or(0),
-                    metric: metric.parse().unwrap_or(0),
-                    tx_queue_len: tx_queue_len.parse().unwrap_or(0),
-                    mem_start: 0,
-                    io_addr: 0,
-                    irq: 0,
-                    mac: (!mac.is_empty()).then(|| (*mac).to_string()),
-                    addresses: Vec::new(),
-                    stats: InterfaceStats {
-                        rx_bytes: rx_bytes.parse().unwrap_or(0),
-                        rx_packets: rx_packets.parse().unwrap_or(0),
-                        tx_bytes: tx_bytes.parse().unwrap_or(0),
-                        tx_packets: tx_packets.parse().unwrap_or(0),
-                    },
-                });
-            }
-            [
-                "iface",
-                index,
-                name,
-                flags,
-                mtu,
-                metric,
-                tx_queue_len,
-                mem_start,
-                io_addr,
-                irq,
-                mac,
-                rx_bytes,
-                rx_packets,
-                tx_bytes,
-                tx_packets,
-            ] => {
-                state.interfaces.push(InterfaceInfo {
-                    index: index.parse().unwrap_or(0),
-                    name: (*name).to_string(),
-                    flags: flags.parse().unwrap_or(0),
-                    mtu: mtu.parse().unwrap_or(0),
-                    metric: metric.parse().unwrap_or(0),
-                    tx_queue_len: tx_queue_len.parse().unwrap_or(0),
-                    mem_start: mem_start.parse().unwrap_or(0),
-                    io_addr: io_addr.parse().unwrap_or(0),
-                    irq: irq.parse().unwrap_or(0),
-                    mac: (!mac.is_empty()).then(|| (*mac).to_string()),
-                    addresses: Vec::new(),
-                    stats: InterfaceStats {
-                        rx_bytes: rx_bytes.parse().unwrap_or(0),
-                        rx_packets: rx_packets.parse().unwrap_or(0),
-                        tx_bytes: tx_bytes.parse().unwrap_or(0),
-                        tx_packets: tx_packets.parse().unwrap_or(0),
-                    },
-                });
-            }
-            ["addr", name, family, address, prefix_len, peer, broadcast] => {
-                if let Some(interface) = state
-                    .interfaces
-                    .iter_mut()
-                    .find(|interface| interface.name == *name)
-                {
-                    interface.addresses.push(InterfaceAddress {
-                        family: if *family == "inet6" {
-                            AddressFamily::Inet6
-                        } else {
-                            AddressFamily::Inet4
-                        },
-                        address: (*address).to_string(),
-                        prefix_len: prefix_len.parse().unwrap_or(0),
-                        peer: (!peer.is_empty()).then(|| (*peer).to_string()),
-                        broadcast: (!broadcast.is_empty()).then(|| (*broadcast).to_string()),
-                        label: None,
-                        scope: None,
-                    });
-                }
-            }
-            [
-                "addr",
-                name,
-                family,
-                address,
-                prefix_len,
-                peer,
-                broadcast,
-                label,
-                scope,
-            ] => {
-                if let Some(interface) = state
-                    .interfaces
-                    .iter_mut()
-                    .find(|interface| interface.name == *name)
-                {
-                    interface.addresses.push(InterfaceAddress {
-                        family: if *family == "inet6" {
-                            AddressFamily::Inet6
-                        } else {
-                            AddressFamily::Inet4
-                        },
-                        address: (*address).to_string(),
-                        prefix_len: prefix_len.parse().unwrap_or(0),
-                        peer: (!peer.is_empty()).then(|| (*peer).to_string()),
-                        broadcast: (!broadcast.is_empty()).then(|| (*broadcast).to_string()),
-                        label: (!label.is_empty()).then(|| (*label).to_string()),
-                        scope: (!scope.is_empty()).then(|| (*scope).to_string()),
-                    });
-                }
-            }
-            ["route", family, destination, prefix_len, gateway, dev] => {
-                state.routes.push(RouteInfo {
-                    family: if *family == "inet6" {
-                        AddressFamily::Inet6
-                    } else {
-                        AddressFamily::Inet4
-                    },
-                    destination: (*destination).to_string(),
-                    prefix_len: prefix_len.parse().unwrap_or(0),
-                    gateway: (!gateway.is_empty()).then(|| (*gateway).to_string()),
-                    dev: (*dev).to_string(),
-                    source: None,
-                    metric: None,
-                    table: None,
-                    protocol: None,
-                });
-            }
-            [
-                "route",
-                family,
-                destination,
-                prefix_len,
-                gateway,
-                dev,
-                source,
-                metric,
-                table,
-                protocol,
-            ] => {
-                state.routes.push(RouteInfo {
-                    family: if *family == "inet6" {
-                        AddressFamily::Inet6
-                    } else {
-                        AddressFamily::Inet4
-                    },
-                    destination: (*destination).to_string(),
-                    prefix_len: prefix_len.parse().unwrap_or(0),
-                    gateway: (!gateway.is_empty()).then(|| (*gateway).to_string()),
-                    dev: (*dev).to_string(),
-                    source: (!source.is_empty()).then(|| (*source).to_string()),
-                    metric: (!metric.is_empty()).then(|| metric.parse().unwrap_or(0)),
-                    table: (!table.is_empty()).then(|| table.parse().unwrap_or(0)),
-                    protocol: (!protocol.is_empty()).then(|| protocol.parse().unwrap_or(0)),
-                });
-            }
-            ["neigh", family, address, dev, lladdr, nud_state] => {
-                state.neighbors.push(NeighborInfo {
-                    family: if *family == "inet6" {
-                        AddressFamily::Inet6
-                    } else {
-                        AddressFamily::Inet4
-                    },
-                    address: (*address).to_string(),
-                    dev: (*dev).to_string(),
-                    lladdr: (!lladdr.is_empty()).then(|| (*lladdr).to_string()),
-                    state: nud_state.parse().unwrap_or(0),
-                });
-            }
-            [
-                "rule",
-                family,
-                from,
-                from_prefix_len,
-                to,
-                to_prefix_len,
-                iif,
-                oif,
-                fwmark,
-                priority,
-                table,
-            ] => {
-                state.rules.push(RuleInfo {
-                    family: if *family == "inet6" {
-                        AddressFamily::Inet6
-                    } else {
-                        AddressFamily::Inet4
-                    },
-                    from: (!from.is_empty()).then(|| (*from).to_string()),
-                    from_prefix_len: from_prefix_len.parse().unwrap_or(0),
-                    to: (!to.is_empty()).then(|| (*to).to_string()),
-                    to_prefix_len: to_prefix_len.parse().unwrap_or(0),
-                    iif: (!iif.is_empty()).then(|| (*iif).to_string()),
-                    oif: (!oif.is_empty()).then(|| (*oif).to_string()),
-                    fwmark: (!fwmark.is_empty()).then(|| fwmark.parse().unwrap_or(0)),
-                    priority: (!priority.is_empty()).then(|| priority.parse().unwrap_or(0)),
-                    table: table.parse().unwrap_or(libc::RT_TABLE_MAIN as u32),
-                });
-            }
-            _ => {}
-        }
-    }
-    for interface in &mut state.interfaces {
-        interface.addresses.sort_by(|left, right| {
-            left.family
-                .cmp(&right.family)
-                .then(left.address.cmp(&right.address))
-        });
-    }
-    state.neighbors.sort_by(|left, right| {
-        left.family
-            .cmp(&right.family)
-            .then(left.dev.cmp(&right.dev))
-            .then(left.address.cmp(&right.address))
-    });
-    state.rules.sort_by(|left, right| {
-        left.priority
-            .cmp(&right.priority)
-            .then(left.family.cmp(&right.family))
-            .then(left.table.cmp(&right.table))
-    });
-    Ok(state)
-}
-
-#[cfg(target_os = "linux")]
-fn write_state(path: &Path, state: &State) -> io::Result<()> {
-    let mut text = String::new();
-    for interface in &state.interfaces {
-        text.push_str(&format!(
-            "iface\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
-            interface.index,
-            interface.name,
-            interface.flags,
-            interface.mtu,
-            interface.metric,
-            interface.tx_queue_len,
-            interface.mem_start,
-            interface.io_addr,
-            interface.irq,
-            interface.mac.as_deref().unwrap_or(""),
-            interface.stats.rx_bytes,
-            interface.stats.rx_packets,
-            interface.stats.tx_bytes,
-            interface.stats.tx_packets
-        ));
-        for address in &interface.addresses {
-            text.push_str(&format!(
-                "addr\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
-                interface.name,
-                match address.family {
-                    AddressFamily::Inet4 => "inet",
-                    AddressFamily::Inet6 => "inet6",
-                },
-                address.address,
-                address.prefix_len,
-                address.peer.as_deref().unwrap_or(""),
-                address.broadcast.as_deref().unwrap_or(""),
-                address.label.as_deref().unwrap_or(""),
-                address.scope.as_deref().unwrap_or("")
-            ));
-        }
-    }
-    for route in &state.routes {
-        text.push_str(&format!(
-            "route\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
-            match route.family {
-                AddressFamily::Inet4 => "inet",
-                AddressFamily::Inet6 => "inet6",
-            },
-            route.destination,
-            route.prefix_len,
-            route.gateway.as_deref().unwrap_or(""),
-            route.dev,
-            route.source.as_deref().unwrap_or(""),
-            route
-                .metric
-                .map(|value| value.to_string())
-                .as_deref()
-                .unwrap_or(""),
-            route
-                .table
-                .map(|value| value.to_string())
-                .as_deref()
-                .unwrap_or(""),
-            route
-                .protocol
-                .map(|value| value.to_string())
-                .as_deref()
-                .unwrap_or("")
-        ));
-    }
-    for neighbor in &state.neighbors {
-        text.push_str(&format!(
-            "neigh\t{}\t{}\t{}\t{}\t{}\n",
-            match neighbor.family {
-                AddressFamily::Inet4 => "inet",
-                AddressFamily::Inet6 => "inet6",
-            },
-            neighbor.address,
-            neighbor.dev,
-            neighbor.lladdr.as_deref().unwrap_or(""),
-            neighbor.state
-        ));
-    }
-    for rule in &state.rules {
-        text.push_str(&format!(
-            "rule\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
-            match rule.family {
-                AddressFamily::Inet4 => "inet",
-                AddressFamily::Inet6 => "inet6",
-            },
-            rule.from.as_deref().unwrap_or(""),
-            rule.from_prefix_len,
-            rule.to.as_deref().unwrap_or(""),
-            rule.to_prefix_len,
-            rule.iif.as_deref().unwrap_or(""),
-            rule.oif.as_deref().unwrap_or(""),
-            rule.fwmark
-                .map(|value| value.to_string())
-                .as_deref()
-                .unwrap_or(""),
-            rule.priority
-                .map(|value| value.to_string())
-                .as_deref()
-                .unwrap_or(""),
-            rule.table
-        ));
-    }
-    fs::write(path, text)
 }
 
 #[cfg(target_os = "linux")]
@@ -2760,7 +2208,7 @@ fn copy_name_bytes(target: &mut [libc::c_char; libc::IFNAMSIZ], name: &str) -> i
 }
 
 #[cfg(target_os = "linux")]
-fn apply_flag_change(flags: &mut u32, mask: u32, enabled: Option<bool>) {
+pub(super) fn apply_flag_change(flags: &mut u32, mask: u32, enabled: Option<bool>) {
     match enabled {
         Some(true) => *flags |= mask,
         Some(false) => *flags &= !mask,
@@ -2894,12 +2342,12 @@ mod tests {
     use super::{
         AddressFamily, InterfaceAddress, InterfaceInfo, LinkChange, RouteInfo, add_address,
         add_route, broadcast_for, del_route, format_mac, interface_flag_names, parse_mac,
-        parse_prefix, prefix_to_netmask, read_state, remove_address, set_ipv4, write_state,
+        parse_prefix, prefix_to_netmask, remove_address, set_ipv4, state,
     };
     #[cfg(target_os = "linux")]
     use crate::common::test_env;
     #[cfg(target_os = "linux")]
-    use std::fs;
+    use std::{fs, io};
 
     #[test]
     #[cfg(target_os = "linux")]
@@ -2935,7 +2383,7 @@ mod tests {
     fn mutates_state_backend() {
         let _guard = test_env::lock();
         let path = std::env::temp_dir().join(format!("seed-net-{}", std::process::id()));
-        let mut state = super::State::default();
+        let mut state = state::State::default();
         state.interfaces.push(InterfaceInfo {
             index: 1,
             name: String::from("eth0"),
@@ -2950,7 +2398,7 @@ mod tests {
             addresses: Vec::new(),
             stats: super::InterfaceStats::default(),
         });
-        write_state(&path, &state).unwrap();
+        state::write_state(&path, &state).unwrap();
         // SAFETY: the test holds the global env lock for the full mutation window.
         unsafe { std::env::set_var("SEED_NET_STATE", &path) };
         set_ipv4(
@@ -3022,7 +2470,7 @@ mod tests {
         )
         .unwrap();
         remove_address("eth0", AddressFamily::Inet6, "2001:db8::2").unwrap();
-        let state = read_state(&path).unwrap();
+        let state = state::read_state(&path).unwrap();
         // SAFETY: the test holds the global env lock for the full mutation window.
         unsafe { std::env::remove_var("SEED_NET_STATE") };
         assert_eq!(state.interfaces[0].mtu, 1400);
@@ -3037,6 +2485,23 @@ mod tests {
         assert_eq!(state.routes[0].metric, Some(10));
         assert_eq!(state.routes[0].table, Some(100));
         assert_eq!(state.routes[0].protocol, Some(libc::RTPROT_STATIC));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn rejects_malformed_state_backend_records() {
+        let path = std::env::temp_dir().join(format!("seed-net-bad-{}", std::process::id()));
+        fs::write(&path, "iface\tbad\teth0\t1\t1500\t\t0\t0\t0\t0\n").unwrap();
+
+        let err = state::read_state(&path).unwrap_err();
+
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        assert!(
+            err.to_string()
+                .contains("malformed network state at line 1")
+        );
+
         let _ = fs::remove_file(path);
     }
 }

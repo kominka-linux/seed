@@ -172,7 +172,7 @@ Status: `open`
 
 - [ ] `awk`: split parse, eval, runtime, and builtins only if that materially lowers regression risk.
 - [ ] `sed`: split parse, execution, regex/text helpers, and file-I/O policy only if that materially lowers regression risk.
-- [ ] Separate live Linux backends from state-file test backends in shared helpers such as `common/net`.
+- [x] Separate live Linux backends from state-file test backends in shared helpers such as `common/net`.
 - [ ] Keep cleanup narrow and behavior-preserving.
 
 ### P1: Error Model and Diagnostics
@@ -180,8 +180,8 @@ Status: `open`
 Status: `open`
 
 - [ ] Preserve BusyBox-style stderr output for users.
-- [ ] Improve internal error classification enough to make risky codepaths easier to audit and test.
-- [ ] Add explicit failure-path tests for syscalls, partial writes, unreadable inputs, and malformed config.
+- [x] Improve internal error classification enough to make risky codepaths easier to audit and test.
+- [x] Add explicit failure-path tests for syscalls, partial writes, unreadable inputs, and malformed config.
 
 ## `APPLETS.md` Gaps Still Open
 
@@ -203,6 +203,9 @@ The most defensible next stabilization tranche is:
 
 ### 2026-04-15
 
+- [x] Split `common/net` into a thin backend dispatcher plus a dedicated state-file backend module, so live Linux paths and state-backed test scaffolding no longer share the same helper body.
+- [x] Added internal `AppletError` kinds and preserved them through `modprobe` error remapping so syscall, config, and I/O failures in risky module paths are easier to audit and assert in tests.
+- [x] Added explicit Linux-gated failure-path tests for malformed modprobe config, syscall failures, partial writes, unreadable config inputs, and malformed network state backend records.
 - [x] Turned `APPLETS.md` from implicit scope notes into explicit Tier 1 support contracts for `mount`, `fsck`, `blkid`, `ntpd`, `ip`, `ifconfig`, `netstat`, `ping` / `ping6`, `getty`, `login`, `su`, `sulogin`, `halt`, `poweroff`, and `reboot`.
 - [x] Corrected the tracker to refer to the actual reboot-family applets in the tree instead of a nonexistent `shutdown` applet.
 - [x] Implemented `fsck -T` as real banner suppression and added BusyBox-style shell coverage for the title/no-title paths.

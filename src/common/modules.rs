@@ -9,7 +9,7 @@ use bzip2::read::BzDecoder;
 use flate2::read::GzDecoder;
 use lzma_rust2::XzReader;
 
-use crate::common::error::AppletError;
+use crate::common::error::{AppletError, AppletErrorKind};
 
 const MODULE_EXTENSIONS: &[&str] = &[".ko", ".ko.gz", ".ko.xz", ".ko.bz2"];
 const MODPROBE_CONFIG_DIRS: &[&str] = &[
@@ -196,7 +196,7 @@ impl ModprobeConfig {
             let text = fs::read_to_string(&file).map_err(|err| {
                 AppletError::from_io("modules", "reading", Some(&file.to_string_lossy()), err)
             })?;
-            parse_modprobe_config_file(&mut config, &text);
+            parse_modprobe_config_file(&mut config, &file, &text)?;
         }
         Ok(config)
     }
@@ -272,15 +272,23 @@ pub(crate) fn kernel_release() -> Result<String, AppletError> {
         return Ok(value);
     }
 
+    kernel_release_with(|uts| {
+        // SAFETY: `uname` initializes the `utsname` structure on success.
+        let rc = unsafe { libc::uname(uts) };
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::last_os_error())
+        }
+    })
+}
+
+fn kernel_release_with<F>(uname: F) -> Result<String, AppletError>
+where
+    F: FnOnce(*mut libc::utsname) -> io::Result<()>,
+{
     let mut uts = std::mem::MaybeUninit::<libc::utsname>::uninit();
-    // SAFETY: `uname` initializes the `utsname` structure on success.
-    let rc = unsafe { libc::uname(uts.as_mut_ptr()) };
-    if rc != 0 {
-        return Err(AppletError::new(
-            "modules",
-            format!("uname failed: {}", io::Error::last_os_error()),
-        ));
-    }
+    uname(uts.as_mut_ptr()).map_err(|err| AppletError::from_syscall("modules", "uname", err))?;
     // SAFETY: successful `uname` wrote a valid `utsname`.
     let uts = unsafe { uts.assume_init() };
     let bytes = uts
@@ -366,37 +374,56 @@ fn modprobe_config_files() -> io::Result<Vec<PathBuf>> {
     Ok(files)
 }
 
-fn parse_modprobe_config_file(config: &mut ModprobeConfig, text: &str) {
+fn parse_modprobe_config_file(
+    config: &mut ModprobeConfig,
+    path: &Path,
+    text: &str,
+) -> Result<(), AppletError> {
     let mut pending = String::new();
-    for raw_line in text.lines() {
+    let mut pending_line = 1;
+    for (index, raw_line) in text.lines().enumerate() {
+        let line_no = index + 1;
         let trimmed = raw_line.trim_end();
+        if pending.is_empty() {
+            pending_line = line_no;
+        }
         if let Some(prefix) = trimmed.strip_suffix('\\') {
             pending.push_str(prefix);
             pending.push(' ');
             continue;
         }
         pending.push_str(trimmed);
-        parse_modprobe_config_line(config, &pending);
+        parse_modprobe_config_line(config, path, pending_line, &pending)?;
         pending.clear();
     }
     if !pending.trim().is_empty() {
-        parse_modprobe_config_line(config, &pending);
+        parse_modprobe_config_line(config, path, pending_line, &pending)?;
     }
+    Ok(())
 }
 
-fn parse_modprobe_config_line(config: &mut ModprobeConfig, line: &str) {
+fn parse_modprobe_config_line(
+    config: &mut ModprobeConfig,
+    path: &Path,
+    line_no: usize,
+    line: &str,
+) -> Result<(), AppletError> {
     let line = strip_modprobe_comment(line).trim();
     if line.is_empty() {
-        return;
+        return Ok(());
     }
     let mut parts = line.split_whitespace();
     let Some(keyword) = parts.next() else {
-        return;
+        return Ok(());
     };
     match keyword {
         "alias" => {
             let (Some(pattern), Some(target)) = (parts.next(), parts.next()) else {
-                return;
+                return Err(config_parse_error(
+                    path,
+                    line_no,
+                    "alias requires a pattern and target",
+                ));
             };
             config.aliases.push(ConfigAlias {
                 pattern: pattern.to_string(),
@@ -405,48 +432,83 @@ fn parse_modprobe_config_line(config: &mut ModprobeConfig, line: &str) {
         }
         "blacklist" => {
             let Some(module) = parts.next() else {
-                return;
+                return Err(config_parse_error(
+                    path,
+                    line_no,
+                    "blacklist requires a module",
+                ));
             };
             config.blacklists.insert(normalize_module_name(module));
         }
         "install" => {
             let Some(module) = parts.next() else {
-                return;
+                return Err(config_parse_error(
+                    path,
+                    line_no,
+                    "install requires a module",
+                ));
             };
             let command = parts.collect::<Vec<_>>().join(" ");
-            if !command.is_empty() {
-                config
-                    .install_commands
-                    .insert(normalize_module_name(module), command);
+            if command.is_empty() {
+                return Err(config_parse_error(
+                    path,
+                    line_no,
+                    "install requires a command",
+                ));
             }
+            config
+                .install_commands
+                .insert(normalize_module_name(module), command);
         }
         "remove" => {
             let Some(module) = parts.next() else {
-                return;
+                return Err(config_parse_error(
+                    path,
+                    line_no,
+                    "remove requires a module",
+                ));
             };
             let command = parts.collect::<Vec<_>>().join(" ");
-            if !command.is_empty() {
-                config
-                    .remove_commands
-                    .insert(normalize_module_name(module), command);
+            if command.is_empty() {
+                return Err(config_parse_error(
+                    path,
+                    line_no,
+                    "remove requires a command",
+                ));
             }
+            config
+                .remove_commands
+                .insert(normalize_module_name(module), command);
         }
         "options" => {
             let Some(module) = parts.next() else {
-                return;
+                return Err(config_parse_error(
+                    path,
+                    line_no,
+                    "options requires a module",
+                ));
             };
             let values = parts.map(str::to_string).collect::<Vec<_>>();
-            if !values.is_empty() {
-                config
-                    .options
-                    .entry(normalize_module_name(module))
-                    .or_default()
-                    .extend(values);
+            if values.is_empty() {
+                return Err(config_parse_error(
+                    path,
+                    line_no,
+                    "options requires at least one parameter",
+                ));
             }
+            config
+                .options
+                .entry(normalize_module_name(module))
+                .or_default()
+                .extend(values);
         }
         "softdep" => {
             let Some(module) = parts.next() else {
-                return;
+                return Err(config_parse_error(
+                    path,
+                    line_no,
+                    "softdep requires a module",
+                ));
             };
             let mut softdep = Softdep::default();
             let mut current = None::<bool>;
@@ -457,7 +519,13 @@ fn parse_modprobe_config_line(config: &mut ModprobeConfig, line: &str) {
                     _ => match current {
                         Some(true) => softdep.pre.push(normalize_module_name(token)),
                         Some(false) => softdep.post.push(normalize_module_name(token)),
-                        None => {}
+                        None => {
+                            return Err(config_parse_error(
+                                path,
+                                line_no,
+                                format!("softdep dependency '{token}' is missing pre: or post:"),
+                            ));
+                        }
                     },
                 }
             }
@@ -467,6 +535,15 @@ fn parse_modprobe_config_line(config: &mut ModprobeConfig, line: &str) {
         }
         _ => {}
     }
+    Ok(())
+}
+
+fn config_parse_error(path: &Path, line_no: usize, message: impl Into<String>) -> AppletError {
+    AppletError::from_config(
+        "modules",
+        &format!("parsing {}:{line_no}", path.display()),
+        message,
+    )
 }
 
 fn strip_modprobe_comment(line: &str) -> &str {
@@ -530,10 +607,7 @@ pub(crate) fn finit_module(path: &Path, params: &[std::ffi::OsString]) -> Result
 
     let params = CString::new(params.join(" "))
         .map_err(|_| AppletError::new("modules", "module parameters contain NUL byte"))?;
-    // SAFETY: file descriptor is valid, `params` is a valid NUL-terminated
-    // string, and the last argument is the documented flags field.
-    let rc = unsafe { libc::syscall(libc::SYS_finit_module, file.as_raw_fd(), params.as_ptr(), 0) };
-    if rc == 0 {
+    if finit_module_syscall(file.as_raw_fd(), params.as_ptr()).is_ok() {
         return Ok(());
     }
 
@@ -543,27 +617,13 @@ pub(crate) fn finit_module(path: &Path, params: &[std::ffi::OsString]) -> Result
     if image.is_empty() {
         return Err(AppletError::new("modules", "short read"));
     }
-    // SAFETY: `image` points to the module buffer, `params` is a valid
-    // NUL-terminated options string, and sizes are passed verbatim.
-    let rc = unsafe {
-        libc::syscall(
-            libc::SYS_init_module,
-            image.as_ptr(),
-            image.len(),
-            params.as_ptr(),
-        )
-    };
-    if rc == 0 {
-        Ok(())
-    } else {
-        Err(AppletError::new(
+    match init_module_syscall(&image, params.as_ptr()) {
+        Ok(()) => Ok(()),
+        Err(err) => Err(AppletError::new_with_kind(
             "modules",
-            format!(
-                "can't insert '{}': {}",
-                path.display(),
-                io::Error::last_os_error()
-            ),
-        ))
+            format!("can't insert '{}': {err}", path.display()),
+            AppletErrorKind::Syscall,
+        )),
     }
 }
 
@@ -573,23 +633,9 @@ pub(crate) fn delete_module(module: &str, flags: libc::c_int) -> Result<(), Appl
         return Ok(());
     }
 
-    let name = module.to_string();
     let module = CString::new(module)
         .map_err(|_| AppletError::new("modules", "module name contains NUL byte"))?;
-    // SAFETY: `module` is a valid NUL-terminated string, and `flags` only uses
-    // documented delete_module bits.
-    let rc = unsafe { libc::syscall(libc::SYS_delete_module, module.as_ptr(), flags) };
-    if rc == 0 {
-        Ok(())
-    } else {
-        Err(AppletError::new(
-            "modules",
-            format!(
-                "can't unload module '{name}': {}",
-                io::Error::last_os_error()
-            ),
-        ))
-    }
+    delete_module_with(module, flags, delete_module_syscall)
 }
 
 pub(crate) fn append_log_line(path: &Path, line: &str) -> Result<(), AppletError> {
@@ -600,9 +646,63 @@ pub(crate) fn append_log_line(path: &Path, line: &str) -> Result<(), AppletError
         .map_err(|err| {
             AppletError::from_io("modules", "opening", Some(&path.to_string_lossy()), err)
         })?;
-    writeln!(file, "{line}").map_err(|err| {
-        AppletError::from_io("modules", "writing", Some(&path.to_string_lossy()), err)
+    write_log_line(&mut file, path, line)
+}
+
+fn write_log_line<W: Write>(writer: &mut W, path: &Path, line: &str) -> Result<(), AppletError> {
+    writer
+        .write_all(line.as_bytes())
+        .and_then(|_| writer.write_all(b"\n"))
+        .map_err(|err| {
+            AppletError::from_io("modules", "writing", Some(&path.to_string_lossy()), err)
+        })
+}
+
+fn delete_module_with<F>(module: CString, flags: libc::c_int, delete: F) -> Result<(), AppletError>
+where
+    F: FnOnce(*const libc::c_char, libc::c_int) -> io::Result<()>,
+{
+    let name = module.to_string_lossy().into_owned();
+    delete(module.as_ptr(), flags).map_err(|err| {
+        AppletError::new_with_kind(
+            "modules",
+            format!("can't unload module '{name}': {err}"),
+            AppletErrorKind::Syscall,
+        )
     })
+}
+
+fn finit_module_syscall(fd: libc::c_int, params: *const libc::c_char) -> io::Result<()> {
+    // SAFETY: file descriptor is valid, `params` is a valid NUL-terminated
+    // string, and the last argument is the documented flags field.
+    let rc = unsafe { libc::syscall(libc::SYS_finit_module, fd, params, 0) };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+fn init_module_syscall(image: &[u8], params: *const libc::c_char) -> io::Result<()> {
+    // SAFETY: `image` points to the module buffer, `params` is a valid
+    // NUL-terminated options string, and sizes are passed verbatim.
+    let rc = unsafe { libc::syscall(libc::SYS_init_module, image.as_ptr(), image.len(), params) };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+fn delete_module_syscall(module: *const libc::c_char, flags: libc::c_int) -> io::Result<()> {
+    // SAFETY: `module` is a valid NUL-terminated string, and `flags` only uses
+    // documented delete_module bits.
+    let rc = unsafe { libc::syscall(libc::SYS_delete_module, module, flags) };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
 }
 
 fn is_module_path(path: &Path) -> bool {
@@ -638,9 +738,24 @@ fn fnmatch(pattern: &str, value: &str) -> Result<bool, ()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ModprobeConfig, ModuleMetadata, module_name_from_path, normalize_module_name,
-        parse_modprobe_config_line, strip_modprobe_comment,
+        ModprobeConfig, ModuleMetadata, delete_module_with, kernel_release_with,
+        module_name_from_path, normalize_module_name, parse_modprobe_config_file,
+        parse_modprobe_config_line, strip_modprobe_comment, write_log_line,
     };
+    use crate::common::error::AppletErrorKind;
+    use crate::common::test_env;
+    use std::ffi::CString;
+    use std::fs;
+    use std::io::{self, Write};
+    use std::path::{Path, PathBuf};
+
+    fn test_config_path() -> &'static Path {
+        Path::new("/etc/modprobe.d/test.conf")
+    }
+
+    fn temp_path(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("seed-modules-{label}-{}", std::process::id()))
+    }
 
     #[test]
     fn parses_modinfo_fields_from_binary_blob() {
@@ -690,8 +805,11 @@ mod tests {
         let mut config = ModprobeConfig::default();
         parse_modprobe_config_line(
             &mut config,
+            test_config_path(),
+            1,
             r#"install driver printf 'install:#%s\n' "$MODPROBE_MODULE" # comment"#,
-        );
+        )
+        .unwrap();
         assert_eq!(
             config.install_command("driver"),
             Some(r#"printf 'install:#%s\n' "$MODPROBE_MODULE""#),
@@ -701,8 +819,15 @@ mod tests {
     #[test]
     fn request_options_merge_alias_and_module_options() {
         let mut config = ModprobeConfig::default();
-        parse_modprobe_config_line(&mut config, "options netdev speed=1000 duplex=full");
-        parse_modprobe_config_line(&mut config, "options driver debug=1");
+        parse_modprobe_config_line(
+            &mut config,
+            test_config_path(),
+            1,
+            "options netdev speed=1000 duplex=full",
+        )
+        .unwrap();
+        parse_modprobe_config_line(&mut config, test_config_path(), 2, "options driver debug=1")
+            .unwrap();
         assert_eq!(
             config.request_options("netdev", "driver"),
             vec![
@@ -711,5 +836,97 @@ mod tests {
                 String::from("debug=1"),
             ]
         );
+    }
+
+    #[test]
+    fn rejects_malformed_modprobe_config() {
+        let mut config = ModprobeConfig::default();
+        let err =
+            parse_modprobe_config_file(&mut config, test_config_path(), "alias missing-target")
+                .unwrap_err();
+
+        assert_eq!(err.kind(), AppletErrorKind::Config);
+        assert!(
+            err.to_string()
+                .contains("parsing /etc/modprobe.d/test.conf:1")
+        );
+    }
+
+    #[test]
+    fn kernel_release_classifies_syscall_failures() {
+        let err =
+            kernel_release_with(|_| Err(io::Error::from_raw_os_error(libc::EPERM))).unwrap_err();
+
+        assert_eq!(err.kind(), AppletErrorKind::Syscall);
+        assert!(err.to_string().contains("uname failed"));
+    }
+
+    #[test]
+    fn delete_module_classifies_syscall_failures() {
+        let module = CString::new("loop").unwrap();
+        let err = delete_module_with(module, libc::O_NONBLOCK, |_name, _flags| {
+            Err(io::Error::from_raw_os_error(libc::EPERM))
+        })
+        .unwrap_err();
+
+        assert_eq!(err.kind(), AppletErrorKind::Syscall);
+        assert!(err.to_string().contains("can't unload module 'loop'"));
+    }
+
+    #[test]
+    fn load_reports_unreadable_config_inputs() {
+        let _guard = test_env::lock();
+        let dir = temp_path("load");
+        let broken = dir.join("broken.conf");
+        fs::create_dir_all(&broken).unwrap();
+        // SAFETY: the test holds the global env lock while mutating process env.
+        unsafe { std::env::set_var("SEED_MODPROBE_DIRS", &dir) };
+
+        let err = ModprobeConfig::load().unwrap_err();
+
+        // SAFETY: the test holds the global env lock while mutating process env.
+        unsafe { std::env::remove_var("SEED_MODPROBE_DIRS") };
+        let _ = fs::remove_dir_all(&dir);
+
+        assert_eq!(err.kind(), AppletErrorKind::Io);
+        assert!(err.to_string().contains("broken.conf"));
+    }
+
+    #[test]
+    fn write_log_line_reports_partial_write_failures() {
+        struct PartialWriter {
+            written: Vec<u8>,
+            calls: usize,
+        }
+
+        impl Write for PartialWriter {
+            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                self.calls += 1;
+                if self.calls == 1 {
+                    let count = buf.len().min(3);
+                    self.written.extend_from_slice(&buf[..count]);
+                    Ok(count)
+                } else {
+                    Err(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "simulated failure",
+                    ))
+                }
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut writer = PartialWriter {
+            written: Vec::new(),
+            calls: 0,
+        };
+        let err =
+            write_log_line(&mut writer, Path::new("/tmp/modules.log"), "insmod loop").unwrap_err();
+
+        assert_eq!(err.kind(), AppletErrorKind::Io);
+        assert_eq!(writer.written, b"ins");
     }
 }

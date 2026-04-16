@@ -51,7 +51,7 @@ jobs:
       - name: Generate applet list
         run: |
           mkdir -p dist
-          cargo run --quiet --features docgen --bin seed-docgen -- list > dist/applets.txt
+          bin/list-release-applets > dist/applets.txt
 
       - name: Package release archive
         run: |

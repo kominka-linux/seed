@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+src_file=${1:-src/applet_list.rs}
+
+if [ ! -f "$src_file" ]; then
+	echo "list-release-applets: missing source file: $src_file" >&2
+	exit 1
+fi
+
+sed -n 's/.*name: "\([^"]*\)".*/\1/p' "$src_file"

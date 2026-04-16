@@ -46,14 +46,18 @@
 - Treat the Alpine container as authoritative for Linux-only applets and behavior. Do not treat host-native results as the final oracle.
 - Container files:
   - `Dockerfile.alpine-dev`: Alpine + Rust toolchain + test dependencies.
+  - `Dockerfile.alpine-release`: Alpine release-build image for local CI-style packaging checks.
   - `docker-compose.yml`: main `dev` service and a `dev-privileged` variant for kernel/capability-heavy applets.
   - `bin/alpine-shell`: open an interactive shell in the normal Alpine dev container.
   - `bin/alpine-shell-privileged`: open an interactive shell in the privileged Alpine container.
   - `bin/alpine-cargo`: run `cargo ...` inside the normal Alpine container.
   - `bin/alpine-test`: run `tests/run-applet-tests.sh` in Alpine, or `cargo test --quiet ...` if given test filters.
   - `bin/alpine-clippy`: run the repo clippy command in Alpine.
+  - `bin/alpine-release-build`: build and package the multicall release artifact in Alpine, including `bin/list-release-applets` and `bin/prepare-release-artifact`.
 - Cargo caches live in Docker volumes, and Linux build artifacts live in the `cargo-target` volume rather than the host `target/` tree.
 - Use `dev-privileged` only when an applet genuinely needs extra kernel access. Keep the normal loop on unprivileged `dev`.
+- For local release repros, prefer `bin/alpine-release-build --debug` first, then `bin/alpine-release-build --release <x86_64|aarch64>` when validating the full release path.
+- Use `bin/alpine-release-build --debug x86_64` to reproduce the GitHub x86 Alpine/musl build locally without waiting on CI.
 
 ## TDD Workflow
 

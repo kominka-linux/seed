@@ -511,9 +511,6 @@ fn format_time(seconds: i64, format: &str, utc: bool) -> Result<String, Vec<Appl
         return Err(vec![AppletError::new(APPLET, "failed to format time")]);
     }
 
-    #[cfg(target_os = "linux")]
-    let bytes = buffer[..written].to_vec();
-    #[cfg(target_os = "macos")]
     let bytes = buffer[..written]
         .iter()
         .map(|&byte| byte as u8)

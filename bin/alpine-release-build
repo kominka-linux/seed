@@ -1,0 +1,112 @@
+#!/bin/sh
+set -eu
+
+mode=debug
+arch=
+
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		--debug)
+			mode=debug
+			;;
+		--release)
+			mode=release
+			;;
+		x86_64|amd64)
+			arch=x86_64
+			;;
+		aarch64|arm64)
+			arch=aarch64
+			;;
+		*)
+			echo "usage: alpine-release-build [--debug|--release] [x86_64|aarch64]" >&2
+			exit 1
+			;;
+	esac
+	shift
+done
+
+if [ -z "$arch" ]; then
+	case "$(uname -m)" in
+		x86_64|amd64)
+			arch=x86_64
+			;;
+		arm64|aarch64)
+			arch=aarch64
+			;;
+		*)
+			echo "alpine-release-build: unsupported host arch: $(uname -m)" >&2
+			exit 1
+			;;
+	esac
+fi
+
+case "$arch" in
+	x86_64)
+		docker_platform=linux/amd64
+		target=x86_64-unknown-linux-musl
+		asset_suffix=linux-x86_64
+		image_tag=seed-release-alpine:x86_64
+		;;
+	aarch64)
+		docker_platform=linux/arm64
+		target=aarch64-unknown-linux-musl
+		asset_suffix=linux-aarch64
+		image_tag=seed-release-alpine:aarch64
+		;;
+esac
+
+docker build --platform "$docker_platform" \
+	-f Dockerfile.alpine-release \
+	-t "$image_tag" \
+	.
+
+exec docker run --rm \
+	--platform "$docker_platform" \
+	-e SEED_BUILD_MODE="$mode" \
+	-e SEED_TARGET="$target" \
+	-e SEED_ASSET_SUFFIX="$asset_suffix" \
+	-e CARGO_HOME=/cargo \
+	-e CARGO_TARGET_DIR=/cargo-target \
+	-v "$PWD:/work" \
+	-v seed-release-cargo-registry:/cargo/registry \
+	-v seed-release-cargo-git:/cargo/git \
+	-v seed-release-cargo-target:/cargo-target \
+	-w /work \
+	"$image_tag" sh -c '
+set -eu
+
+case "$SEED_BUILD_MODE" in
+	release)
+		cargo build --quiet --release --target "$SEED_TARGET" --bin seed
+		binary="$CARGO_TARGET_DIR/$SEED_TARGET/release/seed"
+		artifact_base="seed-$SEED_ASSET_SUFFIX"
+		;;
+	debug)
+		cargo build --quiet --target "$SEED_TARGET" --bin seed
+		binary="$CARGO_TARGET_DIR/$SEED_TARGET/debug/seed"
+		artifact_base="seed-debug-$SEED_ASSET_SUFFIX"
+		;;
+	*)
+		echo "unsupported build mode: $SEED_BUILD_MODE" >&2
+		exit 1
+		;;
+esac
+
+file "$binary" | tee /dev/stderr | grep -Eq "statically linked|static-pie linked"
+! readelf -d "$binary" | grep -q NEEDED
+
+mkdir -p dist
+bin/list-release-applets > dist/applets.txt
+bin/prepare-release-artifact "$binary" "$artifact_base" dist/applets.txt
+
+verify_dir=$(mktemp -d)
+trap '"'"'rm -rf "$verify_dir"'"'"' EXIT HUP INT TERM
+tar -xzf "dist/$artifact_base.tar.gz" -C "$verify_dir"
+root="$verify_dir/$artifact_base"
+test "$(stat -c "%i" "$root/bin/seed")" = "$(stat -c "%i" "$root/bin/busybox")"
+test "$(stat -c "%i" "$root/bin/seed")" = "$(stat -c "%i" "$root/bin/awk")"
+test -s "$root/share/seed/applets.txt"
+
+echo "wrote dist/$artifact_base.tar.gz"
+'

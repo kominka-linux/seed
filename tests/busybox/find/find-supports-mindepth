@@ -1,0 +1,6 @@
+mkdir -p dir/sub
+touch dir/sub/file
+
+busybox find dir -mindepth 1 | sort > actual
+printf 'dir/sub\ndir/sub/file\n' > expected
+cmp expected actual

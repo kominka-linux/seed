@@ -11,6 +11,7 @@ const APPLET: &str = "find";
 
 #[derive(Clone, Debug, Default)]
 struct Options {
+    mindepth: Option<usize>,
     maxdepth: Option<usize>,
     xdev: bool,
 }
@@ -18,8 +19,11 @@ struct Options {
 #[derive(Clone, Debug)]
 enum Primary {
     Name(String),
+    Path(String),
     Type(FileTypeMatch),
     Print,
+    Prune,
+    Delete,
     Exec {
         argv: Vec<String>,
     },
@@ -56,6 +60,7 @@ enum FileTypeMatch {
 struct Query {
     expr: Expr,
     has_action: bool,
+    postorder: bool,
 }
 
 pub fn main(args: &[String]) -> i32 {
@@ -109,6 +114,19 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>, Query), Vec<Appl
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
+            "-mindepth" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "mindepth")]);
+                };
+                let Some(depth) = value.parse::<usize>().ok() else {
+                    return Err(vec![AppletError::new(
+                        APPLET,
+                        format!("bad mindepth '{value}'"),
+                    )]);
+                };
+                options.mindepth = Some(depth);
+                index += 2;
+            }
             "-xdev" => {
                 options.xdev = true;
                 index += 1;
@@ -157,6 +175,19 @@ fn parse_query(tokens: &[String], options: &mut Options) -> Result<Query, Vec<Ap
 
     while index < tokens.len() {
         match tokens[index].as_str() {
+            "-mindepth" => {
+                let Some(value) = tokens.get(index + 1) else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "mindepth")]);
+                };
+                let Some(depth) = value.parse::<usize>().ok() else {
+                    return Err(vec![AppletError::new(
+                        APPLET,
+                        format!("bad mindepth '{value}'"),
+                    )]);
+                };
+                options.mindepth = Some(depth);
+                index += 2;
+            }
             "-xdev" => {
                 options.xdev = true;
                 index += 1;
@@ -185,6 +216,7 @@ fn parse_query(tokens: &[String], options: &mut Options) -> Result<Query, Vec<Ap
         return Ok(Query {
             expr: Expr::True,
             has_action: false,
+            postorder: false,
         });
     }
 
@@ -200,6 +232,7 @@ fn parse_query(tokens: &[String], options: &mut Options) -> Result<Query, Vec<Ap
     Ok(Query {
         expr,
         has_action: parser.has_action,
+        postorder: parser.postorder,
     })
 }
 
@@ -245,23 +278,42 @@ fn visit(
     stderr: &mut impl Write,
     exec_plus_failed: &mut bool,
 ) -> Result<(), AppletError> {
-    if evaluate_expr(
-        display,
-        metadata,
-        &mut query.expr,
-        stdout,
-        stderr,
-        exec_plus_failed,
-    )? && !query.has_action
-    {
-        writeln!(stdout, "{display}")
-            .map_err(|err| AppletError::from_io(APPLET, "writing stdout", None, err))?;
+    let can_eval = options.mindepth.is_none_or(|mindepth| depth >= mindepth);
+    let mut should_prune = false;
+    if can_eval && !query.postorder {
+        let outcome = evaluate_expr(
+            path,
+            display,
+            metadata,
+            &mut query.expr,
+            stdout,
+            stderr,
+            exec_plus_failed,
+        )?;
+        if outcome.matched && !query.has_action {
+            writeln!(stdout, "{display}")
+                .map_err(|err| AppletError::from_io(APPLET, "writing stdout", None, err))?;
+        }
+        should_prune = outcome.prune;
     }
 
-    if !metadata.is_dir() {
-        return Ok(());
-    }
-    if options.maxdepth.is_some_and(|maxdepth| depth >= maxdepth) {
+    if !metadata.is_dir() || should_prune || options.maxdepth.is_some_and(|maxdepth| depth >= maxdepth)
+    {
+        if can_eval && query.postorder {
+            let outcome = evaluate_expr(
+                path,
+                display,
+                metadata,
+                &mut query.expr,
+                stdout,
+                stderr,
+                exec_plus_failed,
+            )?;
+            if outcome.matched && !query.has_action {
+                writeln!(stdout, "{display}")
+                    .map_err(|err| AppletError::from_io(APPLET, "writing stdout", None, err))?;
+            }
+        }
         return Ok(());
     }
 
@@ -293,6 +345,22 @@ fn visit(
         )?;
     }
 
+    if can_eval && query.postorder {
+        let outcome = evaluate_expr(
+            path,
+            display,
+            metadata,
+            &mut query.expr,
+            stdout,
+            stderr,
+            exec_plus_failed,
+        )?;
+        if outcome.matched && !query.has_action {
+            writeln!(stdout, "{display}")
+                .map_err(|err| AppletError::from_io(APPLET, "writing stdout", None, err))?;
+        }
+    }
+
     Ok(())
 }
 
@@ -300,6 +368,7 @@ struct Parser<'a> {
     tokens: &'a [String],
     index: usize,
     has_action: bool,
+    postorder: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -308,6 +377,7 @@ impl<'a> Parser<'a> {
             tokens,
             index: 0,
             has_action: false,
+            postorder: false,
         }
     }
 
@@ -369,6 +439,12 @@ impl<'a> Parser<'a> {
                 };
                 Ok(Expr::Primary(Primary::Name(pattern.to_owned())))
             }
+            Some("-path") => {
+                let Some(pattern) = self.next() else {
+                    return Err(vec![AppletError::option_requires_arg(APPLET, "path")]);
+                };
+                Ok(Expr::Primary(Primary::Path(pattern.to_owned())))
+            }
             Some("-type") => {
                 let Some(kind) = self.next() else {
                     return Err(vec![AppletError::option_requires_arg(APPLET, "type")]);
@@ -378,6 +454,15 @@ impl<'a> Parser<'a> {
             Some("-print") => {
                 self.has_action = true;
                 Ok(Expr::Primary(Primary::Print))
+            }
+            Some("-prune") => {
+                self.has_action = true;
+                Ok(Expr::Primary(Primary::Prune))
+            }
+            Some("-delete") => {
+                self.has_action = true;
+                self.postorder = true;
+                Ok(Expr::Primary(Primary::Delete))
             }
             Some("-exec") => {
                 self.has_action = true;
@@ -431,7 +516,16 @@ impl<'a> Parser<'a> {
 fn starts_primary_expression(token: &str) -> bool {
     matches!(
         token,
-        "!" | "(" | "-name" | "-type" | "-print" | "-exec" | "-ok"
+        "!"
+            | "("
+            | "-name"
+            | "-path"
+            | "-type"
+            | "-print"
+            | "-prune"
+            | "-delete"
+            | "-exec"
+            | "-ok"
     )
 }
 
@@ -493,37 +587,97 @@ fn glob_match(pattern: &[u8], text: &[u8]) -> bool {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct EvalOutcome {
+    matched: bool,
+    prune: bool,
+}
+
 fn evaluate_expr(
+    path: &Path,
     display: &str,
     metadata: &fs::Metadata,
     expr: &mut Expr,
     stdout: &mut impl Write,
     stderr: &mut impl Write,
     exec_plus_failed: &mut bool,
-) -> Result<bool, AppletError> {
+) -> Result<EvalOutcome, AppletError> {
     match expr {
-        Expr::True => Ok(true),
-        Expr::Not(inner) => Ok(!evaluate_expr(
-            display,
-            metadata,
-            inner,
-            stdout,
-            stderr,
-            exec_plus_failed,
-        )?),
+        Expr::True => Ok(EvalOutcome {
+            matched: true,
+            prune: false,
+        }),
+        Expr::Not(inner) => {
+            let outcome = evaluate_expr(
+                path,
+                display,
+                metadata,
+                inner,
+                stdout,
+                stderr,
+                exec_plus_failed,
+            )?;
+            Ok(EvalOutcome {
+                matched: !outcome.matched,
+                prune: outcome.prune,
+            })
+        }
         Expr::And(left, right) => {
-            if !evaluate_expr(display, metadata, left, stdout, stderr, exec_plus_failed)? {
-                return Ok(false);
+            let left_outcome = evaluate_expr(
+                path,
+                display,
+                metadata,
+                left,
+                stdout,
+                stderr,
+                exec_plus_failed,
+            )?;
+            if !left_outcome.matched {
+                return Ok(left_outcome);
             }
-            evaluate_expr(display, metadata, right, stdout, stderr, exec_plus_failed)
+            let right_outcome = evaluate_expr(
+                path,
+                display,
+                metadata,
+                right,
+                stdout,
+                stderr,
+                exec_plus_failed,
+            )?;
+            Ok(EvalOutcome {
+                matched: true,
+                prune: left_outcome.prune || right_outcome.prune,
+            })
         }
         Expr::Or(left, right) => {
-            if evaluate_expr(display, metadata, left, stdout, stderr, exec_plus_failed)? {
-                return Ok(true);
+            let left_outcome = evaluate_expr(
+                path,
+                display,
+                metadata,
+                left,
+                stdout,
+                stderr,
+                exec_plus_failed,
+            )?;
+            if left_outcome.matched {
+                return Ok(left_outcome);
             }
-            evaluate_expr(display, metadata, right, stdout, stderr, exec_plus_failed)
+            let right_outcome = evaluate_expr(
+                path,
+                display,
+                metadata,
+                right,
+                stdout,
+                stderr,
+                exec_plus_failed,
+            )?;
+            Ok(EvalOutcome {
+                matched: right_outcome.matched,
+                prune: left_outcome.prune || right_outcome.prune,
+            })
         }
         Expr::Primary(primary) => evaluate_primary(
+            path,
             display,
             metadata,
             primary,
@@ -535,44 +689,78 @@ fn evaluate_expr(
 }
 
 fn evaluate_primary(
+    path: &Path,
     display: &str,
     metadata: &fs::Metadata,
     primary: &mut Primary,
     stdout: &mut impl Write,
     stderr: &mut impl Write,
     exec_plus_failed: &mut bool,
-) -> Result<bool, AppletError> {
+) -> Result<EvalOutcome, AppletError> {
     match primary {
-        Primary::Name(pattern) => Ok(glob_match(
-            pattern.as_bytes(),
-            basename_for_match(display).as_bytes(),
-        )),
-        Primary::Type(kind) => Ok(file_type_matches(metadata, *kind)),
+        Primary::Name(pattern) => Ok(EvalOutcome {
+            matched: glob_match(pattern.as_bytes(), basename_for_match(display).as_bytes()),
+            prune: false,
+        }),
+        Primary::Path(pattern) => Ok(EvalOutcome {
+            matched: glob_match(pattern.as_bytes(), display.as_bytes()),
+            prune: false,
+        }),
+        Primary::Type(kind) => Ok(EvalOutcome {
+            matched: file_type_matches(metadata, *kind),
+            prune: false,
+        }),
         Primary::Print => {
             writeln!(stdout, "{display}")
                 .map_err(|err| AppletError::from_io(APPLET, "writing stdout", None, err))?;
-            Ok(true)
+            Ok(EvalOutcome {
+                matched: true,
+                prune: false,
+            })
+        }
+        Primary::Prune => Ok(EvalOutcome {
+            matched: true,
+            prune: metadata.is_dir(),
+        }),
+        Primary::Delete => {
+            delete_path(path, display, metadata)?;
+            Ok(EvalOutcome {
+                matched: true,
+                prune: false,
+            })
         }
         Primary::Exec { argv } => {
             let status = run_command(argv, &[display.to_owned()])
                 .map_err(|err| AppletError::from_io(APPLET, "executing", Some(display), err))?;
-            Ok(status.success())
+            Ok(EvalOutcome {
+                matched: status.success(),
+                prune: false,
+            })
         }
         Primary::ExecPlus { paths, .. } => {
             paths.push(display.to_owned());
             let _ = exec_plus_failed;
-            Ok(true)
+            Ok(EvalOutcome {
+                matched: true,
+                prune: false,
+            })
         }
         Primary::Ok { argv } => {
             write_prompt(stderr, argv, display)?;
             if !read_confirmation()
                 .map_err(|err| AppletError::from_io(APPLET, "reading stdin", None, err))?
             {
-                return Ok(false);
+                return Ok(EvalOutcome {
+                    matched: false,
+                    prune: false,
+                });
             }
             let status = run_command(argv, &[display.to_owned()])
                 .map_err(|err| AppletError::from_io(APPLET, "executing", Some(display), err))?;
-            Ok(status.success())
+            Ok(EvalOutcome {
+                matched: status.success(),
+                prune: false,
+            })
         }
     }
 }
@@ -671,9 +859,18 @@ fn join_display(base: &str, name: &str) -> String {
     }
 }
 
+fn delete_path(path: &Path, display: &str, metadata: &fs::Metadata) -> Result<(), AppletError> {
+    let result = if metadata.is_dir() {
+        fs::remove_dir(path)
+    } else {
+        fs::remove_file(path)
+    };
+    result.map_err(|err| AppletError::from_io(APPLET, "deleting", Some(display), err))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Parser, basename_for_match, glob_match};
+    use super::{Parser, basename_for_match, glob_match, parse_args};
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
@@ -708,5 +905,24 @@ mod tests {
         let mut parser = Parser::new(&tokens);
         parser.parse_or().expect("parse expression");
         assert!(parser.has_action);
+    }
+
+    #[test]
+    fn parser_supports_path_prune_and_delete() {
+        let parsed = parse_args(&args(&[
+            ".",
+            "-mindepth",
+            "1",
+            "-path",
+            "./skip",
+            "-prune",
+            "-o",
+            "-delete",
+        ]))
+        .expect("parse args");
+
+        assert_eq!(parsed.0.mindepth, Some(1));
+        assert!(parsed.2.has_action);
+        assert!(parsed.2.postorder);
     }
 }

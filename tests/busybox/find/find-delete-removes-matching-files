@@ -1,0 +1,7 @@
+mkdir dir
+touch dir/a dir/b
+
+busybox find dir -name a -delete
+
+test ! -e dir/a
+test -e dir/b

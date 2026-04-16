@@ -430,6 +430,10 @@ run_old_style tests/busybox/expr/expr-big-integers
 
 run_old_style tests/busybox/find/find-parenthesized-or
 run_old_style tests/busybox/find/find-negated-name
+run_old_style tests/busybox/find/find-supports-mindepth
+run_old_style tests/busybox/find/find-prune-skips-matched-directory
+run_old_style tests/busybox/find/find-delete-removes-matching-files
+run_old_style tests/busybox/find/find-delete-removes-empty-directories-postorder
 
 run_old_style tests/busybox/grep/grep-empty-pattern-argument-matches-all-lines
 run_old_style tests/busybox/grep/grep-blank-line-pattern-file-matches-all-lines

@@ -1,0 +1,6 @@
+mkdir -p dir/sub
+
+busybox find dir -mindepth 1 -delete
+
+test -d dir
+test ! -e dir/sub

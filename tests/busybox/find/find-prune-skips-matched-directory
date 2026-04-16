@@ -1,0 +1,6 @@
+mkdir -p dir/skip dir/keep
+touch dir/skip/file dir/keep/file
+
+busybox find dir -path 'dir/skip' -prune -o -print | sort > actual
+printf 'dir\ndir/keep\ndir/keep/file\n' > expected
+cmp expected actual

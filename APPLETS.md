@@ -24,20 +24,28 @@ This file tracks applet-specific limitations that are important to keep visible 
 ## Reduced-Scope Linux Applets
 
 - `mount`
-  - helper fallback is present, but the helper path is still narrow
-  - bind/move/remount/propagation stay on the direct syscall path
-  - no broader userspace orchestration beyond `mount.<fstype>` fallback
+  - Tier 1 support contract:
+    regular mounts use the direct `mount(2)` path, with explicit `mount.<fstype>` helper fallback for ordinary filesystem mounts when a helper exists
+    `-a`, fstab filtering, `UUID=`/`LABEL=` resolution, bind/move/remount, and propagation flags are part of the supported surface
+  - Intentional limits:
+    no broader libmount-style orchestration, loop setup, probing, or helper policy beyond explicit `mount.<fstype>` fallback
 - `fsck`
-  - same-pass `-P` parallelism exists
-  - `-T` is still parsed but unused
-  - no richer pass scheduling or device-topology awareness
+  - Tier 1 support contract:
+    delegated `fsck.<type>` execution, `-A`, `-N`, `-P`, `-R`, `-t`, `-V`, and `-T` title suppression are supported
+  - Intentional limits:
+    same-pass `-P` parallelism is the supported model; there is no richer pass scheduling or device-topology awareness
 - `ntpd`
-  - keyed peers and key files exist
-  - still much smaller than a full clock-disciplining daemon
-  - config and polling/discipline behavior remain intentionally narrow
+  - Tier 1 support contract:
+    one-shot sync/query (`-q`, `-w`), explicit peers (`-p`), config-file peers, keyed MD5/SHA1 peers via key files, post-sync scripts (`-S`), simple listen mode (`-l`), and interface binding (`-I`) are supported
+    this is the intended bootstrap/base-system clock-sync surface for Tier 1
+  - Intentional limits:
+    not a full long-running clock-disciplining daemon; no drift file, refclock, broadcast, or broader ntpd tuning/config surface
 - `blkid`
-  - direct probes now cover common filesystems
-  - still not a full libblkid-style probe matrix
+  - Tier 1 support contract:
+    direct probes cover the installer/storage matrix used by the base system: `ext2/3/4`, `xfs`, `btrfs`, `vfat`, `swap`, `iso9660`, and `squashfs`
+    cache-backed listing and `/dev/disk/by-*` tag discovery remain supported
+  - Intentional limits:
+    still not a full libblkid-style probe matrix
 - `udhcpc`
 - `udhcpd`
   - handles `DHCPDECLINE` with `decline_time`
@@ -45,51 +53,66 @@ This file tracks applet-specific limitations that are important to keep visible 
   - config surface is still a BusyBox-style subset
   - several common directives are accepted and ignored
 - `ip`
-  - family-aware `-4` / `-6` display exists for `addr`, `route`, `neigh`, and `rule`
-  - global `-f inet|inet6|link` and `-o` are now accepted
-  - `addr` now covers `show`, `add`, `del`, and `flush` with `dev` / `to` / `label` / `scope` filtering
-  - `neigh` now covers `show` and `flush` with `to` / `dev` / `nud` filtering
-  - `rule` now covers `list`, `add`, and `del` with `from`, `to`, `iif`, `oif`, `fwmark`, `priority`, and `lookup/table`
-  - `route` now covers `show`, `add`, `append`, `del`, `change`, `replace`, and `flush`, including `src`, `metric`, `table`, and `proto`
-  - `link set` now covers `up` / `down`, `arp`, `multicast`, `allmulti`, `promisc`, `mtu`, `qlen`, `name`, and `address`
-  - still much smaller than full BusyBox `ip`
-  - no `tunnel` or broader `iproute2`-style object families
+  - Tier 1 support contract:
+    `addr`, `link`, `route`, `neigh`, and `rule` are the supported object families
+    `-4`, `-6`, global `-f inet|inet6|link`, and `-o` are supported
+    `addr` covers `show`, `add`, `del`, and `flush`; `link` covers `show` and `set`; `route` covers `show`, `add`, `append`, `del`, `change`, `replace`, and `flush`; `neigh` covers `show` and `flush`; `rule` covers `list`, `add`, and `del`
+    route attributes (`src`, `metric`, `table`, `proto`) and the current link-admin flags are part of the intended Tier 1 surface
+  - Intentional limits:
+    no `tunnel` support or broader `iproute2` object families
 - `ifconfig`
-  - display includes IPv4 and IPv6 addresses
-  - IPv6 address `add` / `del` now works against the live kernel path too
-  - classic link flags now include `arp`, `allmulti`, `multicast`, `promisc`, `metric`, and `txqueuelen`
-  - hardware-map knobs now include `mem_start`, `io_addr`, and `irq`
-  - link mutation remains Ethernet-oriented
-  - only `hw ether` is supported
-  - older or niche knobs like `trailers`, `dynamic`, `outfill`, and `keepalive` are still missing
+  - Tier 1 support contract:
+    display includes IPv4 and IPv6 addresses
+    IPv4 primary address changes plus IPv4/IPv6 `add` / `del` are supported
+    classic admin flags cover `up` / `down`, `arp`, `allmulti`, `multicast`, `promisc`, `dynamic`, and `trailers`
+    `mtu`, `metric`, `txqueuelen`, `mem_start`, `io_addr`, `irq`, and `hw ether` are supported
+  - Intentional limits:
+    link mutation remains Ethernet-oriented
+    only `hw ether` is supported, and older niche knobs such as `outfill` and `keepalive` remain unsupported
 - `netstat`
-  - family-aware socket and route display exists
-  - process display via `-p` now resolves socket inodes back to `/proc`
-  - still only the current small option subset
+  - Tier 1 support contract:
+    IPv4/IPv6 TCP and UDP socket listing plus route display are supported
+    `-l`, `-n`, `-t`, `-u`, `-r`, `-4`, `-6`, `-W`, and `-p` are the intended Tier 1 option subset
+  - Intentional limits:
+    no broader netstat families or reporting modes beyond the current internet-socket and route subset
 - `ping` / `ping6`
-  - supports `-I`, `-i`, `-w`, and `-t`
-  - still a minimal ICMP echo implementation
-  - many traditional ping behaviors remain absent
+  - Tier 1 support contract:
+    basic ICMP echo for IPv4/IPv6 with `-4`, `-6`, `-c`, `-W`, `-w`, `-i`, `-s`, `-q`, `-I`, and `-t`
+    this is the intended Tier 1 surface for interface binding, timeout/deadline handling, and basic reachability checks
+  - Intentional limits:
+    still a minimal echo implementation; many traditional ping diagnostics remain out of scope
 - `acpid`
   - several compatibility flags are accepted and ignored
   - evdev handling remains intentionally narrow
-- `shutdown` / `halt` / `poweroff` / `reboot`
-  - `-w` is still a success no-op without utmp/wtmp writes
-  - non-`-f` behavior is still signal-based init handoff
+- `halt` / `poweroff` / `reboot`
+  - Tier 1 support contract:
+    `-d`, `-n`, `-f`, and `-w` are supported
+    non-`-f` behavior is the intended signal-based PID 1 handoff, and `-f` uses the direct reboot syscall path
+  - Intentional limits:
+    `-w` is an intentional success no-op for compatibility; there are no utmp/wtmp writes
 - `hwclock`
   - `--param-*` access is still unsupported
 - `getty`
-  - baud and tty parsing exists, but line settings are not fully applied
-  - several traditional flags are accepted and ignored
+  - Tier 1 support contract:
+    issue display, login prompt, optional init string output, custom login applet selection, host forwarding, and TERM forwarding are supported
+  - Intentional limits:
+    baud/tty operands are parsed for invocation compatibility, but line settings are not fully applied
+    several traditional compatibility flags are accepted and ignored rather than implemented
 - `login`
-  - no PAM
-  - no utmp/wtmp session accounting
-  - no fuller TTY/session management
+  - Tier 1 support contract:
+    local `/etc/passwd` + `/etc/shadow` authentication via `crypt(3)`, `-f`, `-p`, `-h`, login-shell exec, and the current HOME/SHELL/USER/LOGNAME/PATH environment setup are the supported surface
+  - Intentional limits:
+    no PAM, utmp/wtmp session accounting, supplementary-group/session stack setup, or fuller TTY/login-record management
 - `su`
-  - no PAM
-  - no utmp/wtmp/session stack
+  - Tier 1 support contract:
+    local `/etc/shadow` authentication when required, `-`, `-l`, `-m` / `-p`, `-s`, and `-c` are supported for local admin and recovery flows
+  - Intentional limits:
+    no PAM, utmp/wtmp/session stack, or supplementary-group/session initialization
 - `sulogin`
-  - still a small maintenance-shell/auth path
+  - Tier 1 support contract:
+    root maintenance-shell auth, EOF-to-continue behavior, and `-e` forced shell behavior for locked/missing root hashes are the intended support surface
+  - Intentional limits:
+    intentionally a small non-PAM maintenance path, without broader session or tty management
 - `fdisk`
   - DOS extended/logical partitions remain unsupported
   - `-u/-C/-H/-S` are still mostly compatibility surface

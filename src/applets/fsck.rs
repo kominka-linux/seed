@@ -7,6 +7,7 @@ use crate::common::fstab::{self, FstabEntry};
 use crate::common::error::AppletError;
 
 const APPLET: &str = "fsck";
+const TITLE: &str = concat!("fsck (", env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_VERSION"), ")");
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct Options {
@@ -30,6 +31,10 @@ fn run(args: &[std::ffi::OsString]) -> Result<i32, Vec<AppletError>> {
     let requests = build_requests(&options)?;
     if requests.is_empty() {
         return Ok(0);
+    }
+
+    if !options.no_title && !options.no_execute {
+        eprintln!("{TITLE}");
     }
 
     if options.no_execute {

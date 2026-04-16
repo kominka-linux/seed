@@ -38,6 +38,12 @@ const BTRFS_SUPER_OFFSET: u64 = 64 * 1024;
 const BTRFS_SUPER_SIZE: usize = 0x200;
 const BTRFS_FSID_OFFSET: usize = 0x20;
 const BTRFS_MAGIC_OFFSET: usize = 0x40;
+const ISO9660_PVD_OFFSET: u64 = 16 * 2048;
+const ISO9660_PVD_SIZE: usize = 2048;
+const ISO9660_MAGIC_OFFSET: usize = 1;
+const ISO9660_LABEL_OFFSET: usize = 40;
+const ISO9660_LABEL_SIZE: usize = 32;
+const SQUASHFS_SUPER_SIZE: usize = 4;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct Entry {
@@ -336,6 +342,8 @@ fn probe_entry(path: &Path) -> Option<Entry> {
         .or_else(|| read_xfs_tags(path, &mut file))
         .or_else(|| read_vfat_tags(path, &mut file))
         .or_else(|| read_btrfs_tags(path, &mut file))
+        .or_else(|| read_iso9660_tags(path, &mut file))
+        .or_else(|| read_squashfs_tags(path, &mut file))
 }
 
 fn read_ext_tags(path: &Path, file: &mut fs::File) -> Option<Entry> {
@@ -433,6 +441,39 @@ fn read_btrfs_tags(path: &Path, file: &mut fs::File) -> Option<Entry> {
         ),
         label: None,
         fstype: Some(String::from("btrfs")),
+    })
+}
+
+fn read_iso9660_tags(path: &Path, file: &mut fs::File) -> Option<Entry> {
+    let mut descriptor = [0_u8; ISO9660_PVD_SIZE];
+    read_at(file, ISO9660_PVD_OFFSET, &mut descriptor)?;
+    if descriptor[0] != 1
+        || &descriptor[ISO9660_MAGIC_OFFSET..ISO9660_MAGIC_OFFSET + 5] != b"CD001"
+        || descriptor[6] != 1
+    {
+        return None;
+    }
+    Some(Entry {
+        path: path.to_string_lossy().into_owned(),
+        uuid: None,
+        label: read_trimmed_label(
+            &descriptor[ISO9660_LABEL_OFFSET..ISO9660_LABEL_OFFSET + ISO9660_LABEL_SIZE],
+        ),
+        fstype: Some(String::from("iso9660")),
+    })
+}
+
+fn read_squashfs_tags(path: &Path, file: &mut fs::File) -> Option<Entry> {
+    let mut superblock = [0_u8; SQUASHFS_SUPER_SIZE];
+    read_at(file, 0, &mut superblock)?;
+    if &superblock != b"hsqs" {
+        return None;
+    }
+    Some(Entry {
+        path: path.to_string_lossy().into_owned(),
+        uuid: None,
+        label: None,
+        fstype: Some(String::from("squashfs")),
     })
 }
 
@@ -574,7 +615,8 @@ fn nonempty(value: &str) -> Option<String> {
 mod tests {
     use super::{
         EXT_FEATURE_INCOMPAT_OFFSET, EXT_LABEL_OFFSET, EXT_MAGIC_OFFSET, EXT_SUPER_OFFSET,
-        EXT_UUID_OFFSET, EXT4_FEATURE_INCOMPAT_EXTENTS, Entry, format_entry, parse_args,
+        EXT_UUID_OFFSET, EXT4_FEATURE_INCOMPAT_EXTENTS, Entry, ISO9660_LABEL_OFFSET,
+        ISO9660_LABEL_SIZE, ISO9660_PVD_OFFSET, SQUASHFS_SUPER_SIZE, format_entry, parse_args,
         probe_entry, read_state_entries,
     };
     use std::fs;
@@ -650,6 +692,34 @@ mod tests {
         assert_eq!(entry.fstype.as_deref(), Some("vfat"));
         assert_eq!(entry.label.as_deref(), Some("EFI"));
         assert_eq!(entry.uuid.as_deref(), Some("1234-ABCD"));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn probes_iso9660_image() {
+        let path = std::env::temp_dir().join(format!("seed-blkid-iso9660-{}", std::process::id()));
+        let mut image = vec![0_u8; 20 * 2048];
+        let base = ISO9660_PVD_OFFSET as usize;
+        image[base] = 1;
+        image[base + 1..base + 6].copy_from_slice(b"CD001");
+        image[base + 6] = 1;
+        image[base + ISO9660_LABEL_OFFSET..base + ISO9660_LABEL_OFFSET + ISO9660_LABEL_SIZE]
+            .copy_from_slice(b"SEED_INSTALL                    ");
+        fs::write(&path, image).unwrap();
+        let entry = probe_entry(&path).unwrap();
+        assert_eq!(entry.fstype.as_deref(), Some("iso9660"));
+        assert_eq!(entry.label.as_deref(), Some("SEED_INSTALL"));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn probes_squashfs_image() {
+        let path = std::env::temp_dir().join(format!("seed-blkid-squashfs-{}", std::process::id()));
+        let mut image = vec![0_u8; 4096];
+        image[..SQUASHFS_SUPER_SIZE].copy_from_slice(b"hsqs");
+        fs::write(&path, image).unwrap();
+        let entry = probe_entry(&path).unwrap();
+        assert_eq!(entry.fstype.as_deref(), Some("squashfs"));
         let _ = fs::remove_file(path);
     }
 }

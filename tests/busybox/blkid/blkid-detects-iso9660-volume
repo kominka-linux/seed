@@ -1,0 +1,15 @@
+python3 - <<'PY'
+from pathlib import Path
+
+image = bytearray(20 * 2048)
+base = 16 * 2048
+image[base] = 1
+image[base + 1:base + 6] = b"CD001"
+image[base + 6] = 1
+image[base + 40:base + 72] = b"SEED_INSTALL".ljust(32, b" ")
+Path("iso.img").write_bytes(image)
+PY
+
+busybox blkid iso.img > out
+grep 'TYPE="iso9660"' out
+grep 'LABEL="SEED_INSTALL"' out

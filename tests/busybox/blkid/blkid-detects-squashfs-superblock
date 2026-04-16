@@ -1,0 +1,10 @@
+python3 - <<'PY'
+from pathlib import Path
+
+image = bytearray(4096)
+image[:4] = b"hsqs"
+Path("squashfs.img").write_bytes(image)
+PY
+
+busybox blkid squashfs.img > out
+grep 'TYPE="squashfs"' out

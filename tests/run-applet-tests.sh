@@ -354,6 +354,9 @@ run_old_style tests/busybox/blkid/blkid-lists-cache-backed-devices
 run_old_style tests/busybox/blkid/blkid-detects-swap-header
 run_old_style tests/busybox/blkid/blkid-detects-ext-superblock
 run_old_style tests/busybox/blkid/blkid-detects-vfat-boot-sector
+run_old_style tests/busybox/blkid/blkid-detects-iso9660-volume
+run_old_style tests/busybox/blkid/blkid-detects-squashfs-superblock
+run_old_style tests/busybox/fsck/fsck-T-suppresses-title
 	run_old_style tests/busybox/fdisk/fdisk-l-prints-mbr-partition-table
 	run_old_style tests/busybox/fdisk/fdisk-s-prints-image-size-in-kib
 	run_old_style tests/busybox/fdisk/fdisk-script-creates-dos-partition

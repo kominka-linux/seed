@@ -706,6 +706,7 @@ run_old_style tests/busybox/tar/tar-k-does-not-extract-into-symlinks
 run_old_style tests/busybox/tar/tar-lists-pax-long-paths
 run_old_style tests/busybox/tar/tar-overwrite-does-not-write-through-symlinked-parent
 run_old_style tests/busybox/tar/tar-pax-utf8-names-and-symlinks
+run_old_style tests/busybox/tar/tar-supports-strip-components
 run_old_style tests/busybox/tar/tar-symlink-attack-is-contained
 run_old_style tests/busybox/tar/tar-symlinks-mode
 run_old_style tests/busybox/tar/tar-symlinks-and-hardlinks-coexist

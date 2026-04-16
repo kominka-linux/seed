@@ -1,0 +1,13 @@
+mkdir -p pkg-1.0/bin
+printf 'ok\n' > pkg-1.0/bin/tool
+
+tar cf archive.tar pkg-1.0
+rm -rf pkg-1.0
+
+busybox tar xf archive.tar --strip-components=1
+
+test -f bin/tool
+test ! -e pkg-1.0
+cmp -s bin/tool - <<'EOF'
+ok
+EOF

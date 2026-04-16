@@ -42,6 +42,7 @@ struct Options {
     mode: Option<Mode>,
     archive: Option<String>,
     compression: Option<CompressionMode>,
+    strip_components: usize,
     to_stdout: bool,
     verbose: bool,
     keep_old: bool,
@@ -82,6 +83,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     let mut pending_archive = false;
     let mut pending_chdir = false;
     let mut pending_exclude = false;
+    let mut pending_strip_components = false;
     let mut active_dir: Option<PathBuf> = None;
 
     for (index, arg) in args.iter().enumerate() {
@@ -105,6 +107,11 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
             pending_exclude = false;
             continue;
         }
+        if parsing_flags && pending_strip_components {
+            options.strip_components = parse_strip_components(arg)?;
+            pending_strip_components = false;
+            continue;
+        }
 
         if parsing_flags && arg == "--" {
             parsing_flags = false;
@@ -112,9 +119,17 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
         }
 
         if parsing_flags && arg.starts_with("--") {
+            if let Some(value) = arg.strip_prefix("--strip-components=") {
+                options.strip_components = parse_strip_components(value)?;
+                continue;
+            }
             match arg.as_str() {
                 "--overwrite" => {
                     options.overwrite = true;
+                    continue;
+                }
+                "--strip-components" => {
+                    pending_strip_components = true;
                     continue;
                 }
                 _ => return Err(vec![AppletError::unrecognized_option(APPLET, arg)]),
@@ -154,7 +169,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
         }
     }
 
-    if pending_archive || pending_chdir || pending_exclude {
+    if pending_archive || pending_chdir || pending_exclude || pending_strip_components {
         return Err(vec![AppletError::new(
             APPLET,
             "option requires an argument",
@@ -179,6 +194,15 @@ fn set_mode(options: &mut Options, mode: Mode) -> Result<(), Vec<AppletError>> {
             Ok(())
         }
     }
+}
+
+fn parse_strip_components(value: &str) -> Result<usize, Vec<AppletError>> {
+    value.parse::<usize>().map_err(|_| {
+        vec![AppletError::new(
+            APPLET,
+            format!("invalid --strip-components value '{value}'"),
+        )]
+    })
 }
 
 fn set_compression(
@@ -499,6 +523,10 @@ fn extract_from_reader<R: Read>(
             }
         }
 
+        let Some(stripped_path) = strip_archive_path(&path, options.strip_components) else {
+            continue;
+        };
+
         if options.verbose {
             println!("{path_text}");
         }
@@ -509,7 +537,7 @@ fn extract_from_reader<R: Read>(
             extract_entry(
                 &mut entry,
                 destination,
-                &path,
+                &stripped_path,
                 &path_text,
                 &mut deferred_dirs,
                 options,
@@ -677,6 +705,12 @@ fn extract_hardlink<R: Read>(
         .link_name()
         .map_err(|err| read_error(Some(path_text), err))?
     else {
+        return Err(AppletError::new(
+            APPLET,
+            format!("extracting {path_text}: missing hardlink target"),
+        ));
+    };
+    let Some(target) = strip_archive_path(&target, options.strip_components) else {
         return Err(AppletError::new(
             APPLET,
             format!("extracting {path_text}: missing hardlink target"),
@@ -1474,6 +1508,27 @@ fn display_entry_path(path: &Path, entry_type: EntryType) -> String {
     text
 }
 
+fn strip_archive_path(path: &Path, strip_components: usize) -> Option<PathBuf> {
+    if strip_components == 0 {
+        return Some(path.to_path_buf());
+    }
+
+    let mut skipped = 0usize;
+    let mut stripped = PathBuf::new();
+    for part in path.to_string_lossy().split('/') {
+        if part.is_empty() {
+            continue;
+        }
+        if skipped < strip_components {
+            skipped += 1;
+            continue;
+        }
+        stripped.push(part);
+    }
+
+    (skipped == strip_components && !stripped.as_os_str().is_empty()).then_some(stripped)
+}
+
 fn selectors(members: &[String], excludes: &[String]) -> Vec<String> {
     members
         .iter()
@@ -1667,6 +1722,15 @@ mod tests {
     }
 
     #[test]
+    fn strip_components_is_parsed() {
+        let options = parse(&["-xf", "archive.tar", "--strip-components=2"]);
+        assert_eq!(options.strip_components, 2);
+
+        let options = parse(&["-xf", "archive.tar", "--strip-components", "3"]);
+        assert_eq!(options.strip_components, 3);
+    }
+
+    #[test]
     fn compressed_input_is_detected_by_magic() {
         let mut gzip = Cursor::new(vec![0x1f, 0x8b, 0x08]);
         assert_eq!(
@@ -1715,6 +1779,19 @@ mod tests {
         let archive_name = sanitize_archive_name("foo/./bar").expect("sanitize archive name");
         assert_eq!(archive_name.path, std::path::PathBuf::from("foo/bar"));
         assert_eq!(archive_name.stripped_prefix, None);
+    }
+
+    #[test]
+    fn strip_archive_path_counts_dot_component() {
+        assert_eq!(
+            super::strip_archive_path(std::path::Path::new("./foo/bar"), 1),
+            Some(std::path::PathBuf::from("foo/bar"))
+        );
+    }
+
+    #[test]
+    fn strip_archive_path_skips_entries_with_too_few_components() {
+        assert_eq!(super::strip_archive_path(std::path::Path::new("foo"), 1), None);
     }
 
     #[test]
@@ -1822,6 +1899,34 @@ mod tests {
         let reader = MultiBzDecoder::new(BufReader::new(Cursor::new(b"not bzip2".to_vec())));
         let err = list_result(reader).expect_err("expected bzip2 failure");
         assert_eq!(err.to_string(), "tar: reading -: bzip2: bz2 header missing");
+    }
+
+    #[test]
+    fn extract_applies_strip_components() {
+        let mut bytes = Vec::new();
+        let mut builder = Builder::new(&mut bytes);
+
+        let mut header = Header::new_ustar();
+        header.set_path("pkg/bin/tool").expect("set path");
+        header.set_size(3);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder.append(&header, &b"ok\n"[..]).expect("append file");
+        builder.finish().expect("finish archive");
+        drop(builder);
+
+        let destination = crate::common::unix::temp_dir("tar-strip-components");
+        let options = parse(&["xf", "-", "--strip-components=1"]);
+        super::extract_from_reader(Cursor::new(bytes), &destination, &options, None)
+            .expect("extract with strip components");
+
+        assert_eq!(
+            fs::read(destination.join("bin/tool")).expect("read extracted file"),
+            b"ok\n"
+        );
+        assert!(!destination.join("pkg").exists());
+
+        let _ = fs::remove_dir_all(destination);
     }
 
     #[test]

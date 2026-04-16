@@ -1,0 +1,6 @@
+printf 'foo\n' > one
+printf 'foo\n' > two
+
+busybox grep -h foo one two > actual
+printf 'foo\nfoo\n' > expected
+cmp -s expected actual

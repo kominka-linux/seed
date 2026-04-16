@@ -433,6 +433,11 @@ run_old_style tests/busybox/find/find-negated-name
 
 run_old_style tests/busybox/grep/grep-empty-pattern-argument-matches-all-lines
 run_old_style tests/busybox/grep/grep-blank-line-pattern-file-matches-all-lines
+run_old_style tests/busybox/grep/grep-counts-matching-lines
+run_old_style tests/busybox/grep/grep-prints-line-numbers
+run_old_style tests/busybox/grep/grep-files-with-matches
+run_old_style tests/busybox/grep/grep-with-filename-on-single-input
+run_old_style tests/busybox/grep/grep-no-filename-on-multiple-inputs
 
 run_old_style tests/busybox/hexdump/hexdump-C-reads-stdin
 run_old_style tests/busybox/hexdump/hexdump-C-renders-file

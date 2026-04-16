@@ -18,10 +18,22 @@ struct Options {
     silent: bool,
     line_regexp: bool,
     invert: bool,
+    files_with_match: bool,
     files_without_match: bool,
     word: bool,
     only_matching: bool,
+    count: bool,
+    line_number: bool,
     recursive: bool,
+    label_mode: LabelMode,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum LabelMode {
+    #[default]
+    Auto,
+    Always,
+    Never,
 }
 
 #[derive(Clone, Debug)]
@@ -134,11 +146,16 @@ fn run_with_mode(
             .collect()
     };
 
-    let include_label = inputs.len() > 1 || parsed.options.recursive;
+    let include_label = match parsed.options.label_mode {
+        LabelMode::Always => true,
+        LabelMode::Never => false,
+        LabelMode::Auto => inputs.len() > 1 || parsed.options.recursive,
+    };
     let mut stdout = io::stdout().lock();
     let mut matched_any = false;
     let mut had_error = false;
     let mut printed_nonmatching = false;
+    let mut printed_matching = false;
 
     for input in &inputs {
         let reader = match open_input(&input.path) {
@@ -152,7 +169,7 @@ fn run_with_mode(
             }
         };
 
-        let matched = process_input(
+        let result = process_input(
             BufReader::new(reader),
             input,
             include_label,
@@ -162,17 +179,28 @@ fn run_with_mode(
         )?;
 
         if parsed.options.files_without_match {
-            if !matched {
+            if !result.matched_any {
                 printed_nonmatching = true;
                 writeln!(stdout, "{}", input.label)
                     .map_err(|err| format!("writing stdout: {err}"))?;
             }
-        } else if matched {
+        } else if parsed.options.files_with_match {
+            if result.matched_any {
+                printed_matching = true;
+                writeln!(stdout, "{}", input.label)
+                    .map_err(|err| format!("writing stdout: {err}"))?;
+            }
+        } else if parsed.options.count {
+            write_prefix(&mut stdout, include_label, &input.label, None)?;
+            writeln!(stdout, "{}", result.selected_lines)
+                .map_err(|err| format!("writing stdout: {err}"))?;
+        }
+
+        if result.matched_any {
             matched_any = true;
         }
 
-        if parsed.options.quiet && matched {
-            matched_any = true;
+        if parsed.options.quiet && result.matched_any {
             break;
         }
     }
@@ -190,6 +218,9 @@ fn run_with_mode(
     if parsed.options.files_without_match {
         return Ok(if printed_nonmatching { 0 } else { 1 });
     }
+    if parsed.options.files_with_match {
+        return Ok(if printed_matching { 0 } else { 1 });
+    }
     Ok(if matched_any { 0 } else { 1 })
 }
 
@@ -197,6 +228,12 @@ struct ParsedArgs {
     options: Options,
     patterns: PatternSet,
     inputs: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct ProcessResult {
+    matched_any: bool,
+    selected_lines: usize,
 }
 
 fn parse_args(
@@ -214,8 +251,56 @@ fn parse_args(
     let mut positionals = Vec::new();
     let mut cursor = ArgCursor::new(args);
 
-    while let Some(arg) = cursor.next_arg() {
-        match arg {
+    while let Some(arg) = cursor.next_token() {
+        if cursor.parsing_flags() && arg.starts_with("--") && arg.len() > 2 {
+            if let Some(pattern) = arg.strip_prefix("--regexp=") {
+                inline_patterns.push(pattern.to_owned());
+                continue;
+            }
+            if let Some(path) = arg.strip_prefix("--file=") {
+                pattern_files.push(path.to_owned());
+                continue;
+            }
+            match arg {
+                "--extended-regexp" => options.extended = true,
+                "--fixed-strings" => options.fixed = true,
+                "--ignore-case" => options.ignore_case = true,
+                "--quiet" => options.quiet = true,
+                "--silent" => options.silent = true,
+                "--line-regexp" => options.line_regexp = true,
+                "--invert-match" => options.invert = true,
+                "--files-with-matches" => options.files_with_match = true,
+                "--files-without-match" => options.files_without_match = true,
+                "--word-regexp" => options.word = true,
+                "--only-matching" => options.only_matching = true,
+                "--recursive" => options.recursive = true,
+                "--text" => {}
+                "--line-number" => options.line_number = true,
+                "--with-filename" => options.label_mode = LabelMode::Always,
+                "--no-filename" => options.label_mode = LabelMode::Never,
+                "--count" => options.count = true,
+                "--regexp" => {
+                    let pattern = cursor
+                        .next_value(APPLET, "regexp")
+                        .map_err(|_| AppletError::option_requires_arg_message("regexp"))?;
+                    inline_patterns.push(pattern.to_owned());
+                }
+                "--file" => {
+                    let path = cursor
+                        .next_value(APPLET, "file")
+                        .map_err(|_| AppletError::option_requires_arg_message("file"))?;
+                    pattern_files.push(path.to_owned());
+                }
+                _ => return Err(AppletError::unrecognized_option_message(arg)),
+            }
+            continue;
+        }
+
+        match if cursor.parsing_flags() && arg.starts_with('-') && arg.len() > 1 {
+            ArgToken::ShortFlags(&arg[1..])
+        } else {
+            ArgToken::Operand(arg)
+        } {
             ArgToken::ShortFlags(flags) => {
                 let mut chars = flags.chars();
                 while let Some(flag) = chars.next() {
@@ -228,11 +313,16 @@ fn parse_args(
                         's' => options.silent = true,
                         'x' => options.line_regexp = true,
                         'v' => options.invert = true,
+                        'l' => options.files_with_match = true,
                         'L' => options.files_without_match = true,
                         'w' => options.word = true,
                         'o' => options.only_matching = true,
                         'r' => options.recursive = true,
                         'a' => {}
+                        'n' => options.line_number = true,
+                        'H' => options.label_mode = LabelMode::Always,
+                        'h' => options.label_mode = LabelMode::Never,
+                        'c' => options.count = true,
                         'e' => {
                             let pattern = cursor
                                 .next_value_or_attached(attached, APPLET, "e")
@@ -374,9 +464,10 @@ fn process_input(
     patterns: &PatternSet,
     options: Options,
     stdout: &mut impl Write,
-) -> Result<bool, String> {
-    let mut matched_any = false;
+) -> Result<ProcessResult, String> {
+    let mut result = ProcessResult::default();
     let mut line = Vec::new();
+    let mut line_index = 0usize;
 
     loop {
         line.clear();
@@ -386,6 +477,7 @@ fn process_input(
         if read == 0 {
             break;
         }
+        line_index += 1;
         if line.ends_with(b"\n") {
             line.pop();
         }
@@ -399,9 +491,13 @@ fn process_input(
         if !is_selected {
             continue;
         }
-        matched_any = true;
-        if options.quiet || options.files_without_match {
+        result.matched_any = true;
+        result.selected_lines += 1;
+        if options.quiet || options.files_with_match || options.files_without_match {
             break;
+        }
+        if options.count {
+            continue;
         }
 
         if options.only_matching && !options.invert {
@@ -409,14 +505,24 @@ fn process_input(
                 if start == end {
                     break;
                 }
-                write_label(stdout, include_label, &input.label)?;
+                write_prefix(
+                    stdout,
+                    include_label,
+                    &input.label,
+                    options.line_number.then_some(line_index),
+                )?;
                 stdout
                     .write_all(&line[start..end])
                     .and_then(|_| stdout.write_all(b"\n"))
                     .map_err(|err| format!("writing stdout: {err}"))?;
             }
         } else {
-            write_label(stdout, include_label, &input.label)?;
+            write_prefix(
+                stdout,
+                include_label,
+                &input.label,
+                options.line_number.then_some(line_index),
+            )?;
             stdout
                 .write_all(&line)
                 .and_then(|_| stdout.write_all(b"\n"))
@@ -424,12 +530,20 @@ fn process_input(
         }
     }
 
-    Ok(matched_any)
+    Ok(result)
 }
 
-fn write_label(stdout: &mut impl Write, include_label: bool, label: &str) -> Result<(), String> {
+fn write_prefix(
+    stdout: &mut impl Write,
+    include_label: bool,
+    label: &str,
+    line_number: Option<usize>,
+) -> Result<(), String> {
     if include_label {
         write!(stdout, "{label}:").map_err(|err| format!("writing stdout: {err}"))?;
+    }
+    if let Some(line_number) = line_number {
+        write!(stdout, "{line_number}:").map_err(|err| format!("writing stdout: {err}"))?;
     }
     Ok(())
 }
@@ -876,7 +990,7 @@ fn parse_posix_class(pattern: &[u8], index: usize) -> Option<(ClassItem, usize)>
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_args, split_pattern_lines};
+    use super::{LabelMode, parse_args, split_pattern_lines};
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
@@ -903,5 +1017,27 @@ mod tests {
             split_pattern_lines(b"foo\n\nbar\n"),
             vec![b"foo".to_vec(), Vec::new(), b"bar".to_vec()]
         );
+    }
+
+    #[test]
+    fn parses_common_gnu_long_options() {
+        let parsed = parse_args(
+            &args(&[
+                "--line-number",
+                "--count",
+                "--with-filename",
+                "--regexp=foo",
+                "input",
+            ]),
+            false,
+            false,
+        )
+        .expect("parse grep");
+
+        assert!(parsed.options.line_number);
+        assert!(parsed.options.count);
+        assert_eq!(parsed.options.label_mode, LabelMode::Always);
+        assert_eq!(parsed.inputs, vec!["input"]);
+        assert_eq!(parsed.patterns.matchers.len(), 1);
     }
 }

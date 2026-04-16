@@ -1,0 +1,10 @@
+cat > input <<'EOF'
+zero
+one
+two
+one more
+EOF
+
+busybox grep -n one input > actual
+printf '2:one\n4:one more\n' > expected
+cmp -s expected actual

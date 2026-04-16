@@ -1,0 +1,5 @@
+printf 'foo\n' > input
+
+busybox grep -H foo input > actual
+printf 'input:foo\n' > expected
+cmp -s expected actual

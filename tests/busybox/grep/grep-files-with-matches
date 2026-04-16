@@ -1,0 +1,6 @@
+printf 'foo\n' > hit
+printf 'bar\n' > miss
+
+busybox grep -l foo hit miss > actual
+printf 'hit\n' > expected
+cmp -s expected actual

@@ -1,0 +1,20 @@
+printf 'x\n' >"$d/newer"
+printf 'y\n' >"$d/older"
+touch -t 202001010000 "$d/older"
+touch -t 202001010001 "$d/newer"
+
+LC_ALL=C /bin/ls -1S "$d/a" "$d/big" "$d/newer" > logfile.gnu
+LC_ALL=C busybox ls -1S "$d/a" "$d/big" "$d/newer" > logfile.bb
+cmp logfile.gnu logfile.bb
+
+LC_ALL=C /bin/ls -1r "$d/a" "$d/big" "$d/newer" > logfile.gnu
+LC_ALL=C busybox ls -1r "$d/a" "$d/big" "$d/newer" > logfile.bb
+cmp logfile.gnu logfile.bb
+
+LC_ALL=C /bin/ls -1t "$d/older" "$d/newer" > logfile.gnu
+LC_ALL=C busybox ls -1t "$d/older" "$d/newer" > logfile.bb
+cmp logfile.gnu logfile.bb
+
+LC_ALL=C /bin/ls -1U "$d/big" "$d/a" "$d/newer" > logfile.gnu
+LC_ALL=C busybox ls -1U "$d/big" "$d/a" "$d/newer" > logfile.bb
+cmp logfile.gnu logfile.bb

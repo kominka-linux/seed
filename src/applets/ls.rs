@@ -15,10 +15,12 @@ const APPLET: &str = "ls";
 struct Options {
     hidden_mode: HiddenMode,
     list_directory_itself: bool,
+    reverse_sort: bool,
     single_column: bool,
     human_readable: bool,
     long_format: bool,
     show_blocks: bool,
+    sort_mode: SortMode,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -27,6 +29,15 @@ enum HiddenMode {
     Omit,
     AlmostAll,
     All,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum SortMode {
+    #[default]
+    Name,
+    Time,
+    Size,
+    Unsorted,
 }
 
 #[derive(Debug)]
@@ -100,7 +111,7 @@ fn render_targets(targets: &[String], options: Options) -> (String, Vec<AppletEr
     let mut output = String::new();
 
     if !files.is_empty() {
-        let entries = files
+        let mut entries = files
             .into_iter()
             .map(|file| Entry {
                 name: file.display,
@@ -108,6 +119,7 @@ fn render_targets(targets: &[String], options: Options) -> (String, Vec<AppletEr
                 metadata: file.metadata,
             })
             .collect::<Vec<_>>();
+        sort_entries(&mut entries, options);
         match render_entries(&entries, options, false) {
             Ok(text) => output.push_str(&text),
             Err(err) => errors.push(err),
@@ -147,11 +159,15 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
                 match flag {
                     '1' => options.single_column = true,
                     'A' => options.hidden_mode = HiddenMode::AlmostAll,
+                    'S' => options.sort_mode = SortMode::Size,
+                    'U' => options.sort_mode = SortMode::Unsorted,
                     'a' => options.hidden_mode = HiddenMode::All,
                     'd' => options.list_directory_itself = true,
                     'h' => options.human_readable = true,
                     'l' => options.long_format = true,
+                    'r' => options.reverse_sort = true,
                     's' => options.show_blocks = true,
+                    't' => options.sort_mode = SortMode::Time,
                     _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
                 }
             }
@@ -234,7 +250,7 @@ fn render_directory(path: &Path, options: Options) -> Result<String, AppletError
         });
     }
 
-    entries.sort_by(|left, right| left.name.as_bytes().cmp(right.name.as_bytes()));
+    sort_entries(&mut entries, options);
 
     render_entries(&entries, options, true)
 }
@@ -254,6 +270,40 @@ fn should_include_name(name: &str, hidden_mode: HiddenMode) -> bool {
         HiddenMode::Omit => !name.starts_with('.'),
         HiddenMode::AlmostAll | HiddenMode::All => true,
     }
+}
+
+fn sort_entries(entries: &mut [Entry], options: Options) {
+    match options.sort_mode {
+        SortMode::Name => entries.sort_by(compare_by_name),
+        SortMode::Time => entries.sort_by(compare_by_time),
+        SortMode::Size => entries.sort_by(compare_by_size),
+        SortMode::Unsorted => {}
+    }
+
+    if options.reverse_sort {
+        entries.reverse();
+    }
+}
+
+fn compare_by_name(left: &Entry, right: &Entry) -> std::cmp::Ordering {
+    left.name.as_bytes().cmp(right.name.as_bytes())
+}
+
+fn compare_by_time(left: &Entry, right: &Entry) -> std::cmp::Ordering {
+    right
+        .metadata
+        .mtime()
+        .cmp(&left.metadata.mtime())
+        .then_with(|| right.metadata.mtime_nsec().cmp(&left.metadata.mtime_nsec()))
+        .then_with(|| compare_by_name(left, right))
+}
+
+fn compare_by_size(left: &Entry, right: &Entry) -> std::cmp::Ordering {
+    right
+        .metadata
+        .size()
+        .cmp(&left.metadata.size())
+        .then_with(|| compare_by_name(left, right))
 }
 
 fn render_entries(
@@ -455,7 +505,7 @@ fn format_human_size(size: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{HiddenMode, Options, parse_args, render_target, render_targets};
+    use super::{HiddenMode, Options, SortMode, parse_args, render_target, render_targets};
     use crate::common::unix;
     use std::fs;
     use std::path::PathBuf;
@@ -480,6 +530,24 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.path);
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn set_mtime(path: &std::path::Path, seconds: i64) {
+        let times = [
+            libc::timespec {
+                tv_sec: seconds,
+                tv_nsec: 0,
+            },
+            libc::timespec {
+                tv_sec: seconds,
+                tv_nsec: 0,
+            },
+        ];
+        let path = std::ffi::CString::new(path.as_os_str().as_bytes()).expect("path cstring");
+        // SAFETY: `path` is a valid nul-terminated path and `times` points to two valid timespecs.
+        let rc = unsafe { libc::utimensat(libc::AT_FDCWD, path.as_ptr(), times.as_ptr(), 0) };
+        assert_eq!(rc, 0, "utimensat failed: {}", std::io::Error::last_os_error());
     }
 
     #[test]
@@ -621,6 +689,16 @@ mod tests {
     }
 
     #[test]
+    fn parses_sort_flags() {
+        let (options, paths) =
+            parse_args(&["-Urt".to_owned(), "dir".to_owned()]).expect("parse");
+
+        assert_eq!(options.sort_mode, SortMode::Time);
+        assert!(options.reverse_sort);
+        assert_eq!(paths, vec!["dir"]);
+    }
+
+    #[test]
     fn symlink_to_directory_lists_directory_contents() {
         let tempdir = TempDir::new();
         let dir = tempdir.path().join("dir");
@@ -688,6 +766,94 @@ mod tests {
         .expect("render dir");
 
         assert_eq!(output, ".\n..\n.hidden\nA\n");
+    }
+
+    #[test]
+    fn directory_listing_sorts_by_size() {
+        let tempdir = TempDir::new();
+        let dir = tempdir.path().join("dir");
+        fs::create_dir(&dir).expect("create dir");
+        fs::write(dir.join("small"), b"x").expect("write small");
+        fs::write(dir.join("large"), b"12345").expect("write large");
+
+        let output = render_target(
+            dir.to_str().expect("utf8 path"),
+            Options {
+                sort_mode: SortMode::Size,
+                ..Options::default()
+            },
+        )
+        .expect("render dir");
+
+        assert_eq!(output, "large\nsmall\n");
+    }
+
+    #[test]
+    fn directory_listing_reverse_sorts_by_name() {
+        let tempdir = TempDir::new();
+        let dir = tempdir.path().join("dir");
+        fs::create_dir(&dir).expect("create dir");
+        fs::write(dir.join("a"), b"x").expect("write a");
+        fs::write(dir.join("b"), b"y").expect("write b");
+
+        let output = render_target(
+            dir.to_str().expect("utf8 path"),
+            Options {
+                reverse_sort: true,
+                ..Options::default()
+            },
+        )
+        .expect("render dir");
+
+        assert_eq!(output, "b\na\n");
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn directory_listing_sorts_by_time() {
+        let tempdir = TempDir::new();
+        let dir = tempdir.path().join("dir");
+        let old = dir.join("old");
+        let new = dir.join("new");
+        fs::create_dir(&dir).expect("create dir");
+        fs::write(&old, b"x").expect("write old");
+        fs::write(&new, b"y").expect("write new");
+        set_mtime(&old, 1);
+        set_mtime(&new, 2);
+
+        let output = render_target(
+            dir.to_str().expect("utf8 path"),
+            Options {
+                sort_mode: SortMode::Time,
+                ..Options::default()
+            },
+        )
+        .expect("render dir");
+
+        assert_eq!(output, "new\nold\n");
+    }
+
+    #[test]
+    fn unsorted_file_operands_preserve_input_order() {
+        let tempdir = TempDir::new();
+        let a = tempdir.path().join("a");
+        let b = tempdir.path().join("b");
+        fs::write(&a, b"x").expect("write a");
+        fs::write(&b, b"y").expect("write b");
+
+        let (output, errors) = render_targets(
+            &[
+                b.to_str().expect("utf8 path").to_owned(),
+                a.to_str().expect("utf8 path").to_owned(),
+            ],
+            Options {
+                sort_mode: SortMode::Unsorted,
+                ..Options::default()
+            },
+        );
+
+        assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+        assert_eq!(output, format!("{}\n{}\n", b.display(), a.display()));
     }
 
     #[test]

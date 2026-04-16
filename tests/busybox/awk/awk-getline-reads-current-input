@@ -1,0 +1,17 @@
+tmpdir="${TMPDIR:-/tmp}/seed-awk-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+cat >"$tmpdir/script.awk" <<'EOF'
+{ print "head=" $1, "NR=" NR, "FNR=" FNR; getline nextline; print "var=" nextline, "cur=" $0, "NR=" NR, "FNR=" FNR, "NF=" NF; getline; print "rec=" $0, "NR=" NR, "FNR=" FNR, "NF=" NF, "first=" $1 }
+EOF
+printf 'one two\nthree four\nfive six\n' >"$tmpdir/input"
+
+awk -f "$tmpdir/script.awk" "$tmpdir/input" >"$tmpdir/actual"
+cat >"$tmpdir/expected" <<'EOF'
+head=one NR=1 FNR=1
+var=three four cur=one two NR=2 FNR=2 NF=2
+rec=five six NR=3 FNR=3 NF=2 first=five
+EOF
+
+diff -u "$tmpdir/expected" "$tmpdir/actual"

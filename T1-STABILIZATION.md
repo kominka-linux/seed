@@ -154,6 +154,7 @@ Status: `open`
 - [ ] `awk`: differential test the supported language surface against BusyBox.
 - [ ] `awk`: close or explicitly document unsupported forms that remain in Tier 1 scope.
 - [ ] `sed`: differential test nested blocks, range behavior, and NUL/regex edges more aggressively.
+- [x] Land the first concrete BusyBox-style differential regressions for `awk` and `sed`.
 - [ ] archive/compression applets: add malformed, truncated, and partial-write coverage where the suite is still light.
 
 ### P1: Session and Account Stack
@@ -186,14 +187,14 @@ Status: `open`
 
 These are the open items that still appear to be accidental gaps or unresolved scope decisions rather than clearly intentional limitations.
 
-- [ ] `sed`: NUL-input regex behavior, nested-block execution corners, and some range behavior inside nested blocks.
-- [ ] `awk`: `do ... while`, missing `getline` variants, `nextfile`, and deeper regex/substitution edges need either implementation or explicit scope decisions.
+- [ ] `sed`: NUL-input regex behavior and remaining nested/range execution corners still need more adversarial coverage.
+- [ ] `awk`: function-driven `next` / `nextfile` / `exit`, pipe-style `getline`, and deeper regex/substitution edges need either implementation or explicit scope decisions.
 
 ## Next Up
 
 The most defensible next stabilization tranche is:
 
-1. [ ] Convert `awk` and `sed` hardening into explicit differential test backlogs, then land the first failing cases.
+1. [x] Convert `awk` and `sed` hardening into explicit differential test backlogs, then land the first failing cases.
 2. [x] Decide and document the Tier 1 support surface for `ip`, `ifconfig`, `netstat`, `ping`, and `ntpd` so `APPLETS.md` stops mixing intentional scope with unfinished work.
 3. [x] Close the most concrete critical-path Linux gaps: `fsck -T`, `blkid` probe coverage, and the `mount` fallback story.
 4. [x] Resolve the session/account support contract: PAM, utmp/wtmp, tty/session management, and reboot-family `-w`.
@@ -209,6 +210,9 @@ The most defensible next stabilization tranche is:
 - [x] Closed the Tier 1 support-contract questions for non-PAM auth/session behavior, tty/login handoff, and reboot-family `-w`.
 - [x] Added DOS extended/logical partition support to `fdisk`, with a new scripted BusyBox-style regression that verifies both the MBR container and first EBR logical entry.
 - [x] Closed the remaining `modprobe` policy/config gap by applying alias-scoped `options` to the resolved top-level module, with both unit and shell coverage.
+- [x] Added BusyBox-style coverage for `awk` reading from the current input stream via `getline`, and implemented the runtime support so `getline var` and bare `getline` now consume future records correctly.
+- [x] Extended `awk` with BusyBox-style `do ... while`, `nextfile`, and `getline` expression support, including file-source expressions and multi-file `FNR` / `NR` behavior coverage.
+- [x] Fixed `sed` nested block range addresses by giving nested commands persistent range state, with a BusyBox-style regression that exercises a spanning inner range inside an active outer block.
 
 ### 2026-04-14
 

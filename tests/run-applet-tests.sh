@@ -230,8 +230,14 @@ run_old_style tests/busybox/awk/awk-delete-array-postdecrement-evaluates-once
 run_old_style tests/busybox/awk/awk-nested-for-in-loops-with-same-variable-work
 run_old_style tests/busybox/awk/awk-large-integer-and-int-work
 run_old_style tests/busybox/awk/awk-length-array-works
+run_old_style tests/busybox/awk/awk-do-while-works
 run_old_style tests/busybox/awk/awk-f-dash-and-argc-work
 run_old_style tests/busybox/awk/awk-fs-assignment-works
+run_old_style tests/busybox/awk/awk-getline-reads-current-input
+run_old_style tests/busybox/awk/awk-getline-expression-reads-current-input
+run_old_style tests/busybox/awk/awk-getline-expression-reads-file
+run_old_style tests/busybox/awk/awk-getline-file-source-expression-works
+run_old_style tests/busybox/awk/awk-nextfile-skips-to-next-input
 run_old_style tests/busybox/awk/awk-delete-missing-arg-errors
 run_old_style tests/busybox/awk/awk-top-level-colon-errors
 run_old_style tests/busybox/awk/awk-negative-field-access-errors
@@ -284,6 +290,7 @@ run_old_style tests/busybox/sed/sed-caret-or-not-caret
 run_old_style tests/busybox/sed/sed-understands-carriage-return-in-replacement
 run_old_style tests/busybox/sed/sed-escaped-newline-in-command
 run_old_style tests/busybox/sed/sed-nested-blocks-work
+run_old_style tests/busybox/sed/sed-nested-block-range-addresses-work
 run_old_style tests/busybox/sed/sed-N-and-P-work
 run_old_style tests/busybox/sed/sed-text-commands-decode-escapes
 run_old_style tests/busybox/sed/sed-i-command-decode-escapes

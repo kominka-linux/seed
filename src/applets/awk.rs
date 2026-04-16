@@ -47,7 +47,6 @@ fn run(args: &[std::ffi::OsString]) -> AppletCodeResult {
         };
 
         for path in paths {
-            env.start_file();
             let reader: Box<dyn BufRead> = match path {
                 Some(path) => match fs::File::open(path) {
                     Ok(file) => Box::new(BufReader::new(file)),
@@ -62,7 +61,9 @@ fn run(args: &[std::ffi::OsString]) -> AppletCodeResult {
                 },
                 None => Box::new(BufReader::new(io::stdin().lock())),
             };
-            if let Some(code) = process_reader(reader, &program.main_rules, &mut env, &mut out)? {
+            let lines = collect_input_lines(reader)?;
+            env.start_file(lines);
+            if let Some(code) = process_reader(&program.main_rules, &mut env, &mut out)? {
                 exit_code = Some(code);
                 break;
             }
@@ -77,12 +78,8 @@ fn run(args: &[std::ffi::OsString]) -> AppletCodeResult {
     Ok(exit_code.unwrap_or(0))
 }
 
-fn process_reader<R: BufRead>(
-    mut reader: R,
-    rules: &[Rule],
-    env: &mut Environment,
-    out: &mut dyn Write,
-) -> Result<Option<i32>, Vec<AppletError>> {
+fn collect_input_lines<R: BufRead>(mut reader: R) -> Result<Vec<String>, Vec<AppletError>> {
+    let mut lines = Vec::new();
     let mut line = String::new();
     loop {
         line.clear();
@@ -98,10 +95,22 @@ fn process_reader<R: BufRead>(
                 line.pop();
             }
         }
+        lines.push(line.clone());
+    }
+    Ok(lines)
+}
+
+fn process_reader(
+    rules: &[Rule],
+    env: &mut Environment,
+    out: &mut dyn Write,
+) -> Result<Option<i32>, Vec<AppletError>> {
+    while let Some(line) = env.next_input_record() {
         env.set_record(&line)?;
         match execute_rules(rules, env, out)? {
             ExecFlow::Exit(code) => return Ok(Some(code)),
             ExecFlow::NextRecord => continue,
+            ExecFlow::NextFile => break,
             _ => {}
         }
     }
@@ -181,9 +190,32 @@ fn execute_stmt(
                 match execute_stmt(body, env, out)? {
                     ExecFlow::Next | ExecFlow::Continue => {}
                     ExecFlow::Break => break,
-                    flow @ (ExecFlow::Return(_) | ExecFlow::Exit(_) | ExecFlow::NextRecord) => {
+                    flow @ (
+                        ExecFlow::Return(_)
+                        | ExecFlow::Exit(_)
+                        | ExecFlow::NextRecord
+                        | ExecFlow::NextFile
+                    ) => {
                         return Ok(flow);
                     }
+                }
+            }
+            Ok(ExecFlow::Next)
+        }
+        Stmt::DoWhile(body, condition) => {
+            loop {
+                match execute_stmt(body, env, out)? {
+                    ExecFlow::Next | ExecFlow::Continue => {}
+                    ExecFlow::Break => break,
+                    flow @ (
+                        ExecFlow::Return(_)
+                        | ExecFlow::Exit(_)
+                        | ExecFlow::NextRecord
+                        | ExecFlow::NextFile
+                    ) => return Ok(flow),
+                }
+                if !eval_expr(condition, env, out)?.is_truthy() {
+                    break;
                 }
             }
             Ok(ExecFlow::Next)
@@ -204,7 +236,12 @@ fn execute_stmt(
                 match execute_stmt(body, env, out)? {
                     ExecFlow::Next | ExecFlow::Continue => {}
                     ExecFlow::Break => break,
-                    flow @ (ExecFlow::Return(_) | ExecFlow::Exit(_) | ExecFlow::NextRecord) => {
+                    flow @ (
+                        ExecFlow::Return(_)
+                        | ExecFlow::Exit(_)
+                        | ExecFlow::NextRecord
+                        | ExecFlow::NextFile
+                    ) => {
                         return Ok(flow);
                     }
                 }
@@ -220,7 +257,12 @@ fn execute_stmt(
                 match execute_stmt(body, env, out)? {
                     ExecFlow::Next | ExecFlow::Continue => {}
                     ExecFlow::Break => break,
-                    flow @ (ExecFlow::Return(_) | ExecFlow::Exit(_) | ExecFlow::NextRecord) => {
+                    flow @ (
+                        ExecFlow::Return(_)
+                        | ExecFlow::Exit(_)
+                        | ExecFlow::NextRecord
+                        | ExecFlow::NextFile
+                    ) => {
                         return Ok(flow);
                     }
                 }
@@ -246,8 +288,12 @@ fn execute_stmt(
                 .unwrap_or(0),
         )),
         Stmt::Next => Ok(ExecFlow::NextRecord),
+        Stmt::NextFile => {
+            env.skip_current_file();
+            Ok(ExecFlow::NextFile)
+        }
         Stmt::Getline(target, source) => {
-            let _ = execute_getline(target.as_deref(), source.as_ref(), env)?;
+            let _ = execute_getline(target.as_deref(), source.as_ref(), env, out)?;
             Ok(ExecFlow::Next)
         }
         Stmt::Block(stmts) => execute_block(stmts, env, out),
@@ -308,6 +354,9 @@ fn eval_expr(
                 },
             ))
         }
+        Expr::Getline(target, source) => Ok(Value::Number(
+            execute_getline(target.as_deref(), source.as_deref(), env, out)? as f64,
+        )),
         Expr::Var(name) => {
             if name == "length" && !env.has_user_var(name) && !env.has_array(name) {
                 return Ok(Value::Number(env.record_text().chars().count() as f64));
@@ -668,27 +717,25 @@ fn execute_getline(
     target: Option<&str>,
     source: Option<&Expr>,
     env: &mut Environment,
+    out: &mut dyn Write,
 ) -> Result<i32, Vec<AppletError>> {
     let line = if let Some(source) = source {
-        let path = match source {
-            Expr::String(path) => path.clone(),
-            Expr::Var(name) => env.get_var(name).as_string(),
-            _ => return Err(vec![AppletError::new(APPLET, "unsupported getline source")]),
-        };
+        let path = eval_expr(source, env, out)?.as_string();
         match env.get_line_from_path(&path) {
             Ok(line) => line,
             Err(_) => return Ok(-1),
         }
     } else {
-        return Err(vec![AppletError::new(
-            APPLET,
-            "getline without source not yet supported",
-        )]);
+        env.set_errno(0);
+        env.next_input_record()
     };
 
     match line {
         Some(line) => {
             if let Some(target) = target {
+                if source.is_none() {
+                    env.increment_record_counters();
+                }
                 env.set_var(target, Value::String(line));
             } else {
                 env.set_record(&line)?;
@@ -824,6 +871,7 @@ fn compare_values(left: &Value, right: &Value) -> i32 {
 enum ExecFlow {
     Next,
     NextRecord,
+    NextFile,
     Return(Value),
     Break,
     Continue,
@@ -893,6 +941,8 @@ struct Environment {
     functions: HashMap<String, Function>,
     frames: Vec<HashMap<String, Value>>,
     readers: HashMap<String, BufReader<fs::File>>,
+    current_input_lines: Vec<String>,
+    current_input_index: usize,
     record: String,
     fields: Vec<String>,
     nr: usize,
@@ -911,6 +961,8 @@ impl Environment {
             functions,
             frames: Vec::new(),
             readers: HashMap::new(),
+            current_input_lines: Vec::new(),
+            current_input_index: 0,
             record: String::new(),
             fields: Vec::new(),
             nr: 0,
@@ -918,8 +970,10 @@ impl Environment {
         }
     }
 
-    fn start_file(&mut self) {
+    fn start_file(&mut self, lines: Vec<String>) {
         self.fnr = 0;
+        self.current_input_lines = lines;
+        self.current_input_index = 0;
     }
 
     fn set_record(&mut self, line: &str) -> Result<(), Vec<AppletError>> {
@@ -1006,6 +1060,12 @@ impl Environment {
                         "next from function not yet supported",
                     )]);
                 }
+                ExecFlow::NextFile => {
+                    return Err(vec![AppletError::new(
+                        APPLET,
+                        "nextfile from function not yet supported",
+                    )]);
+                }
                 ExecFlow::Return(value) => {
                     return_value = value;
                     break;
@@ -1088,6 +1148,24 @@ impl Environment {
 
     fn close_path(&mut self, path: &str) {
         self.readers.remove(path);
+    }
+
+    fn next_input_record(&mut self) -> Option<String> {
+        let line = self
+            .current_input_lines
+            .get(self.current_input_index)
+            .cloned()?;
+        self.current_input_index += 1;
+        Some(line)
+    }
+
+    fn increment_record_counters(&mut self) {
+        self.nr += 1;
+        self.fnr += 1;
+    }
+
+    fn skip_current_file(&mut self) {
+        self.current_input_index = self.current_input_lines.len();
     }
 
     fn set_errno(&mut self, code: i32) {
@@ -1446,6 +1524,7 @@ enum Stmt {
     Assign(LValue, AssignOp, Expr),
     If(Expr, Box<Stmt>, Option<Box<Stmt>>),
     While(Expr, Box<Stmt>),
+    DoWhile(Box<Stmt>, Expr),
     ForLoop(Option<Box<Stmt>>, Option<Expr>, Option<Expr>, Box<Stmt>),
     ForIn(String, String, Box<Stmt>),
     Delete(String, Expr),
@@ -1454,6 +1533,7 @@ enum Stmt {
     Continue,
     Exit(Option<Expr>),
     Next,
+    NextFile,
     Getline(Option<String>, Option<Expr>),
     Block(Vec<Stmt>),
     Expr(Expr),
@@ -1464,6 +1544,7 @@ enum Expr {
     Number(f64),
     String(String),
     Regex(String),
+    Getline(Option<String>, Option<Box<Expr>>),
     Var(String),
     ArrayGet(String, Box<Expr>),
     Field(Box<Expr>),
@@ -1531,11 +1612,13 @@ enum Token {
     Return,
     If,
     While,
+    Do,
     Else,
     Break,
     Continue,
     Exit,
     Next,
+    Nextfile,
     Getline,
     For,
     In,
@@ -1750,6 +1833,16 @@ impl<'a> Parser<'a> {
                 self.expect(Token::RParen)?;
                 Ok(Stmt::While(condition, Box::new(self.parse_stmt()?)))
             }
+            Token::Do => {
+                self.bump()?;
+                let body = self.parse_stmt()?;
+                self.skip_separators()?;
+                self.expect(Token::While)?;
+                self.expect(Token::LParen)?;
+                let condition = self.parse_expr()?;
+                self.expect(Token::RParen)?;
+                Ok(Stmt::DoWhile(Box::new(body), condition))
+            }
             Token::Break => {
                 self.bump()?;
                 Ok(Stmt::Break)
@@ -1762,6 +1855,10 @@ impl<'a> Parser<'a> {
                 self.bump()?;
                 Ok(Stmt::Next)
             }
+            Token::Nextfile => {
+                self.bump()?;
+                Ok(Stmt::NextFile)
+            }
             Token::Exit => {
                 self.bump()?;
                 if matches!(self.current, Token::Semicolon | Token::RBrace | Token::Eof) {
@@ -1772,20 +1869,7 @@ impl<'a> Parser<'a> {
             }
             Token::Getline => {
                 self.bump()?;
-                let target = match &self.current {
-                    Token::Ident(name) => {
-                        let name = name.clone();
-                        self.bump()?;
-                        Some(name)
-                    }
-                    _ => None,
-                };
-                let source = if matches!(self.current, Token::Lt) {
-                    self.bump()?;
-                    Some(self.parse_expr()?)
-                } else {
-                    None
-                };
+                let (target, source) = self.parse_getline_parts()?;
                 Ok(Stmt::Getline(target, source))
             }
             Token::For => {
@@ -2150,6 +2234,11 @@ impl<'a> Parser<'a> {
                 self.expect(Token::RParen)?;
                 expr
             }
+            Token::Getline => {
+                self.bump()?;
+                let (target, source) = self.parse_getline_parts()?;
+                Expr::Getline(target, source.map(Box::new))
+            }
             _ => {
                 return Err(vec![AppletError::new(
                     APPLET,
@@ -2196,6 +2285,24 @@ impl<'a> Parser<'a> {
         }
         self.bump()
     }
+
+    fn parse_getline_parts(&mut self) -> Result<(Option<String>, Option<Expr>), Vec<AppletError>> {
+        let target = match &self.current {
+            Token::Ident(name) => {
+                let name = name.clone();
+                self.bump()?;
+                Some(name)
+            }
+            _ => None,
+        };
+        let source = if matches!(self.current, Token::Lt) {
+            self.bump()?;
+            Some(self.parse_expr()?)
+        } else {
+            None
+        };
+        Ok((target, source))
+    }
 }
 
 fn token_starts_expr(token: &Token) -> bool {
@@ -2207,6 +2314,7 @@ fn token_starts_expr(token: &Token) -> bool {
             | Token::LParen
             | Token::Slash
             | Token::Dollar
+            | Token::Getline
             | Token::Ne
             | Token::Plus
             | Token::Minus
@@ -2436,11 +2544,13 @@ impl<'a> Lexer<'a> {
                     "return" => (Token::Return, had_space),
                     "if" => (Token::If, had_space),
                     "while" => (Token::While, had_space),
+                    "do" => (Token::Do, had_space),
                     "else" => (Token::Else, had_space),
                     "break" => (Token::Break, had_space),
                     "continue" => (Token::Continue, had_space),
                     "exit" => (Token::Exit, had_space),
                     "next" => (Token::Next, had_space),
+                    "nextfile" => (Token::Nextfile, had_space),
                     "getline" => (Token::Getline, had_space),
                     "for" => (Token::For, had_space),
                     "in" => (Token::In, had_space),

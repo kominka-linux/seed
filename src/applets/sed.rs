@@ -125,6 +125,12 @@ struct RuntimeState {
     numeric_range_started: bool,
 }
 
+#[derive(Clone, Debug, Default)]
+struct CommandRuntime {
+    state: RuntimeState,
+    nested: Vec<CommandRuntime>,
+}
+
 #[derive(Clone, Debug)]
 struct PatternSpace {
     text: String,
@@ -765,7 +771,7 @@ fn split_lines(content: &str) -> Vec<Line> {
 }
 
 fn execute(program: Program, inputs: Vec<InputFile>, options: Options) -> Result<i32, String> {
-    let mut runtime = vec![RuntimeState::default(); program.commands.len()];
+    let mut runtime = build_command_runtime(&program.commands);
     let mut outputs = vec![String::new(); inputs.len()];
     let mut line_number = 0usize;
     let mut quit_code = None;
@@ -774,7 +780,7 @@ fn execute(program: Program, inputs: Vec<InputFile>, options: Options) -> Result
 
     'files: for (file_index, input) in inputs.iter().enumerate() {
         if options.in_place.is_some() {
-            runtime.fill(RuntimeState::default());
+            reset_command_runtime(&mut runtime);
             hold = PatternSpace::default();
             line_number = 0;
         }
@@ -801,7 +807,7 @@ fn execute(program: Program, inputs: Vec<InputFile>, options: Options) -> Result
                 let command = &program.commands[command_index];
                 let decision = select_address(
                     command,
-                    &mut runtime[command_index],
+                    &mut runtime[command_index].state,
                     current_line_number,
                     current_line_number == total_lines,
                     &pattern.text,
@@ -820,11 +826,12 @@ fn execute(program: Program, inputs: Vec<InputFile>, options: Options) -> Result
                     input,
                     input_index: &mut index,
                     line_number: &mut line_number,
+                    total_lines,
                 };
                 match apply_command(
                     command,
+                    &mut runtime[command_index],
                     decision,
-                    *context.line_number,
                     &mut context,
                 )? {
                     CommandFlow::Continue => command_index += 1,
@@ -940,12 +947,13 @@ struct CommandContext<'a> {
     input: &'a InputFile,
     input_index: &'a mut usize,
     line_number: &'a mut usize,
+    total_lines: usize,
 }
 
 fn apply_command(
     command: &Command,
+    runtime: &mut CommandRuntime,
     decision: AddressDecision,
-    line_number: usize,
     context: &mut CommandContext<'_>,
 ) -> Result<CommandFlow, String> {
     match &command.kind {
@@ -987,7 +995,7 @@ fn apply_command(
             context.output.suppress_default_print = true;
             return Ok(CommandFlow::EndCycle);
         }
-        CommandKind::Number => context.output.before.push(line_number.to_string()),
+        CommandKind::Number => context.output.before.push((*context.line_number).to_string()),
         CommandKind::Next => return Ok(CommandFlow::NextLine),
         CommandKind::AppendNext => return Ok(CommandFlow::AppendNextLine),
         CommandKind::Label(_) => {}
@@ -1036,12 +1044,19 @@ fn apply_command(
             let mut nested_index = 0usize;
             while nested_index < commands.len() {
                 let nested = &commands[nested_index];
-                let decision = select_nested_address(nested, context.pattern)?;
+                let current_line = *context.line_number;
+                let decision = select_address(
+                    nested,
+                    &mut runtime.nested[nested_index].state,
+                    current_line,
+                    current_line == context.total_lines,
+                    &context.pattern.text,
+                )?;
                 if !decision.selected {
                     nested_index += 1;
                     continue;
                 }
-                match apply_command(nested, decision, line_number, context)? {
+                match apply_command(nested, &mut runtime.nested[nested_index], decision, context)? {
                     CommandFlow::Continue => nested_index += 1,
                     CommandFlow::AppendNextLine => {
                         if !append_next_line(context) {
@@ -1071,19 +1086,24 @@ fn append_next_line(context: &mut CommandContext<'_>) -> bool {
     true
 }
 
-fn select_nested_address(
-    command: &Command,
-    pattern: &PatternSpace,
-) -> Result<AddressDecision, String> {
-    let selected = match (&command.address1, &command.address2) {
-        (None, None) => true,
-        (Some(address), None) => address.matches(0, false, &pattern.text)?,
-        _ => return Err(String::from("range addresses in nested blocks are unsupported")),
-    };
-    Ok(AddressDecision {
-        selected: if command.negate { !selected } else { selected },
-        started_range: false,
-    })
+fn build_command_runtime(commands: &[Command]) -> Vec<CommandRuntime> {
+    commands
+        .iter()
+        .map(|command| CommandRuntime {
+            state: RuntimeState::default(),
+            nested: match &command.kind {
+                CommandKind::Block(commands) => build_command_runtime(commands),
+                _ => Vec::new(),
+            },
+        })
+        .collect()
+}
+
+fn reset_command_runtime(runtime: &mut [CommandRuntime]) {
+    for command in runtime {
+        command.state = RuntimeState::default();
+        reset_command_runtime(&mut command.nested);
+    }
 }
 
 fn branch_target(program: &Program, label: &Option<String>) -> Result<usize, String> {

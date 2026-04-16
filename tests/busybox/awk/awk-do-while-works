@@ -1,0 +1,17 @@
+tmpdir="${TMPDIR:-/tmp}/seed-awk-$$"
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir"
+
+cat >"$tmpdir/script.awk" <<'EOF'
+BEGIN { i=0; do { print i; i++ } while (i<3); print "done" }
+EOF
+
+awk -f "$tmpdir/script.awk" >"$tmpdir/actual"
+cat >"$tmpdir/expected" <<'EOF'
+0
+1
+2
+done
+EOF
+
+diff -u "$tmpdir/expected" "$tmpdir/actual"

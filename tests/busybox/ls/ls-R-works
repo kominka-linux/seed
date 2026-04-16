@@ -1,0 +1,8 @@
+mkdir -p "$d/tree/sub"
+printf 'x\n' >"$d/tree/root-file"
+printf 'y\n' >"$d/tree/sub/child-file"
+ln -s "$d/tree/sub" "$d/tree/link"
+
+LC_ALL=C /bin/ls -1R "$d/tree" > logfile.gnu
+LC_ALL=C busybox ls -1R "$d/tree" > logfile.bb
+cmp logfile.gnu logfile.bb

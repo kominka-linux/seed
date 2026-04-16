@@ -749,6 +749,7 @@ run_old_style_ls tests/busybox/ls/ls-h-works
 run_old_style_ls tests/busybox/ls/ls-l-works
 run_old_style_ls tests/busybox/ls/ls-l-symlink-to-dir-works
 run_old_style_ls tests/busybox/ls/ls-multiple-targets-works
+run_old_style_ls tests/busybox/ls/ls-R-works
 run_old_style_ls tests/busybox/ls/ls-s-works
 run_old_style_ls tests/busybox/ls/ls-sort-flags-work
 run_old_style_ls tests/busybox/ls/ls-symlink-to-dir-works

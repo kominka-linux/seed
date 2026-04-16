@@ -15,6 +15,7 @@ const APPLET: &str = "ls";
 struct Options {
     hidden_mode: HiddenMode,
     list_directory_itself: bool,
+    recursive: bool,
     reverse_sort: bool,
     single_column: bool,
     human_readable: bool,
@@ -165,6 +166,7 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
                     'd' => options.list_directory_itself = true,
                     'h' => options.human_readable = true,
                     'l' => options.long_format = true,
+                    'R' => options.recursive = true,
                     'r' => options.reverse_sort = true,
                     's' => options.show_blocks = true,
                     't' => options.sort_mode = SortMode::Time,
@@ -222,6 +224,14 @@ fn should_list_directory(path: &Path, metadata: &fs::Metadata, options: Options)
 }
 
 fn render_directory(path: &Path, options: Options) -> Result<String, AppletError> {
+    if options.recursive {
+        return render_directory_recursive(path, options);
+    }
+    let entries = read_directory_entries(path, options)?;
+    render_entries(&entries, options, true)
+}
+
+fn read_directory_entries(path: &Path, options: Options) -> Result<Vec<Entry>, AppletError> {
     let display = path.to_string_lossy();
     let mut entries = Vec::new();
 
@@ -252,7 +262,36 @@ fn render_directory(path: &Path, options: Options) -> Result<String, AppletError
 
     sort_entries(&mut entries, options);
 
-    render_entries(&entries, options, true)
+    Ok(entries)
+}
+
+fn render_directory_recursive(path: &Path, options: Options) -> Result<String, AppletError> {
+    let mut sections = Vec::new();
+    collect_directory_sections(path, &path.to_string_lossy(), options, &mut sections)?;
+    Ok(sections.join("\n"))
+}
+
+fn collect_directory_sections(
+    path: &Path,
+    display: &str,
+    options: Options,
+    sections: &mut Vec<String>,
+) -> Result<(), AppletError> {
+    let entries = read_directory_entries(path, options)?;
+    let mut section = String::new();
+    section.push_str(display);
+    section.push_str(":\n");
+    section.push_str(&render_entries(&entries, options, true)?);
+    sections.push(section);
+
+    for entry in entries {
+        if !entry.metadata.is_dir() || entry.name == "." || entry.name == ".." {
+            continue;
+        }
+        collect_directory_sections(&entry.path, &entry.path.to_string_lossy(), options, sections)?;
+    }
+
+    Ok(())
 }
 
 fn special_entry(base: &Path, name: &str, target: &Path) -> Result<Entry, AppletError> {
@@ -699,6 +738,14 @@ mod tests {
     }
 
     #[test]
+    fn parses_recursive_flag() {
+        let (options, paths) = parse_args(&["-R".to_owned(), "dir".to_owned()]).expect("parse");
+
+        assert!(options.recursive);
+        assert_eq!(paths, vec!["dir"]);
+    }
+
+    #[test]
     fn symlink_to_directory_lists_directory_contents() {
         let tempdir = TempDir::new();
         let dir = tempdir.path().join("dir");
@@ -894,6 +941,60 @@ mod tests {
         .expect("render symlink with -d");
 
         assert_eq!(output, format!("{}\n", link.display()));
+    }
+
+    #[test]
+    fn recursive_listing_prints_headers_for_root_and_children() {
+        let tempdir = TempDir::new();
+        let dir = tempdir.path().join("dir");
+        let sub = dir.join("sub");
+        fs::create_dir(&dir).expect("create dir");
+        fs::create_dir(&sub).expect("create sub");
+        fs::write(dir.join("root-file"), b"x").expect("write root file");
+        fs::write(sub.join("child-file"), b"y").expect("write child file");
+
+        let output = render_target(
+            dir.to_str().expect("utf8 path"),
+            Options {
+                recursive: true,
+                single_column: true,
+                ..Options::default()
+            },
+        )
+        .expect("render recursive dir");
+
+        let expected = format!(
+            "{}:\nroot-file\nsub\n\n{}:\nchild-file\n",
+            dir.display(),
+            sub.display()
+        );
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn recursive_listing_does_not_descend_into_symlinked_directories() {
+        let tempdir = TempDir::new();
+        let dir = tempdir.path().join("dir");
+        let sub = dir.join("sub");
+        let link = dir.join("link");
+        fs::create_dir(&dir).expect("create dir");
+        fs::create_dir(&sub).expect("create sub");
+        fs::write(sub.join("child-file"), b"y").expect("write child file");
+        std::os::unix::fs::symlink(&sub, &link).expect("create symlink");
+
+        let output = render_target(
+            dir.to_str().expect("utf8 path"),
+            Options {
+                recursive: true,
+                single_column: true,
+                ..Options::default()
+            },
+        )
+        .expect("render recursive dir");
+
+        assert!(output.contains(&format!("{}:\n", dir.display())));
+        assert!(output.contains(&format!("{}:\nchild-file\n", sub.display())));
+        assert!(!output.contains(&format!("{}:\n", link.display())));
     }
 
     #[test]

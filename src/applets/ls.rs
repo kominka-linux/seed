@@ -13,11 +13,20 @@ const APPLET: &str = "ls";
 
 #[derive(Clone, Copy, Debug, Default)]
 struct Options {
+    hidden_mode: HiddenMode,
     list_directory_itself: bool,
     single_column: bool,
     human_readable: bool,
     long_format: bool,
     show_blocks: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum HiddenMode {
+    #[default]
+    Omit,
+    AlmostAll,
+    All,
 }
 
 #[derive(Debug)]
@@ -137,6 +146,8 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
             for flag in arg[1..].chars() {
                 match flag {
                     '1' => options.single_column = true,
+                    'A' => options.hidden_mode = HiddenMode::AlmostAll,
+                    'a' => options.hidden_mode = HiddenMode::All,
                     'd' => options.list_directory_itself = true,
                     'h' => options.human_readable = true,
                     'l' => options.long_format = true,
@@ -198,6 +209,11 @@ fn render_directory(path: &Path, options: Options) -> Result<String, AppletError
     let display = path.to_string_lossy();
     let mut entries = Vec::new();
 
+    if options.hidden_mode == HiddenMode::All {
+        entries.push(special_entry(path, ".", path)?);
+        entries.push(special_entry(path, "..", &path.join(".."))?);
+    }
+
     for entry in fs::read_dir(path)
         .map_err(|err| AppletError::from_io(APPLET, "reading", Some(&display), err))?
     {
@@ -205,6 +221,9 @@ fn render_directory(path: &Path, options: Options) -> Result<String, AppletError
             entry.map_err(|err| AppletError::from_io(APPLET, "reading", Some(&display), err))?;
         let name = entry.file_name();
         let name = String::from_utf8_lossy(name.as_os_str().as_bytes()).into_owned();
+        if !should_include_name(&name, options.hidden_mode) {
+            continue;
+        }
         let child_path = entry.path();
         let metadata = fs::symlink_metadata(&child_path)
             .map_err(|err| AppletError::from_io(APPLET, "reading", Some(&name), err))?;
@@ -218,6 +237,23 @@ fn render_directory(path: &Path, options: Options) -> Result<String, AppletError
     entries.sort_by(|left, right| left.name.as_bytes().cmp(right.name.as_bytes()));
 
     render_entries(&entries, options, true)
+}
+
+fn special_entry(base: &Path, name: &str, target: &Path) -> Result<Entry, AppletError> {
+    let metadata = fs::symlink_metadata(target)
+        .map_err(|err| AppletError::from_io(APPLET, "reading", Some(&base.to_string_lossy()), err))?;
+    Ok(Entry {
+        name: name.to_owned(),
+        path: target.to_path_buf(),
+        metadata,
+    })
+}
+
+fn should_include_name(name: &str, hidden_mode: HiddenMode) -> bool {
+    match hidden_mode {
+        HiddenMode::Omit => !name.starts_with('.'),
+        HiddenMode::AlmostAll | HiddenMode::All => true,
+    }
 }
 
 fn render_entries(
@@ -419,7 +455,7 @@ fn format_human_size(size: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Options, parse_args, render_target, render_targets};
+    use super::{HiddenMode, Options, parse_args, render_target, render_targets};
     use crate::common::unix;
     use std::fs;
     use std::path::PathBuf;
@@ -576,6 +612,15 @@ mod tests {
     }
 
     #[test]
+    fn parses_hidden_flags() {
+        let (options, paths) = parse_args(&["-A".to_owned(), "-a".to_owned(), "dir".to_owned()])
+            .expect("parse");
+
+        assert_eq!(options.hidden_mode, HiddenMode::All);
+        assert_eq!(paths, vec!["dir"]);
+    }
+
+    #[test]
     fn symlink_to_directory_lists_directory_contents() {
         let tempdir = TempDir::new();
         let dir = tempdir.path().join("dir");
@@ -589,6 +634,60 @@ mod tests {
             .expect("render symlink target");
 
         assert_eq!(output, "A\nB\n");
+    }
+
+    #[test]
+    fn default_directory_listing_omits_hidden_entries() {
+        let tempdir = TempDir::new();
+        let dir = tempdir.path().join("dir");
+        fs::create_dir(&dir).expect("create dir");
+        fs::write(dir.join("A"), b"x").expect("write A");
+        fs::write(dir.join(".hidden"), b"y").expect("write hidden");
+
+        let output = render_target(dir.to_str().expect("utf8 path"), Options::default())
+            .expect("render dir");
+
+        assert_eq!(output, "A\n");
+    }
+
+    #[test]
+    fn almost_all_listing_includes_hidden_entries_without_dot_and_dotdot() {
+        let tempdir = TempDir::new();
+        let dir = tempdir.path().join("dir");
+        fs::create_dir(&dir).expect("create dir");
+        fs::write(dir.join("A"), b"x").expect("write A");
+        fs::write(dir.join(".hidden"), b"y").expect("write hidden");
+
+        let output = render_target(
+            dir.to_str().expect("utf8 path"),
+            Options {
+                hidden_mode: HiddenMode::AlmostAll,
+                ..Options::default()
+            },
+        )
+        .expect("render dir");
+
+        assert_eq!(output, ".hidden\nA\n");
+    }
+
+    #[test]
+    fn all_listing_includes_dot_and_dotdot() {
+        let tempdir = TempDir::new();
+        let dir = tempdir.path().join("dir");
+        fs::create_dir(&dir).expect("create dir");
+        fs::write(dir.join("A"), b"x").expect("write A");
+        fs::write(dir.join(".hidden"), b"y").expect("write hidden");
+
+        let output = render_target(
+            dir.to_str().expect("utf8 path"),
+            Options {
+                hidden_mode: HiddenMode::All,
+                ..Options::default()
+            },
+        )
+        .expect("render dir");
+
+        assert_eq!(output, ".\n..\n.hidden\nA\n");
     }
 
     #[test]

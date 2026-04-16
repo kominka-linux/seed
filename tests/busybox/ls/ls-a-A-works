@@ -1,0 +1,11 @@
+mkdir -p "$d/dir"
+printf 'x\n' >"$d/dir/A"
+printf 'y\n' >"$d/dir/.hidden"
+
+LC_ALL=C /bin/ls -1a "$d/dir" > logfile.gnu
+LC_ALL=C busybox ls -1a "$d/dir" > logfile.bb
+cmp logfile.gnu logfile.bb
+
+LC_ALL=C /bin/ls -1A "$d/dir" > logfile.gnu
+LC_ALL=C busybox ls -1A "$d/dir" > logfile.bb
+cmp logfile.gnu logfile.bb

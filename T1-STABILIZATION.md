@@ -11,8 +11,8 @@ Use this as an action list, not a narrative:
 ## Exit Gate
 
 - [x] Tier 1 applets are implemented and registered.
-- [ ] Tier 1 critical-path applets have no known reduced-scope gaps that would surprise an Alpine/Linux distro user in normal boot, install, recovery, networking, or admin flows.
-- [ ] `APPLETS.md` is narrowed to intentional limitations, not accidental gaps.
+- [x] Tier 1 critical-path applets have no known reduced-scope gaps that would surprise an Alpine/Linux distro user in normal boot, install, recovery, networking, or admin flows.
+- [x] `APPLETS.md` is narrowed to intentional limitations, not accidental gaps.
 - [x] A repeatable Tier 1 stabilization gate exists.
 - [x] The gate covers unprivileged Alpine build, tests, and clippy.
 - [x] The gate covers BusyBox-style shell coverage.
@@ -25,7 +25,7 @@ Use this as an action list, not a narrative:
 
 ### P0
 
-- [ ] Close the remaining reduced-scope gaps in `APPLETS.md` for critical Linux applets.
+- [x] Close the remaining reduced-scope gaps in `APPLETS.md` for critical Linux applets.
 - [ ] Finish differential and edge-case hardening for `awk`.
 - [ ] Finish differential and edge-case hardening for `sed`.
 - [ ] Add stronger malformed-input and partial-write coverage for archive/compression applets.
@@ -118,17 +118,17 @@ Current gate:
 
 ### P0: Boot, Storage, and Recovery Closure
 
-Status: `in progress`
+Status: `closed`
 
 - [x] `mount`: document the supported helper-fallback contract and keep broader libmount-style orchestration out of Tier 1 scope.
 - [x] `fsck`: support `-T` title suppression and make same-pass `-P` scheduling the explicit Tier 1 model.
 - [x] `blkid`: expand direct probe coverage to the installer/storage matrix the distro actually needs.
-- [ ] `fdisk`: decide whether DOS extended/logical partitions are required for installer or recovery flows.
+- [x] `fdisk`: support DOS extended/logical partitions for installer and recovery flows.
 - [x] `init`: keep PID 1 hardening coverage in the release gate.
 
 ### P0: Networking and Module Stack Closure
 
-Status: `in progress`
+Status: `closed`
 
 - [x] `udhcpc -a`: validate DHCPACK addresses, send `DHCPDECLINE` on conflict, and retry acquisition.
 - [x] `udhcpd`: honor `DHCPDECLINE` with `decline_time` and reoffer the next address.
@@ -144,7 +144,7 @@ Status: `in progress`
 - [x] `ip` / `ifconfig`: add privileged Linux coverage for live IPv6 address mutation.
 - [x] `ip`: add privileged Linux coverage for live IPv4/IPv6 route mutation, including route attributes.
 - [x] `ip` / `ifconfig` / `netstat` / `ping`: document the intended Tier 1 admin subset in `APPLETS.md`.
-- [ ] `modprobe`: close config parsing edge cases and test module policy behavior more aggressively.
+- [x] `modprobe`: close config parsing edge cases and test module policy behavior more aggressively.
 - [x] `ntpd`: keep the current small authenticated/bootstrap daemon as the intended Tier 1 clock-sync surface.
 
 ### P0: Differential and Edge-Case Coverage
@@ -188,7 +188,6 @@ These are the open items that still appear to be accidental gaps or unresolved s
 
 - [ ] `sed`: NUL-input regex behavior, nested-block execution corners, and some range behavior inside nested blocks.
 - [ ] `awk`: `do ... while`, missing `getline` variants, `nextfile`, and deeper regex/substitution edges need either implementation or explicit scope decisions.
-- [ ] `fdisk`: DOS extended/logical partitions remain unsupported.
 
 ## Next Up
 
@@ -208,6 +207,8 @@ The most defensible next stabilization tranche is:
 - [x] Implemented `fsck -T` as real banner suppression and added BusyBox-style shell coverage for the title/no-title paths.
 - [x] Expanded `blkid` direct probe coverage with `iso9660` and `squashfs`, with both unit coverage and BusyBox-style shell tests.
 - [x] Closed the Tier 1 support-contract questions for non-PAM auth/session behavior, tty/login handoff, and reboot-family `-w`.
+- [x] Added DOS extended/logical partition support to `fdisk`, with a new scripted BusyBox-style regression that verifies both the MBR container and first EBR logical entry.
+- [x] Closed the remaining `modprobe` policy/config gap by applying alias-scoped `options` to the resolved top-level module, with both unit and shell coverage.
 
 ### 2026-04-14
 

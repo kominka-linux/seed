@@ -221,6 +221,21 @@ impl ModprobeConfig {
             .unwrap_or_default()
     }
 
+    pub(crate) fn request_options(&self, request: &str, module: &str) -> Vec<String> {
+        let request = normalize_module_name(request);
+        let module = normalize_module_name(module);
+        let mut options = Vec::new();
+        if request != module
+            && let Some(values) = self.options.get(&request)
+        {
+            options.extend(values.clone());
+        }
+        if let Some(values) = self.options.get(&module) {
+            options.extend(values.clone());
+        }
+        options
+    }
+
     pub(crate) fn install_command(&self, module: &str) -> Option<&str> {
         self.install_commands
             .get(&normalize_module_name(module))
@@ -680,6 +695,21 @@ mod tests {
         assert_eq!(
             config.install_command("driver"),
             Some(r#"printf 'install:#%s\n' "$MODPROBE_MODULE""#),
+        );
+    }
+
+    #[test]
+    fn request_options_merge_alias_and_module_options() {
+        let mut config = ModprobeConfig::default();
+        parse_modprobe_config_line(&mut config, "options netdev speed=1000 duplex=full");
+        parse_modprobe_config_line(&mut config, "options driver debug=1");
+        assert_eq!(
+            config.request_options("netdev", "driver"),
+            vec![
+                String::from("speed=1000"),
+                String::from("duplex=full"),
+                String::from("debug=1"),
+            ]
         );
     }
 }

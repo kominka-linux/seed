@@ -127,7 +127,11 @@ fn insert_request(
         if dry_run {
             continue;
         }
-        let mut module_params = config.module_options(&module.name);
+        let mut module_params = if module.name == entry.name {
+            config.request_options(request, &module.name)
+        } else {
+            config.module_options(&module.name)
+        };
         if module.name == entry.name {
             module_params.extend(params.iter().cloned());
         }

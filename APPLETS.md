@@ -113,9 +113,16 @@ This file tracks applet-specific limitations that are important to keep visible 
     root maintenance-shell auth, EOF-to-continue behavior, and `-e` forced shell behavior for locked/missing root hashes are the intended support surface
   - Intentional limits:
     intentionally a small non-PAM maintenance path, without broader session or tty management
+- `modprobe`
+  - Tier 1 support contract:
+    direct module loads/unloads, alias resolution, blacklist policy, install/remove directives, accumulated `options`, softdeps, and alias-scoped option forwarding to the resolved top-level module are supported
+  - Intentional limits:
+    this is still a focused BusyBox-style subset, not a full kmod userspace with every config directive and reporting mode
 - `fdisk`
-  - DOS extended/logical partitions remain unsupported
-  - `-u/-C/-H/-S` are still mostly compatibility surface
+  - Tier 1 support contract:
+    interactive/listing flows now cover DOS primary, extended, and logical partitions, plus the existing GPT create/list path
+  - Intentional limits:
+    `-u/-C/-H/-S` remain mostly compatibility surface, and the applet is still a smaller scripted/admin tool rather than a full util-linux clone
 - `lsattr` / `chattr`
   - real ioctl path exists
   - deterministic test backend is still used where filesystems do not support the real ext ioctls

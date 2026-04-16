@@ -14,6 +14,9 @@ const DEFAULT_SECTOR_SIZE: u64 = 512;
 const ALIGNMENT_SECTORS: u64 = 2048;
 const MBR_SIGNATURE_OFFSET: usize = 510;
 const MBR_PARTITION_OFFSET: usize = 446;
+const DOS_EXTENDED_CHS: u8 = 0x05;
+const DOS_EXTENDED_LBA: u8 = 0x0f;
+const DOS_EXTENDED_LINUX: u8 = 0x85;
 const GPT_ENTRY_COUNT: u32 = 128;
 const GPT_ENTRY_SIZE: u32 = 128;
 const GPT_HEADER_SIZE: u32 = 92;
@@ -315,7 +318,10 @@ fn read_disk_label(device: &mut Device) -> Result<DiskLabel, Vec<AppletError>> {
         && sector0[MBR_SIGNATURE_OFFSET] == 0x55
         && sector0[MBR_SIGNATURE_OFFSET + 1] == 0xaa
     {
-        return Ok(DiskLabel::Dos(parse_dos_table(&sector0)));
+        let mut table = parse_dos_table(&sector0);
+        populate_logical_partitions(device, &mut table)?;
+        renumber_logical_partitions(&mut table);
+        return Ok(DiskLabel::Dos(table));
     }
     Ok(DiskLabel::None)
 }
@@ -356,37 +362,116 @@ fn write_lba(device: &mut Device, lba: u64, data: &[u8]) -> Result<(), Vec<Apple
 fn parse_dos_table(sector0: &[u8]) -> DosTable {
     let mut table = DosTable::default();
     for index in 0..4 {
-        let offset = MBR_PARTITION_OFFSET + index * 16;
-        if offset + 16 > sector0.len() {
-            break;
-        }
-        let bootable = sector0[offset] == 0x80;
-        let type_code = sector0[offset + 4];
-        let start_lba = u32::from_le_bytes([
-            sector0[offset + 8],
-            sector0[offset + 9],
-            sector0[offset + 10],
-            sector0[offset + 11],
-        ]);
-        let sector_count = u32::from_le_bytes([
-            sector0[offset + 12],
-            sector0[offset + 13],
-            sector0[offset + 14],
-            sector0[offset + 15],
-        ]);
-        if type_code != 0 || sector_count != 0 {
+        if let Some(partition) = parse_dos_entry(sector0, MBR_PARTITION_OFFSET + index * 16)
+            && (partition.type_code != 0 || partition.sector_count != 0)
+        {
             table.partitions.insert(
                 index as u32 + 1,
-                DosPartition {
-                    bootable,
-                    type_code,
-                    start_lba,
-                    sector_count,
-                },
+                partition,
             );
         }
     }
     table
+}
+
+fn parse_dos_entry(bytes: &[u8], offset: usize) -> Option<DosPartition> {
+    (offset + 16 <= bytes.len()).then(|| DosPartition {
+        bootable: bytes[offset] == 0x80,
+        type_code: bytes[offset + 4],
+        start_lba: u32::from_le_bytes([
+            bytes[offset + 8],
+            bytes[offset + 9],
+            bytes[offset + 10],
+            bytes[offset + 11],
+        ]),
+        sector_count: u32::from_le_bytes([
+            bytes[offset + 12],
+            bytes[offset + 13],
+            bytes[offset + 14],
+            bytes[offset + 15],
+        ]),
+    })
+}
+
+fn populate_logical_partitions(device: &mut Device, table: &mut DosTable) -> Result<(), Vec<AppletError>> {
+    let Some(extended) = primary_partitions(table)
+        .find(|(_, partition)| is_extended_partition_type(partition.type_code))
+        .map(|(_, partition)| partition.clone())
+    else {
+        return Ok(());
+    };
+
+    let extended_base = extended.start_lba as u64;
+    let extended_end = extended.end_lba() as u64;
+    let mut current_ebr = extended_base;
+    let mut number = 5_u32;
+    let mut seen = BTreeMap::<u64, ()>::new();
+
+    loop {
+        if current_ebr < extended_base || current_ebr > extended_end {
+            break;
+        }
+        if seen.insert(current_ebr, ()).is_some() {
+            break;
+        }
+        let sector = read_lba(device, current_ebr, 1)?;
+        if sector.len() < MBR_SIGNATURE_OFFSET + 2
+            || sector[MBR_SIGNATURE_OFFSET] != 0x55
+            || sector[MBR_SIGNATURE_OFFSET + 1] != 0xaa
+        {
+            break;
+        }
+
+        if let Some(logical) = parse_dos_entry(&sector, MBR_PARTITION_OFFSET)
+            && logical.type_code != 0
+            && logical.sector_count != 0
+            && !is_extended_partition_type(logical.type_code)
+        {
+            let start_lba = current_ebr
+                .checked_add(logical.start_lba as u64)
+                .ok_or_else(|| vec![AppletError::new(APPLET, "logical partition offset overflow")])?;
+            if start_lba > u32::MAX as u64 {
+                return Err(vec![AppletError::new(
+                    APPLET,
+                    "logical partition exceeds DOS address space",
+                )]);
+            }
+            table.partitions.insert(
+                number,
+                DosPartition {
+                    start_lba: start_lba as u32,
+                    ..logical
+                },
+            );
+            number += 1;
+        }
+
+        let Some(next) = parse_dos_entry(&sector, MBR_PARTITION_OFFSET + 16) else {
+            break;
+        };
+        if !is_extended_partition_type(next.type_code) || next.sector_count == 0 {
+            break;
+        }
+        current_ebr = extended_base
+            .checked_add(next.start_lba as u64)
+            .ok_or_else(|| vec![AppletError::new(APPLET, "logical partition chain overflow")])?;
+    }
+
+    Ok(())
+}
+
+fn renumber_logical_partitions(table: &mut DosTable) {
+    let mut logicals = table
+        .partitions
+        .iter()
+        .filter(|(slot, _)| **slot > 4)
+        .map(|(_, partition)| partition.clone())
+        .collect::<Vec<_>>();
+    logicals.sort_by_key(|partition| partition.start_lba);
+    table.partitions.retain(|slot, _| *slot <= 4);
+    for (index, partition) in logicals.into_iter().enumerate() {
+        table.partitions.insert(index as u32 + 5, partition);
+    }
 }
 
 fn parse_gpt_table(device: &mut Device, header_sector: &[u8]) -> Result<DiskLabel, Vec<AppletError>> {
@@ -534,45 +619,99 @@ fn add_partition(label: &mut DiskLabel, device: &Device, reader: &mut CommandRea
 }
 
 fn add_dos_partition(table: &mut DosTable, device: &Device, reader: &mut CommandReader) -> Result<(), Vec<AppletError>> {
-    if table.partitions.len() >= 4 {
-        return Err(vec![AppletError::new(APPLET, "no free partition slots")]);
+    let free_primary_slots = (1..=4)
+        .filter(|slot| !table.partitions.contains_key(slot))
+        .collect::<Vec<_>>();
+    let extended = extended_partition(table).cloned();
+    let selection = if free_primary_slots.is_empty() {
+        if extended.is_some() {
+            DosAddSelection::Logical
+        } else {
+            return Err(vec![AppletError::new(APPLET, "no free partition slots")]);
+        }
+    } else {
+        let default_slot = *free_primary_slots
+            .first()
+            .ok_or_else(|| vec![AppletError::new(APPLET, "no free partition slots")])?;
+        let prompt = if extended.is_some() {
+            format!("Partition number (1-4, default {default_slot}, or 'l' for logical): ")
+        } else {
+            format!("Partition number (1-4, default {default_slot}, or 'e' for extended): ")
+        };
+        let line = reader.read_line(&prompt)?;
+        match line.trim().to_ascii_lowercase().as_str() {
+            "" => DosAddSelection::Primary(default_slot),
+            "e" if extended.is_none() => {
+                DosAddSelection::Extended(prompt_free_primary_slot(reader, &free_primary_slots)?)
+            }
+            "l" if extended.is_some() => DosAddSelection::Logical,
+            "p" => DosAddSelection::Primary(prompt_free_primary_slot(reader, &free_primary_slots)?),
+            value => DosAddSelection::Primary(parse_free_primary_slot(value, &free_primary_slots)?),
+        }
+    };
+
+    match selection {
+        DosAddSelection::Primary(slot) | DosAddSelection::Extended(slot) => {
+            let ranges = free_ranges(
+                primary_partitions(table)
+                    .map(|(_, partition)| (partition.start_lba as u64, partition.end_lba() as u64)),
+                dos_first_usable(device.total_sectors),
+                device.total_sectors.saturating_sub(1),
+            );
+            let default_start = default_start_from_ranges(&ranges)?;
+            let start = prompt_sector(reader, "First sector", default_start)?;
+            let max_end = range_end_for_start(&ranges, start)?;
+            let end = prompt_last_sector(reader, start, max_end, device.sector_size)?;
+            let sector_count = end
+                .checked_sub(start)
+                .and_then(|count| count.checked_add(1))
+                .ok_or_else(|| vec![AppletError::new(APPLET, "partition size overflow")])?;
+            if sector_count > u32::MAX as u64 {
+                return Err(vec![AppletError::new(APPLET, "partition is too large for DOS")]);
+            }
+            table.partitions.insert(
+                slot,
+                DosPartition {
+                    bootable: false,
+                    type_code: if matches!(selection, DosAddSelection::Extended(_)) {
+                        DOS_EXTENDED_LBA
+                    } else {
+                        0x83
+                    },
+                    start_lba: start as u32,
+                    sector_count: sector_count as u32,
+                },
+            );
+            Ok(())
+        }
+        DosAddSelection::Logical => {
+            let extended = extended.ok_or_else(|| vec![AppletError::new(APPLET, "no extended partition defined")])?;
+            let ranges = logical_free_ranges(table, &extended);
+            let default_start = default_logical_start_from_ranges(&ranges)?;
+            let start = prompt_sector(reader, "First sector", default_start)?;
+            let max_end = logical_range_end_for_start(&ranges, start)?;
+            let end = prompt_last_sector(reader, start, max_end, device.sector_size)?;
+            let sector_count = end
+                .checked_sub(start)
+                .and_then(|count| count.checked_add(1))
+                .ok_or_else(|| vec![AppletError::new(APPLET, "partition size overflow")])?;
+            if sector_count > u32::MAX as u64 {
+                return Err(vec![AppletError::new(APPLET, "partition is too large for DOS")]);
+            }
+            let slot = next_logical_slot(table);
+            table.partitions.insert(
+                slot,
+                DosPartition {
+                    bootable: false,
+                    type_code: 0x83,
+                    start_lba: start as u32,
+                    sector_count: sector_count as u32,
+                },
+            );
+            renumber_logical_partitions(table);
+            Ok(())
+        }
     }
-    let default_slot = (1..=4)
-        .find(|slot| !table.partitions.contains_key(slot))
-        .unwrap();
-    let slot = prompt_number(reader, "Partition number (1-4)", default_slot, 1, 4)?;
-    if table.partitions.contains_key(&slot) {
-        return Err(vec![AppletError::new(
-            APPLET,
-            format!("partition {slot} already exists"),
-        )]);
-    }
-    let ranges = free_ranges(
-        table.partitions.values().map(|partition| (partition.start_lba as u64, partition.end_lba() as u64)),
-        dos_first_usable(device.total_sectors),
-        device.total_sectors.saturating_sub(1),
-    );
-    let default_start = default_start_from_ranges(&ranges)?;
-    let start = prompt_sector(reader, "First sector", default_start)?;
-    let max_end = range_end_for_start(&ranges, start)?;
-    let end = prompt_last_sector(reader, start, max_end, device.sector_size)?;
-    let sector_count = end
-        .checked_sub(start)
-        .and_then(|count| count.checked_add(1))
-        .ok_or_else(|| vec![AppletError::new(APPLET, "partition size overflow")])?;
-    if sector_count > u32::MAX as u64 {
-        return Err(vec![AppletError::new(APPLET, "partition is too large for DOS")]);
-    }
-    table.partitions.insert(
-        slot,
-        DosPartition {
-            bootable: false,
-            type_code: 0x83,
-            start_lba: start as u32,
-            sector_count: sector_count as u32,
-        },
-    );
-    Ok(())
 }
 
 fn add_gpt_partition(table: &mut GptTable, device: &Device, reader: &mut CommandReader) -> Result<(), Vec<AppletError>> {
@@ -612,13 +751,17 @@ fn delete_partition(label: &mut DiskLabel, reader: &mut CommandReader) -> Result
     match label {
         DiskLabel::None => Err(vec![AppletError::new(APPLET, "no disklabel present")]),
         DiskLabel::Dos(table) => {
-            let default = *table
+            let slot = prompt_existing_dos_partition(table, reader)?;
+            let removing_extended = table
                 .partitions
-                .keys()
-                .next()
-                .ok_or_else(|| vec![AppletError::new(APPLET, "no partitions defined")])?;
-            let slot = prompt_number(reader, "Partition number (1-4)", default, 1, 4)?;
+                .get(&slot)
+                .is_some_and(|partition| slot <= 4 && is_extended_partition_type(partition.type_code));
             table.partitions.remove(&slot);
+            if removing_extended {
+                table.partitions.retain(|number, _| *number <= 4);
+            } else {
+                renumber_logical_partitions(table);
+            }
             Ok(())
         }
         DiskLabel::Gpt(table) => {
@@ -638,12 +781,7 @@ fn change_partition_type(label: &mut DiskLabel, reader: &mut CommandReader) -> R
     match label {
         DiskLabel::None => Err(vec![AppletError::new(APPLET, "no disklabel present")]),
         DiskLabel::Dos(table) => {
-            let default = *table
-                .partitions
-                .keys()
-                .next()
-                .ok_or_else(|| vec![AppletError::new(APPLET, "no partitions defined")])?;
-            let slot = prompt_number(reader, "Partition number (1-4)", default, 1, 4)?;
+            let slot = prompt_existing_dos_partition(table, reader)?;
             let value = reader.read_line("Hex code (e.g. 83 for Linux): ")?;
             let code = parse_dos_type(&value)?;
             let partition = table
@@ -675,12 +813,7 @@ fn change_partition_type(label: &mut DiskLabel, reader: &mut CommandReader) -> R
 fn toggle_bootable(label: &mut DiskLabel, reader: &mut CommandReader) -> Result<(), Vec<AppletError>> {
     match label {
         DiskLabel::Dos(table) => {
-            let default = *table
-                .partitions
-                .keys()
-                .next()
-                .ok_or_else(|| vec![AppletError::new(APPLET, "no partitions defined")])?;
-            let slot = prompt_number(reader, "Partition number (1-4)", default, 1, 4)?;
+            let slot = prompt_existing_dos_partition(table, reader)?;
             let partition = table
                 .partitions
                 .get_mut(&slot)
@@ -719,20 +852,90 @@ fn write_dos_label(device: &mut Device, table: &DosTable) -> Result<(), Vec<Appl
     for slot in 1..=4 {
         let offset = MBR_PARTITION_OFFSET + (slot as usize - 1) * 16;
         if let Some(partition) = table.partitions.get(&slot) {
-            sector0[offset] = if partition.bootable { 0x80 } else { 0x00 };
-            sector0[offset + 1..offset + 4].copy_from_slice(&[0xff, 0xff, 0xff]);
-            sector0[offset + 4] = partition.type_code;
-            sector0[offset + 5..offset + 8].copy_from_slice(&[0xff, 0xff, 0xff]);
-            sector0[offset + 8..offset + 12].copy_from_slice(&partition.start_lba.to_le_bytes());
-            sector0[offset + 12..offset + 16]
-                .copy_from_slice(&partition.sector_count.to_le_bytes());
+            write_dos_entry(&mut sector0, offset, partition.bootable, partition.type_code, partition.start_lba, partition.sector_count);
         }
     }
     sector0[MBR_SIGNATURE_OFFSET] = 0x55;
     sector0[MBR_SIGNATURE_OFFSET + 1] = 0xaa;
     write_lba(device, 0, &sector0)?;
+    write_logical_dos_partitions(device, table)?;
     clear_stale_gpt(device)?;
     Ok(())
+}
+
+fn write_logical_dos_partitions(device: &mut Device, table: &DosTable) -> Result<(), Vec<AppletError>> {
+    let Some(extended) = extended_partition(table).cloned() else {
+        return Ok(());
+    };
+    let mut logicals = table
+        .partitions
+        .iter()
+        .filter(|(slot, _)| **slot > 4)
+        .map(|(_, partition)| partition.clone())
+        .collect::<Vec<_>>();
+    logicals.sort_by_key(|partition| partition.start_lba);
+    if logicals.is_empty() {
+        let empty = vec![0_u8; device.sector_size as usize];
+        write_lba(device, extended.start_lba as u64, &empty)?;
+        return Ok(());
+    }
+
+    let extended_base = extended.start_lba as u64;
+    for (index, partition) in logicals.iter().enumerate() {
+        let ebr_lba = partition.start_lba.saturating_sub(1) as u64;
+        if ebr_lba < extended_base || partition.end_lba() as u64 > extended.end_lba() as u64 {
+            return Err(vec![AppletError::new(
+                APPLET,
+                "logical partition does not fit in extended container",
+            )]);
+        }
+        let mut sector = vec![0_u8; device.sector_size as usize];
+        write_dos_entry(&mut sector, MBR_PARTITION_OFFSET, partition.bootable, partition.type_code, 1, partition.sector_count);
+        if let Some(next) = logicals.get(index + 1) {
+            let next_ebr = next.start_lba.saturating_sub(1) as u64;
+            let relative_start = next_ebr
+                .checked_sub(extended_base)
+                .ok_or_else(|| vec![AppletError::new(APPLET, "logical partition chain underflow")])?;
+            let span = (next.end_lba() as u64)
+                .checked_sub(next_ebr)
+                .and_then(|value| value.checked_add(1))
+                .ok_or_else(|| vec![AppletError::new(APPLET, "logical partition span overflow")])?;
+            if relative_start > u32::MAX as u64 || span > u32::MAX as u64 {
+                return Err(vec![AppletError::new(
+                    APPLET,
+                    "logical partition exceeds DOS address space",
+                )]);
+            }
+            write_dos_entry(
+                &mut sector,
+                MBR_PARTITION_OFFSET + 16,
+                false,
+                extended.type_code,
+                relative_start as u32,
+                span as u32,
+            );
+        }
+        sector[MBR_SIGNATURE_OFFSET] = 0x55;
+        sector[MBR_SIGNATURE_OFFSET + 1] = 0xaa;
+        write_lba(device, ebr_lba, &sector)?;
+    }
+    Ok(())
+}
+
+fn write_dos_entry(
+    sector: &mut [u8],
+    offset: usize,
+    bootable: bool,
+    type_code: u8,
+    start_lba: u32,
+    sector_count: u32,
+) {
+    sector[offset] = if bootable { 0x80 } else { 0x00 };
+    sector[offset + 1..offset + 4].copy_from_slice(&[0xff, 0xff, 0xff]);
+    sector[offset + 4] = type_code;
+    sector[offset + 5..offset + 8].copy_from_slice(&[0xff, 0xff, 0xff]);
+    sector[offset + 8..offset + 12].copy_from_slice(&start_lba.to_le_bytes());
+    sector[offset + 12..offset + 16].copy_from_slice(&sector_count.to_le_bytes());
 }
 
 fn write_gpt_label(device: &mut Device, table: &GptTable) -> Result<(), Vec<AppletError>> {
@@ -927,6 +1130,73 @@ fn prompt_last_sector(
     Ok(end)
 }
 
+fn prompt_free_primary_slot(
+    reader: &mut CommandReader,
+    free_primary_slots: &[u32],
+) -> Result<u32, Vec<AppletError>> {
+    let default_slot = *free_primary_slots
+        .first()
+        .ok_or_else(|| vec![AppletError::new(APPLET, "no free primary partition slots")])?;
+    let slot = prompt_number(reader, "Partition number (1-4)", default_slot, 1, 4)?;
+    if free_primary_slots.contains(&slot) {
+        Ok(slot)
+    } else {
+        Err(vec![AppletError::new(
+            APPLET,
+            format!("partition {slot} already exists"),
+        )])
+    }
+}
+
+fn parse_free_primary_slot(value: &str, free_primary_slots: &[u32]) -> Result<u32, Vec<AppletError>> {
+    let slot = value.parse::<u32>().map_err(|_| {
+        vec![AppletError::new(
+            APPLET,
+            format!("invalid number '{value}'"),
+        )]
+    })?;
+    if !(1..=4).contains(&slot) {
+        return Err(vec![AppletError::new(
+            APPLET,
+            format!("number '{slot}' is out of range"),
+        )]);
+    }
+    if free_primary_slots.contains(&slot) {
+        Ok(slot)
+    } else {
+        Err(vec![AppletError::new(
+            APPLET,
+            format!("partition {slot} already exists"),
+        )])
+    }
+}
+
+fn prompt_existing_dos_partition(
+    table: &DosTable,
+    reader: &mut CommandReader,
+) -> Result<u32, Vec<AppletError>> {
+    let default = *table
+        .partitions
+        .keys()
+        .next()
+        .ok_or_else(|| vec![AppletError::new(APPLET, "no partitions defined")])?;
+    let slot = prompt_number(
+        reader,
+        "Partition number",
+        default,
+        1,
+        table.partitions.keys().copied().max().unwrap_or(default),
+    )?;
+    if table.partitions.contains_key(&slot) {
+        Ok(slot)
+    } else {
+        Err(vec![AppletError::new(
+            APPLET,
+            format!("partition {slot} not found"),
+        )])
+    }
+}
+
 fn parse_size_expression(value: &str, sector_size: u64) -> Result<u64, Vec<AppletError>> {
     let split_at = value
         .find(|ch: char| !ch.is_ascii_digit())
@@ -981,6 +1251,19 @@ fn free_ranges(
     free
 }
 
+fn logical_free_ranges(table: &DosTable, extended: &DosPartition) -> Vec<(u64, u64)> {
+    free_ranges(
+        table.partitions.iter().filter(|(slot, _)| **slot > 4).map(|(_, partition)| {
+            (
+                partition.start_lba.saturating_sub(1) as u64,
+                partition.end_lba() as u64,
+            )
+        }),
+        extended.start_lba as u64,
+        extended.end_lba() as u64,
+    )
+}
+
 fn default_start_from_ranges(ranges: &[(u64, u64)]) -> Result<u64, Vec<AppletError>> {
     for (start, end) in ranges {
         let aligned = align_up(*start, ALIGNMENT_SECTORS);
@@ -994,10 +1277,28 @@ fn default_start_from_ranges(ranges: &[(u64, u64)]) -> Result<u64, Vec<AppletErr
     Err(vec![AppletError::new(APPLET, "no free space available")])
 }
 
+fn default_logical_start_from_ranges(ranges: &[(u64, u64)]) -> Result<u64, Vec<AppletError>> {
+    for (start, end) in ranges {
+        let fallback = start.saturating_add(1);
+        if fallback <= *end {
+            return Ok(fallback);
+        }
+    }
+    Err(vec![AppletError::new(APPLET, "no free space available")])
+}
+
 fn range_end_for_start(ranges: &[(u64, u64)], start: u64) -> Result<u64, Vec<AppletError>> {
     ranges
         .iter()
         .find(|(range_start, range_end)| start >= *range_start && start <= *range_end)
+        .map(|(_, end)| *end)
+        .ok_or_else(|| vec![AppletError::new(APPLET, "requested start sector is not free")])
+}
+
+fn logical_range_end_for_start(ranges: &[(u64, u64)], start: u64) -> Result<u64, Vec<AppletError>> {
+    ranges
+        .iter()
+        .find(|(range_start, range_end)| start > *range_start && start <= *range_end)
         .map(|(_, end)| *end)
         .ok_or_else(|| vec![AppletError::new(APPLET, "requested start sector is not free")])
 }
@@ -1078,10 +1379,33 @@ fn partition_path(base: &str, number: u32) -> String {
     }
 }
 
+fn primary_partitions(table: &DosTable) -> impl Iterator<Item = (u32, &DosPartition)> {
+    table.partitions.iter().filter(|(slot, _)| **slot <= 4).map(|(slot, partition)| (*slot, partition))
+}
+
+fn extended_partition(table: &DosTable) -> Option<&DosPartition> {
+    primary_partitions(table)
+        .find(|(_, partition)| is_extended_partition_type(partition.type_code))
+        .map(|(_, partition)| partition)
+}
+
+fn next_logical_slot(table: &DosTable) -> u32 {
+    (5..)
+        .find(|slot| !table.partitions.contains_key(slot))
+        .unwrap_or(5)
+}
+
+fn is_extended_partition_type(type_code: u8) -> bool {
+    matches!(type_code, DOS_EXTENDED_CHS | DOS_EXTENDED_LBA | DOS_EXTENDED_LINUX)
+}
+
 fn dos_type_name(type_code: u8) -> &'static str {
     match type_code {
         0x82 => "Linux swap",
         0x83 => "Linux",
+        DOS_EXTENDED_CHS => "Extended",
+        DOS_EXTENDED_LBA => "W95 Ext'd (LBA)",
+        DOS_EXTENDED_LINUX => "Linux extended",
         0x07 => "HPFS/NTFS/exFAT",
         0x0b => "W95 FAT32",
         0x0c => "W95 FAT32 (LBA)",
@@ -1258,6 +1582,13 @@ impl DosPartition {
 struct CommandReader {
     stdin: io::Stdin,
     is_tty: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DosAddSelection {
+    Primary(u32),
+    Extended(u32),
+    Logical,
 }
 
 impl CommandReader {

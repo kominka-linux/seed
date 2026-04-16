@@ -1,0 +1,40 @@
+image=$PWD/disk.img
+rm -f "$image"
+truncate -s 64M "$image"
+
+printf 'o\nn\ne\n1\n\n+48M\nn\nl\n\n+16M\nw\n' | busybox fdisk "$image" >stdout
+busybox fdisk -l "$image" >out
+
+grep '^Disklabel type: dos$' out
+grep "$image"'1[[:space:]]\+[[:space:]]\+2048[[:space:]]\+100351[[:space:]]\+98304' out
+grep '0f W95 Ext'"'"'d (LBA)$' out
+grep "$image"'5[[:space:]]\+[[:space:]]\+2049[[:space:]]\+34816[[:space:]]\+32768' out
+grep '83 Linux$' out
+
+python3 - <<'PY' "$image"
+import struct
+import sys
+
+with open(sys.argv[1], "rb") as handle:
+    mbr = handle.read(512)
+    handle.seek(2048 * 512)
+    ebr = handle.read(512)
+
+ptype = mbr[446 + 4]
+start = struct.unpack("<I", mbr[446 + 8:446 + 12])[0]
+count = struct.unpack("<I", mbr[446 + 12:446 + 16])[0]
+
+assert ptype == 0x0F, hex(ptype)
+assert start == 2048, start
+assert count == 98304, count
+assert mbr[510:512] == b"\x55\xaa"
+
+logical_type = ebr[446 + 4]
+logical_start = struct.unpack("<I", ebr[446 + 8:446 + 12])[0]
+logical_count = struct.unpack("<I", ebr[446 + 12:446 + 16])[0]
+
+assert logical_type == 0x83, hex(logical_type)
+assert logical_start == 1, logical_start
+assert logical_count == 32768, logical_count
+assert ebr[510:512] == b"\x55\xaa"
+PY

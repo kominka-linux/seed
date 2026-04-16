@@ -344,6 +344,7 @@ if [ "$is_linux" -eq 1 ]; then
 	run_old_style tests/busybox/modprobe/modprobe-honors-remove-directive
 	run_old_style tests/busybox/modprobe/modprobe-blacklist-blocks-alias-but-not-explicit-module
 	run_old_style tests/busybox/modprobe/modprobe-install-command-keeps-hash-inside-quotes
+	run_old_style tests/busybox/modprobe/modprobe-alias-options-apply-to-target
 	run_old_style tests/busybox/acpid/acpid-runs-direct-handler-from-proc-events
 	run_old_style tests/busybox/acpid/acpid-directory-handler-uses-run-parts
 	run_old_style tests/busybox/init/init-runs-sysinit-and-respawns
@@ -360,6 +361,7 @@ run_old_style tests/busybox/fsck/fsck-T-suppresses-title
 	run_old_style tests/busybox/fdisk/fdisk-l-prints-mbr-partition-table
 	run_old_style tests/busybox/fdisk/fdisk-s-prints-image-size-in-kib
 	run_old_style tests/busybox/fdisk/fdisk-script-creates-dos-partition
+	run_old_style tests/busybox/fdisk/fdisk-script-creates-dos-extended-logical-partition
 	run_old_style tests/busybox/fdisk/fdisk-script-creates-gpt-efi-partition
 	run_old_style tests/busybox/mdev/mdev-s-creates-renamed-node-and-link
 	run_old_style tests/busybox/mdev/mdev-hotplug-add-remove-runs-commands

@@ -1,0 +1,18 @@
+modules="$PWD/lib/modules/1.0"
+conf="$PWD/modprobe.d"
+mkdir -p "$modules/kernel/net" "$conf"
+
+printf '\0license=GPL\0' > "$modules/kernel/net/driver.ko"
+
+cat > "$conf/alias.conf" <<'EOF'
+alias netdev driver
+options netdev speed=1000 duplex=full
+options driver debug=1
+install driver printf 'install:%s:%s\n' "$MODPROBE_MODULE" "$CMDLINE_OPTS" >> "$PWD/cmd.log"
+EOF
+
+SEED_MODULES_DIR="$modules" \
+SEED_MODPROBE_DIRS="$conf" \
+	busybox modprobe netdev color=blue
+
+grep '^install:driver:speed=1000 duplex=full debug=1 color=blue$' "$PWD/cmd.log"

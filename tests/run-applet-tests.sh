@@ -258,6 +258,9 @@ run_old_style tests/busybox/sed/sed-append-autoinserts-newline-across-files
 run_old_style tests/busybox/sed/sed-n-range-p-and-delete-work
 run_old_style tests/busybox/sed/sed-E-backrefs-and-global-substitution-work
 run_old_style tests/busybox/sed/sed-f-loads-script-file
+run_old_style tests/busybox/sed/sed-long-expression-option-works
+run_old_style tests/busybox/sed/sed-long-file-option-works
+run_old_style tests/busybox/sed/sed-long-in-place-option-works
 run_old_style tests/busybox/sed/sed-i-creates-backup-and-edits-in-place
 run_old_style tests/busybox/sed/sed-in-place-address-modifies-all-files
 run_old_style tests/busybox/sed/sed-in-place-finishes-ranges-correctly

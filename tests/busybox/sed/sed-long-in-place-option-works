@@ -1,0 +1,6 @@
+printf 'abc\n' > input
+busybox sed --in-place=.bak 's/b/B/' input
+printf 'aBc\n' > expected
+cmp -s expected input
+printf 'abc\n' > expected.bak
+cmp -s expected.bak input.bak

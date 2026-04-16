@@ -191,8 +191,48 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
     let mut operands = Vec::new();
     let mut cursor = ArgCursor::new(args);
 
-    while let Some(arg) = cursor.next_arg() {
-        match arg {
+    while let Some(arg) = cursor.next_token() {
+        if cursor.parsing_flags() && arg.starts_with("--") && arg.len() > 2 {
+            if let Some(script) = arg.strip_prefix("--expression=") {
+                expressions.push(script.to_owned());
+                continue;
+            }
+            if let Some(path) = arg.strip_prefix("--file=") {
+                script_files.push(path.to_owned());
+                continue;
+            }
+            if let Some(suffix) = arg.strip_prefix("--in-place=") {
+                options.in_place = Some(suffix.to_owned());
+                continue;
+            }
+            match arg {
+                "--quiet" | "--silent" => options.quiet = true,
+                "--regexp-extended" => options.extended = true,
+                "--expression" => {
+                    let script = cursor
+                        .next_value(APPLET, "expression")
+                        .map_err(|_| String::from("option requires an argument -- 'expression'"))?;
+                    expressions.push(script.to_owned());
+                }
+                "--file" => {
+                    let path = cursor
+                        .next_value(APPLET, "file")
+                        .map_err(|_| String::from("option requires an argument -- 'file'"))?;
+                    script_files.push(path.to_owned());
+                }
+                "--in-place" => {
+                    options.in_place = Some(String::new());
+                }
+                _ => return Err(format!("unrecognized option '{arg}'")),
+            }
+            continue;
+        }
+
+        match if cursor.parsing_flags() && arg.starts_with('-') && arg.len() > 1 {
+            ArgToken::ShortFlags(&arg[1..])
+        } else {
+            ArgToken::Operand(arg)
+        } {
             ArgToken::ShortFlags(flags) => {
                 let mut chars = flags.chars();
                 while let Some(flag) = chars.next() {
@@ -1589,6 +1629,8 @@ fn decode_text_argument(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::{
         Address, CommandKind, Options, ParsedArgs, Regex, apply_substitute, parse_args, parse_program,
         split_lines,
@@ -1609,6 +1651,35 @@ mod tests {
                 files: vec![String::from("file")],
             }
         );
+    }
+
+    #[test]
+    fn parse_args_supports_gnu_long_options() {
+        let script_path = std::env::temp_dir().join(format!(
+            "seed-sed-{}-{}.sed",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        fs::write(&script_path, "s/b/c/\n").expect("write script");
+        let parsed = parse_args(&args(&[
+            "--quiet",
+            "--regexp-extended",
+            "--expression=s/a/b/",
+            "--file",
+            script_path.to_str().expect("utf-8 path"),
+            "--in-place=.bak",
+            "file",
+        ]))
+        .expect("parse args");
+        let _ = fs::remove_file(&script_path);
+        assert!(parsed.options.quiet);
+        assert!(parsed.options.extended);
+        assert_eq!(parsed.options.in_place.as_deref(), Some(".bak"));
+        assert_eq!(parsed.script, "s/a/b/\ns/b/c/\n");
+        assert_eq!(parsed.files, vec![String::from("file")]);
     }
 
     #[test]

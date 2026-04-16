@@ -1,0 +1,5 @@
+printf 's/b/B/\n' > script.sed
+printf 'abc\n' > input
+busybox sed --file script.sed input > actual
+printf 'aBc\n' > expected
+cmp -s expected actual

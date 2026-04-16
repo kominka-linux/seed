@@ -5,7 +5,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::process::Command;
 
 use crate::common::applet::finish_code;
-use crate::common::args::ArgCursor;
+use crate::common::args::{ParsedArg, Parser};
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
@@ -36,45 +36,55 @@ fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
 
 fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     let mut options = Options::default();
-    let mut cursor = ArgCursor::new(args);
+    let mut parser = Parser::new(APPLET, args);
 
-    while let Some(arg) = cursor.next_token() {
-        if cursor.parsing_flags() && (arg == "-" || arg == "-i") {
-            options.clear = true;
-            continue;
-        }
+    while let Some(arg) = parser.next_arg()? {
+        match arg {
+            ParsedArg::Short('i') => {
+                options.clear = true;
+                continue;
+            }
+            ParsedArg::Short('0') => {
+                options.nul_terminated = true;
+                continue;
+            }
+            ParsedArg::Short('u') => {
+                options.unset.push(parser.value("u")?);
+                continue;
+            }
+            ParsedArg::Short(flag) => {
+                return Err(vec![AppletError::invalid_option(APPLET, flag)]);
+            }
+            ParsedArg::Long(name) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET,
+                    &format!("--{name}"),
+                )]);
+            }
+            ParsedArg::Value(arg) => {
+                if arg == "-" {
+                    options.clear = true;
+                    continue;
+                }
 
-        if cursor.parsing_flags() && arg == "-0" {
-            options.nul_terminated = true;
-            continue;
-        }
-
-        if cursor.parsing_flags() && arg == "-u" {
-            options
-                .unset
-                .push(cursor.next_value(APPLET, "u")?.to_owned());
-            continue;
-        }
-
-        if cursor.parsing_flags() && arg.starts_with('-') && arg.len() > 1 {
-            return Err(vec![AppletError::invalid_option(
-                APPLET,
-                arg.chars().nth(1).unwrap_or('-'),
-            )]);
-        }
-
-        if let Some((name, value)) = arg.split_once('=')
+                if let Some((name, value)) = arg.split_once('=')
             && !name.is_empty()
-        {
-            options
-                .assignments
-                .push((name.to_string(), value.to_string()));
-            continue;
-        }
+                {
+                    options
+                        .assignments
+                        .push((name.to_string(), value.to_string()));
+                    continue;
+                }
 
-        options.command.push(arg.to_owned());
-        options.command.extend(cursor.remaining().iter().cloned());
-        break;
+                options.command.push(arg);
+                options.command.extend(
+                    parser
+                        .raw_args()?
+                        .map(|value| value.to_string_lossy().into_owned()),
+                );
+                break;
+            }
+        }
     }
 
     Ok(options)

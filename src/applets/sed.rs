@@ -7,7 +7,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::common::args::{ArgCursor, ArgToken};
+use crate::common::args::{ParsedArg, Parser};
 use crate::common::io::{open_input, stdout};
 
 const APPLET: &str = "sed";
@@ -189,80 +189,35 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
     let mut expressions = Vec::new();
     let mut script_files = Vec::new();
     let mut operands = Vec::new();
-    let mut cursor = ArgCursor::new(args);
+    let mut parser = Parser::new(APPLET, args);
 
-    while let Some(arg) = cursor.next_token() {
-        if cursor.parsing_flags() && arg.starts_with("--") && arg.len() > 2 {
-            if let Some(script) = arg.strip_prefix("--expression=") {
-                expressions.push(script.to_owned());
-                continue;
+    while let Some(arg) = parser.next_arg().map_err(|err| err[0].to_string())? {
+        match arg {
+            ParsedArg::Short('n') => options.quiet = true,
+            ParsedArg::Short('E') | ParsedArg::Short('r') => options.extended = true,
+            ParsedArg::Short('e') => expressions.push(parser.value("e").map_err(|err| err[0].to_string())?),
+            ParsedArg::Short('f') => script_files.push(parser.value("f").map_err(|err| err[0].to_string())?),
+            ParsedArg::Short('i') => {
+                options.in_place = Some(parser.optional_value().unwrap_or_default());
             }
-            if let Some(path) = arg.strip_prefix("--file=") {
-                script_files.push(path.to_owned());
-                continue;
-            }
-            if let Some(suffix) = arg.strip_prefix("--in-place=") {
-                options.in_place = Some(suffix.to_owned());
-                continue;
-            }
-            match arg {
-                "--quiet" | "--silent" => options.quiet = true,
-                "--regexp-extended" => options.extended = true,
-                "--expression" => {
-                    let script = cursor
-                        .next_value(APPLET, "expression")
-                        .map_err(|_| String::from("option requires an argument -- 'expression'"))?;
-                    expressions.push(script.to_owned());
+            ParsedArg::Short(flag) => return Err(format!("invalid option -- '{flag}'")),
+            ParsedArg::Long(name) => match name.as_str() {
+                "quiet" | "silent" => options.quiet = true,
+                "regexp-extended" => options.extended = true,
+                "expression" => expressions.push(
+                    parser
+                        .value("expression")
+                        .map_err(|err| err[0].to_string())?,
+                ),
+                "file" => {
+                    script_files.push(parser.value("file").map_err(|err| err[0].to_string())?)
                 }
-                "--file" => {
-                    let path = cursor
-                        .next_value(APPLET, "file")
-                        .map_err(|_| String::from("option requires an argument -- 'file'"))?;
-                    script_files.push(path.to_owned());
+                "in-place" => {
+                    options.in_place = Some(parser.optional_value().unwrap_or_default());
                 }
-                "--in-place" => {
-                    options.in_place = Some(String::new());
-                }
-                _ => return Err(format!("unrecognized option '{arg}'")),
-            }
-            continue;
-        }
-
-        match if cursor.parsing_flags() && arg.starts_with('-') && arg.len() > 1 {
-            ArgToken::ShortFlags(&arg[1..])
-        } else {
-            ArgToken::Operand(arg)
-        } {
-            ArgToken::ShortFlags(flags) => {
-                let mut chars = flags.chars();
-                while let Some(flag) = chars.next() {
-                    let attached = chars.as_str();
-                    match flag {
-                        'n' => options.quiet = true,
-                        'E' | 'r' => options.extended = true,
-                        'e' => {
-                            let script = cursor
-                                .next_value_or_attached(attached, APPLET, "e")
-                                .map_err(|_| String::from("option requires an argument -- 'e'"))?;
-                            expressions.push(script.to_owned());
-                            break;
-                        }
-                        'f' => {
-                            let path = cursor
-                                .next_value_or_attached(attached, APPLET, "f")
-                                .map_err(|_| String::from("option requires an argument -- 'f'"))?;
-                            script_files.push(path.to_owned());
-                            break;
-                        }
-                        'i' => {
-                            options.in_place = Some(attached.to_owned());
-                            break;
-                        }
-                        _ => return Err(format!("invalid option -- '{flag}'")),
-                    }
-                }
-            }
-            ArgToken::Operand(arg) => operands.push(arg.to_owned()),
+                _ => return Err(format!("unrecognized option '--{name}'")),
+            },
+            ParsedArg::Value(arg) => operands.push(arg),
         }
     }
 

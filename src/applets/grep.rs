@@ -2,7 +2,7 @@ use std::fs;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::Path;
 
-use crate::common::args::{ArgCursor, ArgToken};
+use crate::common::args::{ParsedArg, Parser};
 use crate::common::error::AppletError;
 use crate::common::io::open_input;
 
@@ -249,99 +249,67 @@ fn parse_args(
     let mut inline_patterns = Vec::new();
     let mut pattern_files = Vec::new();
     let mut positionals = Vec::new();
-    let mut cursor = ArgCursor::new(args);
+    let mut parser = Parser::new(APPLET, args);
 
-    while let Some(arg) = cursor.next_token() {
-        if cursor.parsing_flags() && arg.starts_with("--") && arg.len() > 2 {
-            if let Some(pattern) = arg.strip_prefix("--regexp=") {
-                inline_patterns.push(pattern.to_owned());
-                continue;
+    while let Some(arg) = parser.next_arg().map_err(|err| err[0].to_string())? {
+        match arg {
+            ParsedArg::Short('E') => options.extended = true,
+            ParsedArg::Short('F') => options.fixed = true,
+            ParsedArg::Short('i') => options.ignore_case = true,
+            ParsedArg::Short('q') => options.quiet = true,
+            ParsedArg::Short('s') => options.silent = true,
+            ParsedArg::Short('x') => options.line_regexp = true,
+            ParsedArg::Short('v') => options.invert = true,
+            ParsedArg::Short('l') => options.files_with_match = true,
+            ParsedArg::Short('L') => options.files_without_match = true,
+            ParsedArg::Short('w') => options.word = true,
+            ParsedArg::Short('o') => options.only_matching = true,
+            ParsedArg::Short('r') => options.recursive = true,
+            ParsedArg::Short('a') => {}
+            ParsedArg::Short('n') => options.line_number = true,
+            ParsedArg::Short('H') => options.label_mode = LabelMode::Always,
+            ParsedArg::Short('h') => options.label_mode = LabelMode::Never,
+            ParsedArg::Short('c') => options.count = true,
+            ParsedArg::Short('e') => {
+                inline_patterns.push(parser.value("e").map_err(|err| err[0].to_string())?)
             }
-            if let Some(path) = arg.strip_prefix("--file=") {
-                pattern_files.push(path.to_owned());
-                continue;
+            ParsedArg::Short('f') => {
+                pattern_files.push(parser.value("f").map_err(|err| err[0].to_string())?)
             }
-            match arg {
-                "--extended-regexp" => options.extended = true,
-                "--fixed-strings" => options.fixed = true,
-                "--ignore-case" => options.ignore_case = true,
-                "--quiet" => options.quiet = true,
-                "--silent" => options.silent = true,
-                "--line-regexp" => options.line_regexp = true,
-                "--invert-match" => options.invert = true,
-                "--files-with-matches" => options.files_with_match = true,
-                "--files-without-match" => options.files_without_match = true,
-                "--word-regexp" => options.word = true,
-                "--only-matching" => options.only_matching = true,
-                "--recursive" => options.recursive = true,
-                "--text" => {}
-                "--line-number" => options.line_number = true,
-                "--with-filename" => options.label_mode = LabelMode::Always,
-                "--no-filename" => options.label_mode = LabelMode::Never,
-                "--count" => options.count = true,
-                "--regexp" => {
-                    let pattern = cursor
-                        .next_value(APPLET, "regexp")
-                        .map_err(|_| AppletError::option_requires_arg_message("regexp"))?;
-                    inline_patterns.push(pattern.to_owned());
+            ParsedArg::Short(flag) => return Err(AppletError::invalid_option_message(flag)),
+            ParsedArg::Long(name) => match name.as_str() {
+                "extended-regexp" => options.extended = true,
+                "fixed-strings" => options.fixed = true,
+                "ignore-case" => options.ignore_case = true,
+                "quiet" => options.quiet = true,
+                "silent" => options.silent = true,
+                "line-regexp" => options.line_regexp = true,
+                "invert-match" => options.invert = true,
+                "files-with-matches" => options.files_with_match = true,
+                "files-without-match" => options.files_without_match = true,
+                "word-regexp" => options.word = true,
+                "only-matching" => options.only_matching = true,
+                "recursive" => options.recursive = true,
+                "text" => {}
+                "line-number" => options.line_number = true,
+                "with-filename" => options.label_mode = LabelMode::Always,
+                "no-filename" => options.label_mode = LabelMode::Never,
+                "count" => options.count = true,
+                "regexp" => inline_patterns.push(
+                    parser
+                        .value("regexp")
+                        .map_err(|err| err[0].to_string())?,
+                ),
+                "file" => pattern_files.push(
+                    parser.value("file").map_err(|err| err[0].to_string())?,
+                ),
+                _ => {
+                    return Err(AppletError::unrecognized_option_message(&format!(
+                        "--{name}"
+                    )))
                 }
-                "--file" => {
-                    let path = cursor
-                        .next_value(APPLET, "file")
-                        .map_err(|_| AppletError::option_requires_arg_message("file"))?;
-                    pattern_files.push(path.to_owned());
-                }
-                _ => return Err(AppletError::unrecognized_option_message(arg)),
-            }
-            continue;
-        }
-
-        match if cursor.parsing_flags() && arg.starts_with('-') && arg.len() > 1 {
-            ArgToken::ShortFlags(&arg[1..])
-        } else {
-            ArgToken::Operand(arg)
-        } {
-            ArgToken::ShortFlags(flags) => {
-                let mut chars = flags.chars();
-                while let Some(flag) = chars.next() {
-                    let attached = chars.as_str();
-                    match flag {
-                        'E' => options.extended = true,
-                        'F' => options.fixed = true,
-                        'i' => options.ignore_case = true,
-                        'q' => options.quiet = true,
-                        's' => options.silent = true,
-                        'x' => options.line_regexp = true,
-                        'v' => options.invert = true,
-                        'l' => options.files_with_match = true,
-                        'L' => options.files_without_match = true,
-                        'w' => options.word = true,
-                        'o' => options.only_matching = true,
-                        'r' => options.recursive = true,
-                        'a' => {}
-                        'n' => options.line_number = true,
-                        'H' => options.label_mode = LabelMode::Always,
-                        'h' => options.label_mode = LabelMode::Never,
-                        'c' => options.count = true,
-                        'e' => {
-                            let pattern = cursor
-                                .next_value_or_attached(attached, APPLET, "e")
-                                .map_err(|_| AppletError::option_requires_arg_message("e"))?;
-                            inline_patterns.push(pattern.to_owned());
-                            break;
-                        }
-                        'f' => {
-                            let path = cursor
-                                .next_value_or_attached(attached, APPLET, "f")
-                                .map_err(|_| AppletError::option_requires_arg_message("f"))?;
-                            pattern_files.push(path.to_owned());
-                            break;
-                        }
-                        _ => return Err(AppletError::invalid_option_message(flag)),
-                    }
-                }
-            }
-            ArgToken::Operand(arg) => positionals.push(arg.to_owned()),
+            },
+            ParsedArg::Value(arg) => positionals.push(arg),
         }
     }
 

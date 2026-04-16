@@ -276,6 +276,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "lexopt"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "803ec87c9cfb29b9d2633f20cba1f488db3fd53f2158b1024cbefb47ba05d413"
+
+[[package]]
 name = "libc"
 version = "0.2.184"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -536,6 +542,7 @@ dependencies = [
  "bzip2",
  "diffy",
  "flate2",
+ "lexopt",
  "libc",
  "lzma-rust2",
  "md-5",

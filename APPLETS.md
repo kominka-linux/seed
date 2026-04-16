@@ -7,9 +7,7 @@ This file tracks applet-specific limitations that are important to keep visible 
 - Current state: substantially expanded BusyBox-style `sed` with in-place edits, ranges, branching, hold space operations, translation, and a broader command set than the initial implementation.
 - Known limitations:
   - not yet claimed as full BusyBox parity
-  - regex behavior on NUL-containing input is still a known weak edge
-  - some nested-block execution corners are still suspect, especially `n` inside `{ ... }`
-  - some range-address behavior inside nested blocks may still drift from BusyBox
+  - regex address behavior on NUL-containing input is still intentionally narrower than BusyBox; substitutions across embedded NULs are covered, but match/print semantics on those records are not claimed
 
 ## awk
 

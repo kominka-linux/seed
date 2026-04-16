@@ -818,6 +818,9 @@ fn execute(program: Program, inputs: Vec<InputFile>, options: Options) -> Result
                 }
 
                 let mut context = CommandContext {
+                    buffer: &mut outputs[file_index],
+                    quiet: options.quiet,
+                    cycle_flushed: &mut cycle_flushed,
                     program: &program,
                     pattern: &mut pattern,
                     hold: &mut hold,
@@ -837,27 +840,22 @@ fn execute(program: Program, inputs: Vec<InputFile>, options: Options) -> Result
                     CommandFlow::Continue => command_index += 1,
                     CommandFlow::Jump(target) => command_index = target,
                     CommandFlow::NextLine => {
-                        flush_cycle_output(
-                            &mut outputs[file_index],
-                            &line_output,
-                            &pattern,
-                            options.quiet,
-                        );
-                        if index + 1 >= input.lines.len() {
-                            cycle_flushed = true;
+                        let mut state = AdvanceLineState {
+                            buffer: &mut outputs[file_index],
+                            quiet: options.quiet,
+                            cycle_flushed: &mut cycle_flushed,
+                            output: &mut line_output,
+                            pattern: &mut pattern,
+                            input,
+                            input_index: &mut index,
+                            line_number: &mut line_number,
+                            last_substitution: &mut last_substitution,
+                        };
+                        if !advance_to_next_line(&mut state) {
                             index = input.lines.len();
                             break;
                         }
-                        index += 1;
-                        line_number += 1;
                         current_line_number = line_number;
-                        let next = &input.lines[index];
-                        pattern = PatternSpace {
-                            text: next.text.clone(),
-                            had_newline: next.had_newline,
-                        };
-                        line_output = LineOutput::default();
-                        last_substitution = false;
                         command_index += 1;
                     }
                     CommandFlow::AppendNextLine => {
@@ -939,6 +937,9 @@ enum CommandFlow {
 }
 
 struct CommandContext<'a> {
+    buffer: &'a mut String,
+    quiet: bool,
+    cycle_flushed: &'a mut bool,
     program: &'a Program,
     pattern: &'a mut PatternSpace,
     hold: &'a mut PatternSpace,
@@ -948,6 +949,18 @@ struct CommandContext<'a> {
     input_index: &'a mut usize,
     line_number: &'a mut usize,
     total_lines: usize,
+}
+
+struct AdvanceLineState<'a> {
+    buffer: &'a mut String,
+    quiet: bool,
+    cycle_flushed: &'a mut bool,
+    output: &'a mut LineOutput,
+    pattern: &'a mut PatternSpace,
+    input: &'a InputFile,
+    input_index: &'a mut usize,
+    line_number: &'a mut usize,
+    last_substitution: &'a mut bool,
 }
 
 fn apply_command(
@@ -1058,6 +1071,23 @@ fn apply_command(
                 }
                 match apply_command(nested, &mut runtime.nested[nested_index], decision, context)? {
                     CommandFlow::Continue => nested_index += 1,
+                    CommandFlow::NextLine => {
+                        let mut state = AdvanceLineState {
+                            buffer: context.buffer,
+                            quiet: context.quiet,
+                            cycle_flushed: context.cycle_flushed,
+                            output: context.output,
+                            pattern: context.pattern,
+                            input: context.input,
+                            input_index: context.input_index,
+                            line_number: context.line_number,
+                            last_substitution: context.last_substitution,
+                        };
+                        if !advance_to_next_line(&mut state) {
+                            return Ok(CommandFlow::EndCycle);
+                        }
+                        nested_index += 1;
+                    }
                     CommandFlow::AppendNextLine => {
                         if !append_next_line(context) {
                             return Ok(CommandFlow::EndCycle);
@@ -1083,6 +1113,25 @@ fn append_next_line(context: &mut CommandContext<'_>) -> bool {
     context.pattern.text.push('\n');
     context.pattern.text.push_str(&next.text);
     context.pattern.had_newline = next.had_newline;
+    true
+}
+
+fn advance_to_next_line(state: &mut AdvanceLineState<'_>) -> bool {
+    flush_cycle_output(state.buffer, state.output, state.pattern, state.quiet);
+    if *state.input_index + 1 >= state.input.lines.len() {
+        *state.cycle_flushed = true;
+        return false;
+    }
+
+    *state.input_index += 1;
+    *state.line_number += 1;
+    let next = &state.input.lines[*state.input_index];
+    *state.pattern = PatternSpace {
+        text: next.text.clone(),
+        had_newline: next.had_newline,
+    };
+    *state.output = LineOutput::default();
+    *state.last_substitution = false;
     true
 }
 
@@ -1197,7 +1246,7 @@ fn select_address(
 }
 
 fn apply_substitute(command: &SubstituteCommand, pattern: &mut PatternSpace) -> Result<bool, String> {
-    if pattern.text.contains('\0') && command.pattern.literal.is_some() {
+    if pattern.text.contains('\0') {
         let mut output = String::new();
         let mut replaced_any = false;
         for (index, segment) in pattern.text.split('\0').enumerate() {

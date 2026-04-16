@@ -27,7 +27,7 @@ Use this as an action list, not a narrative:
 
 - [x] Close the remaining reduced-scope gaps in `APPLETS.md` for critical Linux applets.
 - [ ] Finish differential and edge-case hardening for `awk`.
-- [ ] Finish differential and edge-case hardening for `sed`.
+- [x] Finish differential and edge-case hardening for `sed`.
 - [ ] Add stronger malformed-input and partial-write coverage for archive/compression applets.
 
 ### P1
@@ -153,7 +153,7 @@ Status: `open`
 
 - [ ] `awk`: differential test the supported language surface against BusyBox.
 - [ ] `awk`: close or explicitly document unsupported forms that remain in Tier 1 scope.
-- [ ] `sed`: differential test nested blocks, range behavior, and NUL/regex edges more aggressively.
+- [x] `sed`: differential test nested blocks, range behavior, and NUL/regex edges more aggressively.
 - [x] Land the first concrete BusyBox-style differential regressions for `awk` and `sed`.
 - [ ] archive/compression applets: add malformed, truncated, and partial-write coverage where the suite is still light.
 
@@ -171,7 +171,7 @@ Status: `closed`
 Status: `open`
 
 - [ ] `awk`: split parse, eval, runtime, and builtins only if that materially lowers regression risk.
-- [ ] `sed`: split parse, execution, regex/text helpers, and file-I/O policy only if that materially lowers regression risk.
+- [x] `sed`: keep parse/execution/file-I/O unified for now; targeted runtime fixes plus adversarial coverage lowered risk enough that a structural split is not justified.
 - [x] Separate live Linux backends from state-file test backends in shared helpers such as `common/net`.
 - [ ] Keep cleanup narrow and behavior-preserving.
 
@@ -187,7 +187,6 @@ Status: `open`
 
 These are the open items that still appear to be accidental gaps or unresolved scope decisions rather than clearly intentional limitations.
 
-- [ ] `sed`: NUL-input regex behavior and remaining nested/range execution corners still need more adversarial coverage.
 - [ ] `awk`: function-driven `next` / `nextfile` / `exit`, pipe-style `getline`, and deeper regex/substitution edges need either implementation or explicit scope decisions.
 
 ## Next Up
@@ -203,6 +202,9 @@ The most defensible next stabilization tranche is:
 
 ### 2026-04-15
 
+- [x] Hardened `sed` nested-block execution so `n` continues through the rest of the active block on the next input line, including range-selected nested blocks.
+- [x] Added BusyBox-style `sed` regressions for nested `n` + block execution and regex substitutions across embedded NUL boundaries, then re-ran the full shell `sed` corpus in Alpine.
+- [x] Narrowed the remaining `sed` limitation in `APPLETS.md` to NUL-containing regex address semantics instead of broad nested/range uncertainty, and explicitly closed the “split `sed` only if it lowers risk” tracker item as not justified right now.
 - [x] Split `common/net` into a thin backend dispatcher plus a dedicated state-file backend module, so live Linux paths and state-backed test scaffolding no longer share the same helper body.
 - [x] Added internal `AppletError` kinds and preserved them through `modprobe` error remapping so syscall, config, and I/O failures in risky module paths are easier to audit and assert in tests.
 - [x] Added explicit Linux-gated failure-path tests for malformed modprobe config, syscall failures, partial writes, unreadable config inputs, and malformed network state backend records.

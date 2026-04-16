@@ -306,6 +306,8 @@ run_old_style tests/busybox/sed/sed-regex-plus-zero-range-works
 run_old_style tests/busybox/sed/sed-regex-plus-zero-range-in-place-two-files
 run_old_style tests/busybox/sed/sed-r-reads-file-after-line
 run_old_style tests/busybox/sed/sed-n-resets-substituted-bit
+run_old_style tests/busybox/sed/sed-n-inside-block-continues-block
+run_old_style tests/busybox/sed/sed-n-inside-block-range-continues-block
 run_old_style tests/busybox/sed/sed-N-inside-block-keeps-running-block
 run_old_style tests/busybox/sed/sed-d-does-not-break-line-range
 run_old_style tests/busybox/sed/sed-d-does-not-break-regex-range
@@ -313,6 +315,7 @@ run_old_style tests/busybox/sed/sed-d-does-not-break-descending-line-range
 run_old_style tests/busybox/sed/sed-backslash-dollar-multiline-regex-works
 run_old_style tests/busybox/sed/sed-embedded-nul-substitution
 run_old_style tests/busybox/sed/sed-embedded-nul-global-substitution
+run_old_style tests/busybox/sed/sed-embedded-nul-regex-substitution
 run_old_style tests/busybox/sed/sed-uses-previous-regexp
 run_old_style tests/busybox/sed/sed-substitute-occurrence-then-global
 run_old_style tests/busybox/sed/sed-beginning-anchor-matches-only-once

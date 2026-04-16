@@ -12,6 +12,7 @@ struct Options {
     symbolic: bool,
     force: bool,
     no_dereference: bool,
+    no_target_directory: bool,
 }
 
 pub fn main(args: &[String]) -> i32 {
@@ -21,7 +22,8 @@ pub fn main(args: &[String]) -> i32 {
 fn run(args: &[String]) -> AppletResult {
     let (options, sources, destination) = parse_args(args)?;
     let destination_path = Path::new(&destination);
-    let dest_is_dir = is_target_directory(destination_path, options.no_dereference);
+    let dest_is_dir =
+        !options.no_target_directory && is_target_directory(destination_path, options.no_dereference);
 
     if sources.len() > 1 && !dest_is_dir {
         return Err(vec![AppletError::new(
@@ -61,6 +63,10 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>, String), Vec<App
             parsing_flags = false;
             continue;
         }
+        if parsing_flags && arg == "--no-target-directory" {
+            options.no_target_directory = true;
+            continue;
+        }
 
         if parsing_flags && arg.starts_with('-') && arg.len() > 1 {
             for flag in arg[1..].chars() {
@@ -68,6 +74,7 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>, String), Vec<App
                     's' => options.symbolic = true,
                     'f' => options.force = true,
                     'n' => options.no_dereference = true,
+                    'T' => options.no_target_directory = true,
                     _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
                 }
             }
@@ -152,6 +159,15 @@ mod tests {
         assert!(options.no_dereference);
         assert_eq!(sources, vec!["src"]);
         assert_eq!(destination, "dst");
+    }
+
+    #[test]
+    fn parses_no_target_directory() {
+        let (options, _, _) = parse(&["-T", "src", "dst"]);
+        assert!(options.no_target_directory);
+
+        let (options, _, _) = parse(&["--no-target-directory", "src", "dst"]);
+        assert!(options.no_target_directory);
     }
 
     #[test]

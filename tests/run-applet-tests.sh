@@ -679,6 +679,7 @@ run_old_style tests/busybox/ln/ln-creates-hard-link
 run_old_style tests/busybox/ln/ln-creates-link-in-directory
 run_old_style tests/busybox/ln/ln-symbolic-link
 run_old_style tests/busybox/ln/ln-force-replaces-existing-target
+run_old_style tests/busybox/ln/ln-T-does-not-create-link-inside-directory
 
 run_old_style tests/busybox/mkfifo/mkfifo-creates-fifo
 run_old_style tests/busybox/mkfifo/mkfifo-creates-multiple-fifos

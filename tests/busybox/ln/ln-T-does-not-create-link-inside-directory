@@ -1,0 +1,7 @@
+mkdir dest
+
+if busybox ln -sT source dest >/dev/null 2>&1; then
+	exit 1
+fi
+
+test ! -e dest/source

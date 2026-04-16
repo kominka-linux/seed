@@ -98,6 +98,16 @@ testing "od -c" \
 	"" "$input"
 SKIP=
 
+testing "od -A o -t c -N 18" \
+        "od -A o -t c -N 18 input" \
+"\
+0000000   a   b   c   d   e   f   g   h   i   j   k   l   m   n   o   p
+0000020   q   r
+0000022
+" \
+	"abcdefghijklmnopqrst" ""
+SKIP=
+
 $little_endian || SKIP=1
 testing "od -d (little-endian)" \
         "od -d" \

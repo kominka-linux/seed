@@ -24,6 +24,21 @@ enum Format {
     Signed64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AddressBase {
+    Octal,
+    Decimal,
+    Hexadecimal,
+    None,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Options {
+    format: Format,
+    address_base: AddressBase,
+    byte_limit: Option<usize>,
+}
+
 pub fn main(args: &[OsString]) -> i32 {
     match run(args) {
         Ok(()) => 0,
@@ -42,58 +57,58 @@ fn run(args: &[OsString]) -> Result<(), String> {
             .collect::<Vec<_>>()
             .join("\n")
     })?;
-    let (format, files) = parse_args(&args)?;
+    let (options, files) = parse_args(&args)?;
     let path = files.first().map(String::as_str).unwrap_or("-");
     let mut input = open_input(path).map_err(|err| format!("opening {path}: {err}"))?;
 
     let mut stdout = io::stdout().lock();
-    match format {
-        Format::Octal16 => format_words(&mut stdout, &mut input, 2, |chunk| {
+    match options.format {
+        Format::Octal16 => format_words(&mut stdout, &mut input, &options, 2, |chunk| {
             format!("{:06o}", u16::from_ne_bytes([chunk[0], chunk[1]]))
         })?,
-        Format::Signed16 => format_words(&mut stdout, &mut input, 2, |chunk| {
+        Format::Signed16 => format_words(&mut stdout, &mut input, &options, 2, |chunk| {
             format!("{:6}", i16::from_ne_bytes([chunk[0], chunk[1]]))
         })?,
-        Format::Octal8 => format_words(&mut stdout, &mut input, 1, |chunk| {
+        Format::Octal8 => format_words(&mut stdout, &mut input, &options, 1, |chunk| {
             format!("{:03o}", chunk[0])
         })?,
-        Format::NamedChar => format_words(&mut stdout, &mut input, 1, |chunk| {
+        Format::NamedChar => format_words(&mut stdout, &mut input, &options, 1, |chunk| {
             format!("{:>3}", named_char_repr(chunk[0]))
         })?,
-        Format::Char => format_words(&mut stdout, &mut input, 1, |chunk| {
+        Format::Char => format_words(&mut stdout, &mut input, &options, 1, |chunk| {
             format!("{:>3}", char_repr(chunk[0]))
         })?,
-        Format::Decimal16 => format_words(&mut stdout, &mut input, 2, |chunk| {
+        Format::Decimal16 => format_words(&mut stdout, &mut input, &options, 2, |chunk| {
             format!("{:5}", u16::from_ne_bytes([chunk[0], chunk[1]]))
         })?,
-        Format::Decimal32 => format_words(&mut stdout, &mut input, 4, |chunk| {
+        Format::Decimal32 => format_words(&mut stdout, &mut input, &options, 4, |chunk| {
             format!(
                 "{:10}",
                 u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])
             )
         })?,
-        Format::Signed32 => format_words(&mut stdout, &mut input, 4, |chunk| {
+        Format::Signed32 => format_words(&mut stdout, &mut input, &options, 4, |chunk| {
             format!(
                 "{:11}",
                 i32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])
             )
         })?,
-        Format::Octal32 => format_words(&mut stdout, &mut input, 4, |chunk| {
+        Format::Octal32 => format_words(&mut stdout, &mut input, &options, 4, |chunk| {
             format!(
                 "{:011o}",
                 u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])
             )
         })?,
-        Format::Hex16 => format_words(&mut stdout, &mut input, 2, |chunk| {
+        Format::Hex16 => format_words(&mut stdout, &mut input, &options, 2, |chunk| {
             format!("{:04x}", u16::from_ne_bytes([chunk[0], chunk[1]]))
         })?,
-        Format::Hex32 => format_words(&mut stdout, &mut input, 4, |chunk| {
+        Format::Hex32 => format_words(&mut stdout, &mut input, &options, 4, |chunk| {
             format!(
                 "{:08x}",
                 u32::from_ne_bytes([chunk[0], chunk[1], chunk[2], chunk[3]])
             )
         })?,
-        Format::Float32 => format_words(&mut stdout, &mut input, 4, |chunk| {
+        Format::Float32 => format_words(&mut stdout, &mut input, &options, 4, |chunk| {
             format!(
                 "{:>15}",
                 scientific_repr(
@@ -102,7 +117,7 @@ fn run(args: &[OsString]) -> Result<(), String> {
                 )
             )
         })?,
-        Format::Signed64 => format_words(&mut stdout, &mut input, 8, |chunk| {
+        Format::Signed64 => format_words(&mut stdout, &mut input, &options, 8, |chunk| {
             format!(
                 "{:20}",
                 i64::from_ne_bytes([
@@ -114,12 +129,18 @@ fn run(args: &[OsString]) -> Result<(), String> {
     Ok(())
 }
 
-fn parse_args(args: &[String]) -> Result<(Format, Vec<String>), String> {
-    let mut format = Format::Octal16;
+fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), String> {
+    let mut options = Options {
+        format: Format::Octal16,
+        address_base: AddressBase::Octal,
+        byte_limit: None,
+    };
     let mut files = Vec::new();
     let mut parsing_flags = true;
+    let mut index = 0;
 
-    for arg in args {
+    while let Some(arg) = args.get(index) {
+        index += 1;
         if parsing_flags && arg == "--" {
             parsing_flags = false;
             continue;
@@ -127,9 +148,33 @@ fn parse_args(args: &[String]) -> Result<(Format, Vec<String>), String> {
         if parsing_flags && arg == "--traditional" {
             continue;
         }
+        if parsing_flags && arg == "-A" {
+            let value = args
+                .get(index)
+                .ok_or_else(|| AppletError::option_requires_arg(APPLET, "A").to_string())?;
+            index += 1;
+            options.address_base = parse_address_base(value)?;
+            continue;
+        }
+        if parsing_flags && arg == "-N" {
+            let value = args
+                .get(index)
+                .ok_or_else(|| AppletError::option_requires_arg(APPLET, "N").to_string())?;
+            index += 1;
+            options.byte_limit = Some(parse_count(value)?);
+            continue;
+        }
+        if parsing_flags && arg == "-t" {
+            let value = args
+                .get(index)
+                .ok_or_else(|| AppletError::option_requires_arg(APPLET, "t").to_string())?;
+            index += 1;
+            options.format = parse_type_string(value)?;
+            continue;
+        }
         if parsing_flags && arg.starts_with('-') && arg.len() > 1 {
             for flag in arg[1..].chars() {
-                format = match flag {
+                options.format = match flag {
                     'B' | 'o' => Format::Octal16,
                     'b' => Format::Octal8,
                     'a' => Format::NamedChar,
@@ -151,22 +196,52 @@ fn parse_args(args: &[String]) -> Result<(Format, Vec<String>), String> {
         files.push(arg.clone());
     }
 
-    Ok((format, files))
+    Ok((options, files))
+}
+
+fn parse_address_base(value: &str) -> Result<AddressBase, String> {
+    match value {
+        "o" => Ok(AddressBase::Octal),
+        "d" => Ok(AddressBase::Decimal),
+        "x" => Ok(AddressBase::Hexadecimal),
+        "n" => Ok(AddressBase::None),
+        _ => Err(format!("invalid address base '{value}'")),
+    }
+}
+
+fn parse_count(value: &str) -> Result<usize, String> {
+    value
+        .parse::<usize>()
+        .map_err(|_| format!("invalid count '{value}'"))
+}
+
+fn parse_type_string(value: &str) -> Result<Format, String> {
+    match value {
+        "a" => Ok(Format::NamedChar),
+        "c" => Ok(Format::Char),
+        _ => Err(format!("unsupported type string '{value}'")),
+    }
 }
 
 fn format_words(
     stdout: &mut impl Write,
     input: &mut impl Read,
+    options: &Options,
     unit: usize,
     render: impl Fn(&[u8]) -> String,
 ) -> Result<(), String> {
     let mut bytes = [0_u8; 16];
     let mut offset = 0_usize;
+    let mut remaining = options.byte_limit.unwrap_or(usize::MAX);
     loop {
+        if remaining == 0 {
+            break;
+        }
         let mut filled = 0;
-        while filled < bytes.len() {
+        let limit = remaining.min(bytes.len());
+        while filled < limit {
             let read = input
-                .read(&mut bytes[filled..])
+                .read(&mut bytes[filled..limit])
                 .map_err(|err| format!("reading input: {err}"))?;
             if read == 0 {
                 break;
@@ -177,7 +252,7 @@ fn format_words(
             break;
         }
 
-        write!(stdout, "{:07o}", offset).map_err(|err| format!("writing stdout: {err}"))?;
+        write_offset(stdout, options.address_base, offset)?;
         let mut index = 0;
         while index + unit <= filled {
             let value = render(&bytes[index..index + unit]);
@@ -186,9 +261,26 @@ fn format_words(
         }
         writeln!(stdout).map_err(|err| format!("writing stdout: {err}"))?;
         offset += filled;
+        remaining = remaining.saturating_sub(filled);
     }
-    writeln!(stdout, "{:07o}", offset).map_err(|err| format!("writing stdout: {err}"))?;
+    write_offset(stdout, options.address_base, offset)?;
+    writeln!(stdout).map_err(|err| format!("writing stdout: {err}"))?;
     Ok(())
+}
+
+fn write_offset(stdout: &mut impl Write, base: AddressBase, offset: usize) -> Result<(), String> {
+    match base {
+        AddressBase::Octal => {
+            write!(stdout, "{offset:07o}").map_err(|err| format!("writing stdout: {err}"))
+        }
+        AddressBase::Decimal => {
+            write!(stdout, "{offset:07}").map_err(|err| format!("writing stdout: {err}"))
+        }
+        AddressBase::Hexadecimal => {
+            write!(stdout, "{offset:07x}").map_err(|err| format!("writing stdout: {err}"))
+        }
+        AddressBase::None => Ok(()),
+    }
 }
 
 fn char_repr(byte: u8) -> String {
@@ -246,4 +338,24 @@ fn scientific_repr(value: f64, precision: usize) -> String {
     };
     let exponent_value = exponent.parse::<i32>().unwrap_or(0);
     format!("{mantissa}e{exponent_value:+03}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AddressBase, Format, parse_args};
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn parses_gnu_style_options_used_by_sample_calls() {
+        let (options, files) = parse_args(&args(&["-A", "o", "-t", "c", "-N", "18", "input"]))
+            .expect("parse od args");
+
+        assert!(matches!(options.address_base, AddressBase::Octal));
+        assert!(matches!(options.format, Format::Char));
+        assert_eq!(options.byte_limit, Some(18));
+        assert_eq!(files, vec![String::from("input")]);
+    }
 }

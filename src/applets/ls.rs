@@ -18,6 +18,7 @@ struct Options {
     list_directory_itself: bool,
     recursive: bool,
     reverse_sort: bool,
+    show_inode: bool,
     single_column: bool,
     human_readable: bool,
     long_format: bool,
@@ -59,6 +60,7 @@ struct Entry {
 
 #[derive(Debug)]
 struct LongEntry {
+    inode: String,
     mode: String,
     links: String,
     owner: String,
@@ -175,6 +177,7 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
                     'a' => options.hidden_mode = HiddenMode::All,
                     'd' => options.list_directory_itself = true,
                     'h' => options.human_readable = true,
+                    'i' => options.show_inode = true,
                     'l' => options.long_format = true,
                     'p' => options.indicator_style = IndicatorStyle::Slash,
                     'R' => options.recursive = true,
@@ -407,7 +410,19 @@ fn render_entries(
             output.push_str(&format_long_entry(entry, widths));
         }
     } else {
+        let inode_width = if options.show_inode {
+            inode_width(entries)
+        } else {
+            0
+        };
         for entry in entries {
+            if inode_width > 0 {
+                output.push_str(&format!(
+                    "{:>inode_width$} ",
+                    entry.metadata.ino(),
+                    inode_width = inode_width
+                ));
+            }
             if options.show_blocks {
                 output.push_str(&format!(
                     "{} {}\n",
@@ -427,6 +442,7 @@ fn render_entries(
 
 #[derive(Clone, Copy)]
 struct LongWidths {
+    inode: usize,
     links: usize,
     owner: usize,
     group: usize,
@@ -436,6 +452,7 @@ struct LongWidths {
 impl LongWidths {
     fn from_entries(entries: &[LongEntry], _options: Options) -> Self {
         let mut widths = Self {
+            inode: 0,
             links: 1,
             owner: 0,
             group: 0,
@@ -443,6 +460,7 @@ impl LongWidths {
         };
 
         for entry in entries {
+            widths.inode = widths.inode.max(entry.inode.len());
             widths.links = widths.links.max(entry.links.len());
             widths.owner = widths.owner.max(entry.owner.len());
             widths.group = widths.group.max(entry.group.len());
@@ -468,6 +486,7 @@ fn build_long_entry(entry: &Entry, options: Options) -> Result<LongEntry, Applet
     };
 
     Ok(LongEntry {
+        inode: entry.metadata.ino().to_string(),
         mode: format_mode(entry)?,
         links: entry.metadata.nlink().to_string(),
         owner: unix::lookup_user(entry.metadata.uid()),
@@ -480,7 +499,11 @@ fn build_long_entry(entry: &Entry, options: Options) -> Result<LongEntry, Applet
 }
 
 fn format_long_entry(entry: &LongEntry, widths: LongWidths) -> String {
-    let mut line = format!(
+    let mut line = String::new();
+    if widths.inode > 0 {
+        line.push_str(&format!("{:>inode_width$} ", entry.inode, inode_width = widths.inode));
+    }
+    line.push_str(&format!(
         "{} {:>links$} {:owner_width$} {:group_width$} {:>size_width$} {} {}",
         entry.mode,
         entry.links,
@@ -493,7 +516,7 @@ fn format_long_entry(entry: &LongEntry, widths: LongWidths) -> String {
         owner_width = widths.owner,
         group_width = widths.group,
         size_width = widths.size,
-    );
+    ));
     if let Some(target) = &entry.symlink_target {
         line.push_str(" -> ");
         line.push_str(target);
@@ -581,6 +604,14 @@ fn format_human_size(size: u64) -> String {
     } else {
         format!("{value:.1}{}", UNITS[unit])
     }
+}
+
+fn inode_width(entries: &[Entry]) -> usize {
+    entries
+        .iter()
+        .map(|entry| entry.metadata.ino().to_string().len())
+        .max()
+        .unwrap_or(1)
 }
 
 #[cfg(test)]
@@ -795,6 +826,14 @@ mod tests {
             parse_args(&["-pF".to_owned(), "dir".to_owned()]).expect("parse");
 
         assert_eq!(options.indicator_style, IndicatorStyle::Classify);
+        assert_eq!(paths, vec!["dir"]);
+    }
+
+    #[test]
+    fn parses_inode_flag() {
+        let (options, paths) = parse_args(&["-i".to_owned(), "dir".to_owned()]).expect("parse");
+
+        assert!(options.show_inode);
         assert_eq!(paths, vec!["dir"]);
     }
 
@@ -1120,6 +1159,46 @@ mod tests {
                 fifo.display()
             )
         );
+    }
+
+    #[test]
+    fn inode_flag_prefixes_plain_entries() {
+        let tempdir = TempDir::new();
+        let file = tempdir.path().join("file");
+        fs::write(&file, b"x").expect("write file");
+
+        let output = render_target(
+            file.to_str().expect("utf8 path"),
+            Options {
+                show_inode: true,
+                ..Options::default()
+            },
+        )
+        .expect("render inode file");
+
+        assert!(output.ends_with(&format!(" {}\n", file.display())));
+        assert!(output.split_whitespace().next().is_some());
+    }
+
+    #[test]
+    fn inode_flag_prefixes_long_entries() {
+        let tempdir = TempDir::new();
+        let file = tempdir.path().join("file");
+        fs::write(&file, b"x").expect("write file");
+
+        let output = render_target(
+            file.to_str().expect("utf8 path"),
+            Options {
+                show_inode: true,
+                long_format: true,
+                ..Options::default()
+            },
+        )
+        .expect("render long inode file");
+
+        let first = output.split_whitespace().next().expect("inode column");
+        assert!(first.chars().all(|ch| ch.is_ascii_digit()));
+        assert!(output.contains(&file.display().to_string()));
     }
 
     #[test]

@@ -1,0 +1,7 @@
+LC_ALL=C /bin/ls -1i "$d/a" "$d/big" > logfile.gnu
+LC_ALL=C busybox ls -1i "$d/a" "$d/big" > logfile.bb
+cmp logfile.gnu logfile.bb
+
+LC_ALL=C /bin/ls -li "$d/a" "$d/big" > logfile.gnu
+LC_ALL=C busybox ls -li "$d/a" "$d/big" > logfile.bb
+cmp logfile.gnu logfile.bb

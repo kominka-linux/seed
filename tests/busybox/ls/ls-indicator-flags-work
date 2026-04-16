@@ -1,0 +1,13 @@
+mkdir -p "$d/dir"
+printf '#!/bin/sh\n' >"$d/exec"
+chmod 755 "$d/exec"
+ln -s "$d/exec" "$d/link"
+mkfifo "$d/fifo"
+
+LC_ALL=C /bin/ls -1dp "$d/dir" "$d/exec" > logfile.gnu
+LC_ALL=C busybox ls -1dp "$d/dir" "$d/exec" > logfile.bb
+cmp logfile.gnu logfile.bb
+
+LC_ALL=C /bin/ls -1dF "$d/dir" "$d/exec" "$d/link" "$d/fifo" > logfile.gnu
+LC_ALL=C busybox ls -1dF "$d/dir" "$d/exec" "$d/link" "$d/fifo" > logfile.bb
+cmp logfile.gnu logfile.bb

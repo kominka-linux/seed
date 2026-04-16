@@ -14,6 +14,7 @@ const APPLET: &str = "ls";
 #[derive(Clone, Copy, Debug, Default)]
 struct Options {
     hidden_mode: HiddenMode,
+    indicator_style: IndicatorStyle,
     list_directory_itself: bool,
     recursive: bool,
     reverse_sort: bool,
@@ -39,6 +40,14 @@ enum SortMode {
     Time,
     Size,
     Unsorted,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum IndicatorStyle {
+    #[default]
+    None,
+    Slash,
+    Classify,
 }
 
 #[derive(Debug)]
@@ -160,12 +169,14 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
                 match flag {
                     '1' => options.single_column = true,
                     'A' => options.hidden_mode = HiddenMode::AlmostAll,
+                    'F' => options.indicator_style = IndicatorStyle::Classify,
                     'S' => options.sort_mode = SortMode::Size,
                     'U' => options.sort_mode = SortMode::Unsorted,
                     'a' => options.hidden_mode = HiddenMode::All,
                     'd' => options.list_directory_itself = true,
                     'h' => options.human_readable = true,
                     'l' => options.long_format = true,
+                    'p' => options.indicator_style = IndicatorStyle::Slash,
                     'R' => options.recursive = true,
                     'r' => options.reverse_sort = true,
                     's' => options.show_blocks = true,
@@ -345,6 +356,36 @@ fn compare_by_size(left: &Entry, right: &Entry) -> std::cmp::Ordering {
         .then_with(|| compare_by_name(left, right))
 }
 
+fn display_name(entry: &Entry, options: Options) -> String {
+    let mut name = entry.name.clone();
+    if let Some(indicator) = indicator_suffix(entry, options.indicator_style) {
+        name.push(indicator);
+    }
+    name
+}
+
+fn indicator_suffix(entry: &Entry, style: IndicatorStyle) -> Option<char> {
+    match style {
+        IndicatorStyle::None => None,
+        IndicatorStyle::Slash => entry.metadata.is_dir().then_some('/'),
+        IndicatorStyle::Classify => {
+            if entry.metadata.is_dir() {
+                Some('/')
+            } else if entry.metadata.file_type().is_symlink() {
+                Some('@')
+            } else if entry.metadata.file_type().is_fifo() {
+                Some('|')
+            } else if entry.metadata.file_type().is_socket() {
+                Some('=')
+            } else if entry.metadata.is_file() && entry.metadata.mode() & 0o111 != 0 {
+                Some('*')
+            } else {
+                None
+            }
+        }
+    }
+}
+
 fn render_entries(
     entries: &[Entry],
     options: Options,
@@ -371,11 +412,11 @@ fn render_entries(
                 output.push_str(&format!(
                     "{} {}\n",
                     format_blocks(entry.metadata.blocks(), options.human_readable),
-                    entry.name
+                    display_name(entry, options)
                 ));
             } else {
                 let _ = options.single_column;
-                output.push_str(&entry.name);
+                output.push_str(&display_name(entry, options));
                 output.push('\n');
             }
         }
@@ -433,7 +474,7 @@ fn build_long_entry(entry: &Entry, options: Options) -> Result<LongEntry, Applet
         group: unix::lookup_group(entry.metadata.gid()),
         size,
         modified: unix::format_recent_mtime(APPLET, entry.metadata.mtime())?,
-        name: entry.name.clone(),
+        name: display_name(entry, options),
         symlink_target,
     })
 }
@@ -544,9 +585,12 @@ fn format_human_size(size: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{HiddenMode, Options, SortMode, parse_args, render_target, render_targets};
+    use super::{
+        HiddenMode, IndicatorStyle, Options, SortMode, parse_args, render_target, render_targets,
+    };
     use crate::common::unix;
     use std::fs;
+    use std::os::unix::ffi::OsStrExt;
     use std::path::PathBuf;
 
     struct TempDir {
@@ -742,6 +786,15 @@ mod tests {
         let (options, paths) = parse_args(&["-R".to_owned(), "dir".to_owned()]).expect("parse");
 
         assert!(options.recursive);
+        assert_eq!(paths, vec!["dir"]);
+    }
+
+    #[test]
+    fn parses_indicator_flags() {
+        let (options, paths) =
+            parse_args(&["-pF".to_owned(), "dir".to_owned()]).expect("parse");
+
+        assert_eq!(options.indicator_style, IndicatorStyle::Classify);
         assert_eq!(paths, vec!["dir"]);
     }
 
@@ -995,6 +1048,78 @@ mod tests {
         assert!(output.contains(&format!("{}:\n", dir.display())));
         assert!(output.contains(&format!("{}:\nchild-file\n", sub.display())));
         assert!(!output.contains(&format!("{}:\n", link.display())));
+    }
+
+    #[test]
+    fn slash_indicator_marks_directories_only() {
+        let tempdir = TempDir::new();
+        let dir = tempdir.path().join("dir");
+        let file = tempdir.path().join("file");
+        fs::create_dir(&dir).expect("create dir");
+        fs::write(&file, b"x").expect("write file");
+
+        let (output, errors) = render_targets(
+            &[
+                dir.to_str().expect("utf8 path").to_owned(),
+                file.to_str().expect("utf8 path").to_owned(),
+            ],
+            Options {
+                list_directory_itself: true,
+                indicator_style: IndicatorStyle::Slash,
+                sort_mode: SortMode::Unsorted,
+                ..Options::default()
+            },
+        );
+
+        assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+        assert_eq!(output, format!("{}/\n{}\n", dir.display(), file.display()));
+    }
+
+    #[test]
+    fn classify_indicator_marks_common_file_types() {
+        let tempdir = TempDir::new();
+        let dir = tempdir.path().join("dir");
+        let exec = tempdir.path().join("exec");
+        let link = tempdir.path().join("link");
+        let fifo = tempdir.path().join("fifo");
+        fs::create_dir(&dir).expect("create dir");
+        fs::write(&exec, b"#!/bin/sh\n").expect("write exec");
+        let mut perms = fs::metadata(&exec).expect("exec metadata").permissions();
+        use std::os::unix::fs::PermissionsExt;
+        perms.set_mode(0o755);
+        fs::set_permissions(&exec, perms).expect("set exec perms");
+        std::os::unix::fs::symlink(&exec, &link).expect("create symlink");
+        let fifo_c = std::ffi::CString::new(fifo.as_os_str().as_bytes()).expect("fifo path");
+        // SAFETY: `fifo_c` is a valid nul-terminated path for mkfifo.
+        let rc = unsafe { libc::mkfifo(fifo_c.as_ptr(), 0o644) };
+        assert_eq!(rc, 0, "mkfifo failed: {}", std::io::Error::last_os_error());
+
+        let (output, errors) = render_targets(
+            &[
+                dir.to_str().expect("utf8 path").to_owned(),
+                exec.to_str().expect("utf8 path").to_owned(),
+                link.to_str().expect("utf8 path").to_owned(),
+                fifo.to_str().expect("utf8 path").to_owned(),
+            ],
+            Options {
+                list_directory_itself: true,
+                indicator_style: IndicatorStyle::Classify,
+                sort_mode: SortMode::Unsorted,
+                ..Options::default()
+            },
+        );
+
+        assert!(errors.is_empty(), "unexpected errors: {:?}", errors);
+        assert_eq!(
+            output,
+            format!(
+                "{}/\n{}*\n{}@\n{}|\n",
+                dir.display(),
+                exec.display(),
+                link.display(),
+                fifo.display()
+            )
+        );
     }
 
     #[test]

@@ -2,10 +2,13 @@ pub mod account;
 pub mod applet;
 pub mod args;
 pub mod dhcp;
+#[cfg(feature = "docgen")]
+pub mod doc;
 pub mod error;
 pub mod extattr;
 pub mod fs;
 pub mod fstab;
+pub mod help;
 pub mod io;
 #[cfg(target_os = "linux")]
 pub mod modules;

@@ -1,4 +1,5 @@
 use std::os::unix::process::ExitStatusExt;
+use std::path::PathBuf;
 use std::process::Command;
 
 use crate::common::applet::finish_code;
@@ -7,6 +8,7 @@ use crate::common::error::AppletError;
 const APPLET: &str = "man";
 const MAN_PATH: &str = "/usr/bin/man";
 const MAN_PROGRAM_ENV: &str = "SEED_MAN_PROGRAM";
+const MANPATH_ENV: &str = "SEED_MANPATH";
 
 pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args))
@@ -25,17 +27,41 @@ fn man_program() -> String {
 }
 
 fn run_with_program(program: &str, args: &[std::ffi::OsString]) -> Result<i32, Vec<AppletError>> {
-    let status = Command::new(program)
-        .args(args)
-        .status()
-        .map_err(|err| {
-            vec![AppletError::new(
-                APPLET,
-                format!("failed to execute 'man': {err}"),
-            )]
-        })?;
+    let mut command = Command::new(program);
+    command.args(args);
+    if let Some(manpath) = seed_manpath() {
+        command.env("MANPATH", manpath);
+    }
+    let status = command.status().map_err(|err| {
+        vec![AppletError::new(
+            APPLET,
+            format!("failed to execute 'man': {err}"),
+        )]
+    })?;
 
     Ok(exit_code(status))
+}
+
+fn seed_manpath() -> Option<String> {
+    if let Ok(path) = std::env::var(MANPATH_ENV) {
+        return Some(path);
+    }
+
+    find_local_manpath().map(|path| match std::env::var("MANPATH") {
+        Ok(existing) if !existing.is_empty() => format!("{}:{}", path.display(), existing),
+        _ => path.display().to_string(),
+    })
+}
+
+fn find_local_manpath() -> Option<PathBuf> {
+    let cwd = std::env::current_dir().ok()?;
+    for dir in cwd.ancestors() {
+        let candidate = dir.join("docs/man");
+        if candidate.is_dir() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 fn exit_code(status: std::process::ExitStatus) -> i32 {
@@ -50,7 +76,7 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
 mod tests {
     use crate::common::test_env;
 
-    use super::{MAN_PATH, man_program, run, run_with_program};
+    use super::{MAN_PATH, find_local_manpath, man_program, run, run_with_program, seed_manpath};
 
     fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
         values.iter().map(std::ffi::OsString::from).collect()
@@ -88,5 +114,20 @@ mod tests {
         assert_eq!(man_program(), "/tmp/fake-man");
         // SAFETY: tests serialize process-environment mutation with `test_env::lock()`.
         unsafe { std::env::remove_var(super::MAN_PROGRAM_ENV) };
+    }
+
+    #[test]
+    fn seed_manpath_env_override_wins() {
+        let _guard = test_env::lock();
+        // SAFETY: tests serialize process-environment mutation with `test_env::lock()`.
+        unsafe { std::env::set_var(super::MANPATH_ENV, "/tmp/seed-man") };
+        assert_eq!(seed_manpath().as_deref(), Some("/tmp/seed-man"));
+        // SAFETY: tests serialize process-environment mutation with `test_env::lock()`.
+        unsafe { std::env::remove_var(super::MANPATH_ENV) };
+    }
+
+    #[test]
+    fn finds_local_docs_man_directory() {
+        assert!(find_local_manpath().is_some());
     }
 }

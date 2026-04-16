@@ -1,6 +1,10 @@
 pub mod common;
+#[cfg(feature = "docgen")]
+pub mod tar_doc;
 #[cfg(feature = "wget")]
 pub mod wget;
+#[cfg(feature = "docgen")]
+pub mod wget_doc;
 
 #[cfg(feature = "multicall")]
 #[macro_use]
@@ -34,6 +38,11 @@ pub fn dispatch(argv: &[std::ffi::OsString]) -> i32 {
             return 1;
         }
     };
+
+    if matches!(applet.args, [arg] if arg == OsStr::new("--help")) {
+        print!("{}", crate::common::help::short_help(applet.name));
+        return 0;
+    }
 
     if let Some(entry) = APPLETS.iter().find(|entry| entry.name == applet.name) {
         (entry.main)(applet.args)

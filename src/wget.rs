@@ -12,6 +12,13 @@ use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET: &str = "wget";
+const SHORT_HELP: &str = "\
+wget - retrieve files over HTTP and HTTPS
+
+usage: wget [OPTIONS] URL...
+
+Try 'man wget' for details.
+";
 
 #[derive(Debug, Default)]
 struct Options {
@@ -29,25 +36,41 @@ pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
+pub(crate) fn short_help() -> &'static str {
+    SHORT_HELP
+}
+
 fn run(args: &[std::ffi::OsString]) -> AppletResult {
-    let (options, urls) = parse_args(args)?;
-    let agent = make_agent(&options).map_err(|e| vec![e])?;
-    let mut errors = Vec::new();
-
-    for url in &urls {
-        if let Err(err) = fetch_url(&agent, url, &options) {
-            errors.push(err);
+    match parse_args(args)? {
+        ParsedCommand::Help => {
+            print!("{SHORT_HELP}");
+            Ok(())
         }
-    }
+        ParsedCommand::Fetch(options, urls) => {
+            let agent = make_agent(&options).map_err(|e| vec![e])?;
+            let mut errors = Vec::new();
 
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors)
+            for url in &urls {
+                if let Err(err) = fetch_url(&agent, url, &options) {
+                    errors.push(err);
+                }
+            }
+
+            if errors.is_empty() {
+                Ok(())
+            } else {
+                Err(errors)
+            }
+        }
     }
 }
 
-fn parse_args(args: &[std::ffi::OsString]) -> Result<(Options, Vec<String>), Vec<AppletError>> {
+enum ParsedCommand {
+    Help,
+    Fetch(Options, Vec<String>),
+}
+
+fn parse_args(args: &[std::ffi::OsString]) -> Result<ParsedCommand, Vec<AppletError>> {
     let mut options = Options::default();
     let mut urls = Vec::new();
     let mut cursor = ArgCursor::new(args);
@@ -78,6 +101,7 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<(Options, Vec<String>), Vec
         }
 
         match arg {
+            "--help" => return Ok(ParsedCommand::Help),
             "-O" => {
                 options.output_document = Some(cursor.next_value(APPLET, "O")?.to_owned());
             }
@@ -126,7 +150,7 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<(Options, Vec<String>), Vec
         return Err(vec![AppletError::new(APPLET, "missing URL")]);
     }
 
-    Ok((options, urls))
+    Ok(ParsedCommand::Fetch(options, urls))
 }
 
 fn make_agent(options: &Options) -> Result<Agent, AppletError> {
@@ -295,7 +319,7 @@ fn split_header(header: &str) -> Result<(&str, &str), AppletError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Options, default_filename, output_path, parse_args};
+    use super::{Options, ParsedCommand, default_filename, output_path, parse_args};
     use crate::common::unix;
     use std::collections::HashMap;
     use std::ffi::OsString;
@@ -311,7 +335,7 @@ mod tests {
 
     #[test]
     fn parse_supports_quiet_output_document_and_directory() {
-        let (options, urls) = parse_args(&[
+        let ParsedCommand::Fetch(options, urls) = parse_args(&[
             "-q".into(),
             "-O".into(),
             "out".into(),
@@ -319,7 +343,9 @@ mod tests {
             "dir".into(),
             "http://example.com".into(),
         ])
-        .expect("parse");
+        .expect("parse") else {
+            panic!("expected fetch command");
+        };
 
         assert!(options.quiet);
         assert_eq!(options.output_document.as_deref(), Some("out"));
@@ -329,7 +355,7 @@ mod tests {
 
     #[test]
     fn parse_supports_post_data_and_headers() {
-        let (options, urls) = parse_args(&args(&[
+        let ParsedCommand::Fetch(options, urls) = parse_args(&args(&[
             "-q",
             "--post-data={\"arch\":\"x86_64\"}",
             "--header",
@@ -337,7 +363,9 @@ mod tests {
             "--header=Content-Type: application/json",
             "http://example.com",
         ]))
-        .expect("parse");
+        .expect("parse") else {
+            panic!("expected fetch command");
+        };
 
         assert!(options.quiet);
         assert_eq!(options.post_data.as_deref(), Some("{\"arch\":\"x86_64\"}"));
@@ -353,11 +381,13 @@ mod tests {
 
     #[test]
     fn parse_supports_post_file() {
-        let (options, urls) = parse_args(&args(&[
+        let ParsedCommand::Fetch(options, urls) = parse_args(&args(&[
             "--post-file=/tmp/request.json",
             "http://example.com",
         ]))
-        .expect("parse");
+        .expect("parse") else {
+            panic!("expected fetch command");
+        };
 
         assert_eq!(options.post_file.as_deref(), Some("/tmp/request.json"));
         assert_eq!(options.post_data, None);
@@ -366,25 +396,34 @@ mod tests {
 
     #[test]
     fn parse_no_check_certificate_short() {
-        let (options, _) = parse_args(&args(&["-k", "http://example.com"])).expect("parse");
+        let ParsedCommand::Fetch(options, _) =
+            parse_args(&args(&["-k", "http://example.com"])).expect("parse")
+        else {
+            panic!("expected fetch command");
+        };
         assert!(options.no_check_certificate);
     }
 
     #[test]
     fn parse_no_check_certificate_long() {
-        let (options, _) =
-            parse_args(&args(&["--no-check-certificate", "http://example.com"])).expect("parse");
+        let ParsedCommand::Fetch(options, _) =
+            parse_args(&args(&["--no-check-certificate", "http://example.com"])).expect("parse")
+        else {
+            panic!("expected fetch command");
+        };
         assert!(options.no_check_certificate);
     }
 
     #[test]
     fn parse_ca_certificate_separate_arg() {
-        let (options, _) = parse_args(&args(&[
+        let ParsedCommand::Fetch(options, _) = parse_args(&args(&[
             "--ca-certificate",
             "/etc/ssl/certs/ca-certificates.crt",
             "http://example.com",
         ]))
-        .expect("parse");
+        .expect("parse") else {
+            panic!("expected fetch command");
+        };
         assert_eq!(
             options.ca_certificate.as_deref(),
             Some("/etc/ssl/certs/ca-certificates.crt")
@@ -393,11 +432,13 @@ mod tests {
 
     #[test]
     fn parse_ca_certificate_equals_form() {
-        let (options, _) = parse_args(&args(&[
+        let ParsedCommand::Fetch(options, _) = parse_args(&args(&[
             "--ca-certificate=/etc/ssl/certs/ca-certificates.crt",
             "http://example.com",
         ]))
-        .expect("parse");
+        .expect("parse") else {
+            panic!("expected fetch command");
+        };
         assert_eq!(
             options.ca_certificate.as_deref(),
             Some("/etc/ssl/certs/ca-certificates.crt")

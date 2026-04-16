@@ -3,6 +3,13 @@ XDG_CACHE_HOME := $(CURDIR)/.cache
 build:
 	cargo build
 
+manpages:
+	mkdir -p docs/man
+	rm -f docs/man/*.1
+	for applet in $$(cargo run --quiet --features docgen --bin seed-docgen -- list); do \
+		cargo run --quiet --features docgen --bin seed-docgen -- man "$$applet" > "docs/man/$$applet.1"; \
+	done
+
 test:
 	cargo test --quiet
 	./tests/run-applet-tests.sh

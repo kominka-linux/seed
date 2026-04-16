@@ -1,0 +1,46 @@
+.TH "wget" "1" "" "seed 0.1.0"
+.SH NAME
+wget \- retrieve files over HTTP and HTTPS
+.SH SYNOPSIS
+.B wget [OPTIONS] URL...
+.SH DESCRIPTION
+wget fetches each URL and writes the response body to standard output or a file.
+.PP
+POST requests can be sent with inline data via \-\-post\-data or by reading the request body from a file with \-\-post\-file.
+.SH OPTIONS
+.TP
+.B \-q
+Suppress normal output.
+.TP
+.B \-O FILE
+Write the response body to FILE instead of a derived filename.
+.TP
+.B \-P DIR
+Write output files below DIR.
+.TP
+.B \-k, \-\-no\-check\-certificate
+Disable TLS certificate verification.
+.TP
+.B \-\-ca\-certificate FILE
+Load trusted root certificates from FILE.
+.TP
+.B \-\-header 'Name: Value'
+Add an HTTP request header. May be repeated.
+.TP
+.B \-\-post\-data DATA
+Send DATA as the POST request body.
+.TP
+.B \-\-post\-file FILE
+Read the POST request body from FILE.
+.TP
+.B \-\-help
+Show a short usage summary.
+.SH EXAMPLES
+.TP
+.B wget \-q \-O\- https://example.com/
+Write the response body to standard output.
+.TP
+.B wget \-\-post\-file payload.json \-\-header 'Content\-Type: application/json' https://example.com/api
+Send a JSON request body loaded from payload.json.
+.SH SEE ALSO
+man(1)

@@ -1,0 +1,61 @@
+.TH "tar" "1" "" "seed 0.1.0"
+.SH NAME
+tar \- create, extract, and list tar archives
+.SH SYNOPSIS
+.B tar \-c[fjJzOvk] ARCHIVE [FILE...]
+.B tar \-x[fjJzOvkO] ARCHIVE [MEMBER...]
+.B tar \-t[fjJzv] ARCHIVE [MEMBER...]
+.B tar \-\-help
+.SH DESCRIPTION
+tar supports create, extract, and list modes with traditional short options, including old\-style forms such as 'tar xf archive.tar'.
+.PP
+Extraction supports GNU\-compatible \-\-strip\-components and \-\-overwrite behavior for common packaging and build\-script workflows.
+.SH OPTIONS
+.TP
+.B \-c
+Create an archive.
+.TP
+.B \-x
+Extract an archive.
+.TP
+.B \-t
+List archive contents.
+.TP
+.B \-f FILE
+Use FILE as the archive path. Use '\-' for standard input or output.
+.TP
+.B \-C DIR
+Change to DIR before processing following file operands.
+.TP
+.B \-v
+Print member names as they are processed.
+.TP
+.B \-O
+Write extracted file contents to standard output.
+.TP
+.B \-k
+Keep existing files when extracting.
+.TP
+.B \-z, \-j, \-J
+Use gzip, bzip2, or xz compression.
+.TP
+.B \-X FILE
+Read exclude patterns from FILE.
+.TP
+.B \-\-overwrite
+Overwrite existing files during extraction.
+.TP
+.B \-\-strip\-components N
+Strip N leading path components when extracting.
+.TP
+.B \-\-help
+Show a short usage summary.
+.SH EXAMPLES
+.TP
+.B tar czf archive.tar.gz dir
+Create a gzip\-compressed archive from dir.
+.TP
+.B tar xf archive.tar \-\-strip\-components=1
+Extract an archive while dropping the first path component from each member.
+.SH SEE ALSO
+gzip(1), bzip2(1), xz(1)

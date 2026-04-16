@@ -7,6 +7,7 @@ autobins = false
 [features]
 default = ["multicall", "wget"]
 multicall = []
+docgen = []
 wget = ["dep:rustls", "dep:ureq"]
 
 [[bin]]
@@ -18,6 +19,11 @@ required-features = ["multicall"]
 name = "wget"
 path = "src/bin/wget.rs"
 required-features = ["wget"]
+
+[[bin]]
+name = "seed-docgen"
+path = "src/bin/seed-docgen.rs"
+required-features = ["docgen"]
 
 [dependencies]
 bzip2 = { version = "0.5.2", features = ["static"] }

@@ -23,6 +23,13 @@ use crate::common::io::{BUFFER_SIZE, Input, open_input, stdout};
 use crate::common::unix::{self, FileKind};
 
 const APPLET: &str = "tar";
+const SHORT_HELP: &str = "\
+tar - create, extract, and list tar archives
+
+usage: tar {-c|-x|-t}[OPTIONS] -f ARCHIVE [FILE...]
+
+Try 'man tar' for details.
+";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Mode {
@@ -69,7 +76,16 @@ pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
+pub(crate) fn short_help() -> &'static str {
+    SHORT_HELP
+}
+
 fn run(args: &[std::ffi::OsString]) -> AppletResult {
+    if args.len() == 1 && args[0] == std::ffi::OsStr::new("--help") {
+        print!("{SHORT_HELP}");
+        return Ok(());
+    }
+
     let options = parse_args(args)?;
     match options.mode.expect("validated mode") {
         Mode::Create => create_archive(&options).map_err(|err| vec![err]),

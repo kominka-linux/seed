@@ -3,6 +3,7 @@ use std::ffi::CString;
 use std::io::Write;
 
 use crate::common::applet::finish;
+use crate::common::args::{ParsedArg, Parser};
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 use crate::common::process::{ProcessInfo, list_processes};
@@ -21,11 +22,11 @@ struct Options {
     root: Option<Root>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<(), Vec<AppletError>> {
     let options = parse_args(args)?;
     let processes = list_processes().map_err(|message| vec![AppletError::new(APPLET, message)])?;
     let process_map = processes
@@ -60,20 +61,27 @@ fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
     Ok(())
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut options = Options::default();
     let mut operands = Vec::new();
 
-    for arg in args {
-        match arg.as_str() {
-            "-p" => options.show_pids = true,
-            _ if arg.starts_with('-') => {
-                return Err(vec![AppletError::invalid_option(
+    let mut parser = Parser::new(APPLET, args);
+    while let Some(arg) = parser.next_arg()? {
+        match arg {
+            ParsedArg::Short('p') => options.show_pids = true,
+            ParsedArg::Short(flag) => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
+            ParsedArg::Long(name) => {
+                return Err(vec![AppletError::unrecognized_option(
                     APPLET,
-                    arg.chars().nth(1).unwrap_or('-'),
-                )]);
+                    &format!("--{name}"),
+                )])
             }
-            _ => operands.push(arg.clone()),
+            ParsedArg::Value(arg) => operands.push(arg.into_string().map_err(|arg| {
+                vec![AppletError::new(
+                    APPLET,
+                    format!("argument is invalid unicode: {:?}", arg),
+                )]
+            })?),
         }
     }
 
@@ -216,8 +224,8 @@ mod tests {
     use super::{Options, Root, build_children, parse_args};
     use crate::common::process::ProcessInfo;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

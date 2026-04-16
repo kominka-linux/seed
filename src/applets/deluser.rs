@@ -1,20 +1,22 @@
 use std::fs;
 
 use crate::common::account::{
-    GroupRecord, ShadowRecord, account_paths, find_passwd, passwd_entries, read_group,
-    read_passwd, read_shadow, write_group, write_passwd, write_shadow,
+    account_paths, find_passwd, passwd_entries, read_group, read_passwd, read_shadow, write_group,
+    write_passwd, write_shadow, GroupRecord, ShadowRecord,
 };
-use crate::common::applet::{AppletResult, finish};
+use crate::common::applet::{finish, AppletResult};
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "deluser";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
-    let (remove_home, user) = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
+    let args = argv_to_strings(APPLET, args)?;
+    let (remove_home, user) = parse_args(&args)?;
     let paths = account_paths();
     let mut passwd = read_passwd(&paths.passwd)
         .map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some("passwd"), err)])?;
@@ -57,7 +59,12 @@ fn run(args: &[String]) -> AppletResult {
 
     if remove_home {
         fs::remove_dir_all(&user_entry.home).map_err(|err| {
-            vec![AppletError::from_io(APPLET, "removing", Some(&user_entry.home), err)]
+            vec![AppletError::from_io(
+                APPLET,
+                "removing",
+                Some(&user_entry.home),
+                err,
+            )]
         })?;
     }
 

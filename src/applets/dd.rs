@@ -1,7 +1,8 @@
 use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom, Write};
 
-use crate::common::applet::{AppletResult, finish};
+use crate::common::applet::{finish, AppletResult};
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::io::{open_input, stdout};
 
@@ -30,12 +31,13 @@ impl Default for Options {
     }
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
-    let options = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
+    let args = argv_to_strings(APPLET, args)?;
+    let options = parse_args(&args)?;
     let mut input = open_input(&options.input).map_err(|err| {
         vec![AppletError::from_io(
             APPLET,
@@ -206,12 +208,17 @@ fn copy_blocks<R: Read, W: Write>(
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
     use std::fs;
 
     use super::{parse_args, parse_suffixed_usize, run};
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
+    }
+
+    fn os_args(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(OsString::from).collect()
     }
 
     #[test]
@@ -236,14 +243,14 @@ mod tests {
     #[test]
     fn seek_with_zero_count_extends_sparse_output() {
         let path = std::env::temp_dir().join(format!("seed-dd-{}", std::process::id()));
-        let args = args(&[
+        run(&os_args(&[
             "if=/dev/zero",
             &format!("of={}", path.display()),
             "bs=1",
             "count=0",
             "seek=16",
-        ]);
-        run(&args).expect("run dd");
+        ]))
+        .expect("run dd");
         assert_eq!(fs::metadata(&path).expect("metadata").len(), 16);
         let _ = fs::remove_file(path);
     }

@@ -1,12 +1,13 @@
 use std::io::{BufRead, BufReader, Write};
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
 use crate::common::io::{open_input, stdout};
 
 const APPLET: &str = "shuf";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
@@ -34,77 +35,61 @@ impl Rng {
     }
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let mut echo_mode = false;
     let mut repeat = false;
     let mut head_count: Option<usize> = None;
     let mut input_range: Option<(u64, u64)> = None;
     let mut paths: Vec<&str> = Vec::new();
     let mut echo_args: Vec<&str> = Vec::new();
-    let mut i = 0;
     let mut end_of_opts = false;
+    let mut cursor = ArgCursor::new(args);
 
-    while i < args.len() {
-        let arg = &args[i];
+    while let Some(arg) = cursor.next_token(APPLET)? {
         if !end_of_opts {
-            match arg.as_str() {
+            if let Some(val) = arg.strip_prefix("--head-count=") {
+                head_count = Some(val.parse().map_err(|_| {
+                    vec![AppletError::new(APPLET, format!("invalid count '{val}'"))]
+                })?);
+                continue;
+            }
+            if let Some(val) = arg.strip_prefix("--input-range=") {
+                input_range = Some(parse_range(val).ok_or_else(|| {
+                    vec![AppletError::new(APPLET, format!("invalid range '{val}'"))]
+                })?);
+                continue;
+            }
+            match arg {
                 "--" => {
                     end_of_opts = true;
-                    i += 1;
                     continue;
                 }
                 "-e" | "--echo" => {
                     echo_mode = true;
-                    i += 1;
                     continue;
                 }
                 "-r" | "--repeat" => {
                     repeat = true;
-                    i += 1;
                     continue;
                 }
-                "-n" | "--head-count" => {
-                    i += 1;
-                    let val = args
-                        .get(i)
-                        .ok_or_else(|| vec![AppletError::option_requires_arg(APPLET, "-n")])?;
+                "-n" => {
+                    let val = cursor.next_value(APPLET, "-n")?;
                     head_count = Some(val.parse().map_err(|_| {
                         vec![AppletError::new(APPLET, format!("invalid count '{val}'"))]
                     })?);
-                    i += 1;
                     continue;
                 }
-                a if a.starts_with("--head-count=") => {
-                    let val = &a["--head-count=".len()..];
-                    head_count = Some(val.parse().map_err(|_| {
-                        vec![AppletError::new(APPLET, format!("invalid count '{val}'"))]
-                    })?);
-                    i += 1;
-                    continue;
-                }
-                "-i" | "--input-range" => {
-                    i += 1;
-                    let val = args
-                        .get(i)
-                        .ok_or_else(|| vec![AppletError::option_requires_arg(APPLET, "-i")])?;
+                "-i" => {
+                    let val = cursor.next_value(APPLET, "-i")?;
                     input_range = Some(parse_range(val).ok_or_else(|| {
                         vec![AppletError::new(APPLET, format!("invalid range '{val}'"))]
                     })?);
-                    i += 1;
                     continue;
                 }
-                a if a.starts_with("--input-range=") => {
-                    let val = &a["--input-range=".len()..];
-                    input_range = Some(parse_range(val).ok_or_else(|| {
-                        vec![AppletError::new(APPLET, format!("invalid range '{val}'"))]
-                    })?);
-                    i += 1;
-                    continue;
-                }
-                a if a.starts_with('-') && a.len() > 1 => {
+                _ if arg.starts_with('-') && arg.len() > 1 => {
                     return Err(vec![AppletError::invalid_option(
                         APPLET,
-                        a.chars().nth(1).unwrap(),
+                        arg.chars().nth(1).unwrap(),
                     )]);
                 }
                 _ => {}
@@ -115,7 +100,6 @@ fn run(args: &[String]) -> AppletResult {
         } else {
             paths.push(arg);
         }
-        i += 1;
     }
 
     // Build the pool of lines to shuffle.
@@ -207,8 +191,8 @@ fn parse_range(s: &str) -> Option<(u64, u64)> {
 mod tests {
     use super::*;
 
-    fn args(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
+    fn args(v: &[&str]) -> Vec<std::ffi::OsString> {
+        v.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::{ParsedArg, Parser};
 use crate::common::error::AppletError;
 use crate::common::modules::{ModuleIndex, module_tree_dir, read_module_metadata};
 
@@ -13,11 +14,11 @@ struct Options {
     modules: Vec<String>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let options = parse_args(args)?;
     let root = module_tree_dir(None).map_err(|err| vec![map_module_error(err)])?;
     let index = ModuleIndex::scan(&root)
@@ -30,36 +31,34 @@ fn run(args: &[String]) -> AppletResult {
     Ok(())
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut options = Options {
         separator: '\n',
         ..Options::default()
     };
-    let mut index = 0;
-    while index < args.len() {
-        let arg = &args[index];
-        index += 1;
-        match arg.as_str() {
-            "-0" => options.separator = '\0',
-            "-a" => options.fields.push(String::from("author")),
-            "-d" => options.fields.push(String::from("description")),
-            "-l" => options.fields.push(String::from("license")),
-            "-p" => options.fields.push(String::from("parm")),
-            "-n" => options.fields.push(String::from("filename")),
-            "-F" => {
-                let Some(value) = args.get(index) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "F")]);
-                };
-                index += 1;
-                options.fields.push(value.clone());
-            }
-            _ if arg.starts_with('-') => {
-                return Err(vec![AppletError::invalid_option(
+    let mut parser = Parser::new(APPLET, args);
+    while let Some(arg) = parser.next_arg()? {
+        match arg {
+            ParsedArg::Short('0') => options.separator = '\0',
+            ParsedArg::Short('a') => options.fields.push(String::from("author")),
+            ParsedArg::Short('d') => options.fields.push(String::from("description")),
+            ParsedArg::Short('l') => options.fields.push(String::from("license")),
+            ParsedArg::Short('p') => options.fields.push(String::from("parm")),
+            ParsedArg::Short('n') => options.fields.push(String::from("filename")),
+            ParsedArg::Short('F') => options.fields.push(parser.value_str("F")?),
+            ParsedArg::Short(flag) => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
+            ParsedArg::Long(name) => {
+                return Err(vec![AppletError::unrecognized_option(
                     APPLET,
-                    arg.chars().nth(1).unwrap_or('-'),
-                )]);
+                    &format!("--{name}"),
+                )])
             }
-            _ => options.modules.push(arg.clone()),
+            ParsedArg::Value(arg) => options.modules.push(arg.into_string().map_err(|arg| {
+                vec![AppletError::new(
+                    APPLET,
+                    format!("argument is invalid unicode: {:?}", arg),
+                )]
+            })?),
         }
     }
 

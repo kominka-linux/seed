@@ -4,6 +4,7 @@ use std::ffi::CString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::common::args::{ArgCursor, ArgToken};
 use crate::common::applet::finish_code;
 use crate::common::error::AppletError;
 use crate::common::fstab;
@@ -57,11 +58,11 @@ struct ParsedMountOptions {
     propagation_flags: Vec<libc::c_ulong>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args))
 }
 
-fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<i32, Vec<AppletError>> {
     let options = parse_args(args)?;
     if options.operands.is_empty() && !options.all {
         list_mounts()?;
@@ -75,47 +76,48 @@ fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
     Ok(0)
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
+    let mut cursor = ArgCursor::new(args);
     let mut options = Options::default();
-    let mut index = 0;
 
-    while index < args.len() {
-        let arg = &args[index];
-        index += 1;
-        match arg.as_str() {
-            "-a" => options.all = true,
-            "-f" => options.dry_run = true,
-            "-i" => options.ignore_helpers = true,
-            "-v" => options.verbose = true,
-            "-r" => options.readonly = true,
-            "-t" => {
-                let Some(value) = args.get(index) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "t")]);
-                };
-                index += 1;
-                options.type_filter = Some(split_csv(value));
+    while let Some(arg) = cursor.next_arg(APPLET)? {
+        match arg {
+            ArgToken::Operand(value) => options.operands.push(value.to_string()),
+            ArgToken::ShortFlags(flags) => {
+                if flags.starts_with('-') {
+                    return Err(vec![AppletError::invalid_option(APPLET, '-')]);
+                }
+
+                if flags.len() != 1 {
+                    return Err(vec![AppletError::invalid_option(
+                        APPLET,
+                        flags.chars().next().unwrap_or('-'),
+                    )]);
+                }
+
+                match flags.as_bytes()[0] as char {
+                    'a' => options.all = true,
+                    'f' => options.dry_run = true,
+                    'i' => options.ignore_helpers = true,
+                    'v' => options.verbose = true,
+                    'r' => options.readonly = true,
+                    't' => {
+                        let value = cursor.next_value(APPLET, "t")?;
+                        options.type_filter = Some(split_csv(value));
+                    }
+                    'O' => {
+                        let value = cursor.next_value(APPLET, "O")?;
+                        options.option_filter = Some(split_csv(value));
+                    }
+                    'o' => {
+                        let value = cursor.next_value(APPLET, "o")?;
+                        options.mount_options.extend(split_csv(value));
+                    }
+                    other => {
+                        return Err(vec![AppletError::invalid_option(APPLET, other)]);
+                    }
+                }
             }
-            "-O" => {
-                let Some(value) = args.get(index) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "O")]);
-                };
-                index += 1;
-                options.option_filter = Some(split_csv(value));
-            }
-            "-o" => {
-                let Some(value) = args.get(index) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "o")]);
-                };
-                index += 1;
-                options.mount_options.extend(split_csv(value));
-            }
-            _ if arg.starts_with('-') => {
-                return Err(vec![AppletError::invalid_option(
-                    APPLET,
-                    arg.chars().nth(1).unwrap_or('-'),
-                )]);
-            }
-            _ => options.operands.push(arg.clone()),
         }
     }
 
@@ -410,8 +412,8 @@ mod tests {
     use crate::common::test_env;
     use std::fs;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

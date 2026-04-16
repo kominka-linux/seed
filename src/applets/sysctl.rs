@@ -3,6 +3,7 @@ use std::io::Write;
 use std::fs;
 
 use crate::common::applet::finish;
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
@@ -13,12 +14,13 @@ struct Options {
     values_only: bool,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
-    let (options, names) = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> Result<(), Vec<AppletError>> {
+    let args = argv_to_strings(APPLET, args)?;
+    let (options, names) = parse_args(&args)?;
     let mut out = stdout();
 
     for name in names {
@@ -92,8 +94,8 @@ fn linux_sysctl_path(name: &str) -> Result<String, Vec<AppletError>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Options, parse_args};
     use super::linux_sysctl_path;
+    use super::{Options, parse_args};
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()

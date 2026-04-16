@@ -8,11 +8,11 @@ use crate::common::error::AppletError;
 
 const APPLET: &str = "mkdir";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<(), Vec<AppletError>> {
     let (parents, mode, paths) = parse_args(args)?;
     let mut errors = Vec::new();
 
@@ -47,13 +47,13 @@ fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
     }
 }
 
-fn parse_args(args: &[String]) -> Result<(bool, Option<u32>, Vec<String>), Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<(bool, Option<u32>, Vec<String>), Vec<AppletError>> {
     let mut parents = false;
     let mut mode = None;
     let mut paths = Vec::new();
     let mut cursor = ArgCursor::new(args);
 
-    while let Some(arg) = cursor.next_token() {
+    while let Some(arg) = cursor.next_token(APPLET)? {
         if cursor.parsing_flags() && arg == "-m" {
             let value = cursor.next_value(APPLET, "m")?;
             mode = Some(parse_mode(value)?);

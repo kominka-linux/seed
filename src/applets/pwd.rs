@@ -2,30 +2,32 @@ use std::env;
 use std::io::Write;
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::{ParsedArg, Parser};
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET: &str = "pwd";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let mut logical = true;
+    let mut parser = Parser::new(APPLET, args);
 
-    for arg in args {
-        match arg.as_str() {
-            "-L" => logical = true,
-            "-P" => logical = false,
-            "--" => break,
-            a if a.starts_with('-') => {
-                return Err(vec![AppletError::invalid_option(
+    while let Some(arg) = parser.next_arg()? {
+        match arg {
+            ParsedArg::Short('L') => logical = true,
+            ParsedArg::Short('P') => logical = false,
+            ParsedArg::Short(flag) => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
+            ParsedArg::Long(name) => {
+                return Err(vec![AppletError::unrecognized_option(
                     APPLET,
-                    a.chars().nth(1).unwrap_or('-'),
-                )]);
+                    &format!("--{name}"),
+                )])
             }
-            _ => {}
+            ParsedArg::Value(_) => {}
         }
     }
 

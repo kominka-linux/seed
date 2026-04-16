@@ -1,19 +1,22 @@
+use std::ffi::OsString;
 use std::io::Write;
 use std::os::unix::ffi::OsStrExt;
 
 use crate::common::applet::finish_code;
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET: &str = "printenv";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[OsString]) -> i32 {
     finish_code(run(args))
 }
 
-fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
+fn run(args: &[OsString]) -> Result<i32, Vec<AppletError>> {
+    let args = argv_to_strings(APPLET, args)?;
     let mut null_terminated = false;
-    let mut names: Vec<&str> = Vec::new();
+    let mut names: Vec<String> = Vec::new();
     let mut parsing_flags = true;
 
     for arg in args {
@@ -31,7 +34,7 @@ fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
                 arg.chars().nth(1).unwrap_or('-'),
             )]);
         }
-        names.push(arg);
+        names.push(arg.clone());
     }
 
     let sep: &[u8] = if null_terminated { b"\0" } else { b"\n" };
@@ -71,8 +74,8 @@ fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
 mod tests {
     use super::run;
 
-    fn args(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
+    fn args(v: &[&str]) -> Vec<std::ffi::OsString> {
+        v.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

@@ -1,7 +1,9 @@
+use std::ffi::OsString;
 use std::fs;
 use std::path::Path;
 
 use crate::common::applet::finish;
+use crate::common::args::Parser;
 use crate::common::error::AppletError;
 use crate::common::extattr::{DIRSYNC, get_flags, parse_flag_mask, set_flags, set_version};
 
@@ -25,11 +27,11 @@ struct Options {
     operands: Vec<String>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<(), Vec<AppletError>> {
     let options = parse_args(args)?;
     let mut errors = Vec::new();
     for operand in &options.operands {
@@ -43,33 +45,33 @@ fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
     }
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut options = Options::default();
-    let mut index = 0;
+    let mut parser = Parser::new(APPLET, args);
+    let mut args = parser.raw_args()?;
 
-    while index < args.len() {
-        let arg = &args[index];
+    while let Some(arg) = args.next() {
+        let arg = to_string(APPLET, arg)?;
         match arg.as_str() {
             "-R" => {
                 options.recursive = true;
-                index += 1;
             }
             "-f" | "-V" => {
-                index += 1;
             }
             "-v" => {
-                let Some(value) = args.get(index + 1) else {
+                let Some(value) = args.next() else {
                     return Err(vec![AppletError::option_requires_arg(APPLET, "v")]);
                 };
-                options.version = Some(parse_version(value)?);
-                index += 2;
+                options.version = Some(parse_version(&to_string(APPLET, value)?)?);
             }
-            _ if is_flag_operation(arg) => {
-                apply_flag_spec(&mut options, arg)?;
-                index += 1;
+            _ if is_flag_operation(&arg) => {
+                apply_flag_spec(&mut options, &arg)?;
             }
             _ => {
-                options.operands.extend(args[index..].iter().cloned());
+                options.operands.push(arg);
+                for operand in args.by_ref() {
+                    options.operands.push(to_string(APPLET, operand)?);
+                }
                 break;
             }
         }
@@ -93,6 +95,15 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     }
 
     Ok(options)
+}
+
+fn to_string(applet: &'static str, value: OsString) -> Result<String, Vec<AppletError>> {
+    value.into_string().map_err(|value| {
+        vec![AppletError::new(
+            applet,
+            format!("argument is invalid unicode: {:?}", value),
+        )]
+    })
 }
 
 fn is_flag_operation(arg: &str) -> bool {
@@ -191,9 +202,10 @@ fn apply_to_path(path: &Path, options: &Options, errors: &mut Vec<AppletError>) 
 #[cfg(test)]
 mod tests {
     use super::{Mode, Options, parse_args};
+    use std::ffi::OsString;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(OsString::from).collect()
     }
 
     #[test]

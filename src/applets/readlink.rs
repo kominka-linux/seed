@@ -1,20 +1,23 @@
+use std::ffi::OsString;
 use std::fs;
 use std::io::Write;
 use std::path::Component;
 use std::path::PathBuf;
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET: &str = "readlink";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
-    let (canonicalize, paths) = parse_args(args)?;
+fn run(args: &[OsString]) -> AppletResult {
+    let args = argv_to_strings(APPLET, args)?;
+    let (canonicalize, paths) = parse_args(&args)?;
     let mut out = stdout();
     let mut errors = Vec::new();
 

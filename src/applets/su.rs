@@ -36,11 +36,11 @@ unsafe extern "C" {
     fn crypt(key: *const libc::c_char, salt: *const libc::c_char) -> *mut libc::c_char;
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args))
 }
 
-fn run(args: &[String]) -> AppletCodeResult {
+fn run(args: &[std::ffi::OsString]) -> AppletCodeResult {
     let options = parse_args(args)?;
     let user = lookup_user(&options.user)?;
 
@@ -53,7 +53,7 @@ fn run(args: &[String]) -> AppletCodeResult {
     Ok(exit_code(status))
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut cursor = ArgCursor::new(args);
     let mut login = false;
     let mut preserve_env = false;
@@ -61,7 +61,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     let mut command = None;
     let mut operands = Vec::new();
 
-    while let Some(arg) = cursor.next_arg() {
+    while let Some(arg) = cursor.next_arg(APPLET)? {
         match arg {
             ArgToken::Operand(value) => {
                 if value == "-" && operands.is_empty() && command.is_none() {
@@ -285,9 +285,10 @@ fn exit_code(status: ExitStatus) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::parse_args;
+    use std::ffi::OsString;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(OsString::from).collect()
     }
 
     #[test]

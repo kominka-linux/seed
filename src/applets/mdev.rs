@@ -134,11 +134,11 @@ impl Drop for CompiledRegex {
     }
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let options = parse_args(args)?;
     let paths = Paths::from_env();
     let rules = read_rules(&paths.conf)?;
@@ -159,11 +159,11 @@ fn run(args: &[String]) -> AppletResult {
     handle_event(&paths, &rules, &event)
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut options = Options::default();
     let mut cursor = ArgCursor::new(args);
 
-    while let Some(token) = cursor.next_arg() {
+    while let Some(token) = cursor.next_arg(APPLET)? {
         match token {
             ArgToken::ShortFlags(flags) => {
                 for flag in flags.chars() {

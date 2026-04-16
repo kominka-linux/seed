@@ -5,19 +5,20 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use md5::Digest as _;
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
 use crate::common::io::{open_input, stdout};
 
-pub fn main_md5sum(args: &[String]) -> i32 {
+pub fn main_md5sum(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args, Algo::Md5))
 }
-pub fn main_sha1sum(args: &[String]) -> i32 {
+pub fn main_sha1sum(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args, Algo::Sha1))
 }
-pub fn main_sha256sum(args: &[String]) -> i32 {
+pub fn main_sha256sum(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args, Algo::Sha256))
 }
-pub fn main_sha512sum(args: &[String]) -> i32 {
+pub fn main_sha512sum(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args, Algo::Sha512))
 }
 
@@ -39,7 +40,7 @@ impl Algo {
     }
 }
 
-fn run(args: &[String], algo: Algo) -> AppletResult {
+fn run(args: &[std::ffi::OsString], algo: Algo) -> AppletResult {
     let applet = algo.name();
     let mut check_mode = false;
     let mut binary = false; // -b: binary mode (only affects display marker on non-Unix)
@@ -47,19 +48,10 @@ fn run(args: &[String], algo: Algo) -> AppletResult {
     let mut status = false; // --status: no output, just exit code
     let mut quiet = false; // --quiet: don't print OK lines
     let mut paths: Vec<&str> = Vec::new();
-    let mut i = 0;
+    let mut cursor = ArgCursor::new(args);
 
-    while i < args.len() {
-        let arg = &args[i];
-        match arg.as_str() {
-            "--" => {
-                i += 1;
-                while i < args.len() {
-                    paths.push(&args[i]);
-                    i += 1;
-                }
-                break;
-            }
+    while let Some(arg) = cursor.next_token(applet)? {
+        match arg {
             "-c" | "--check" => check_mode = true,
             "-b" | "--binary" => binary = true,
             "-t" | "--text" => binary = false,
@@ -74,7 +66,6 @@ fn run(args: &[String], algo: Algo) -> AppletResult {
             }
             _ => paths.push(arg),
         }
-        i += 1;
     }
 
     let _ = binary; // binary/text mode doesn't affect output on Unix
@@ -278,8 +269,8 @@ fn hex(bytes: &[u8]) -> String {
 mod tests {
     use super::{Algo, hash_reader, run};
 
-    fn args(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
+    fn args(v: &[&str]) -> Vec<std::ffi::OsString> {
+        v.iter().map(std::ffi::OsString::from).collect()
     }
 
     fn hex_hash(algo: Algo, data: &[u8]) -> String {

@@ -1,15 +1,17 @@
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::io::{copy_stream, open_input, stdout};
 
 const APPLET: &str = "less";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
-    let inputs = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
+    let args = argv_to_strings(APPLET, args)?;
+    let inputs = parse_args(&args)?;
     let mut out = stdout();
     let inputs: Vec<&str> = if inputs.is_empty() {
         vec!["-"]

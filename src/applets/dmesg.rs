@@ -21,16 +21,16 @@ struct Options {
     buffer_size: i32,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let options = parse_args(args)?;
     run_linux(options)
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut options = Options {
         clear_after_read: false,
         raw: false,
@@ -39,7 +39,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     };
     let mut cursor = ArgCursor::new(args);
 
-    while let Some(token) = cursor.next_arg() {
+    while let Some(token) = cursor.next_arg(APPLET)? {
         match token {
             ArgToken::ShortFlags(flags) => parse_short_flags(flags, &mut cursor, &mut options)?,
             ArgToken::Operand(_) => {}
@@ -51,7 +51,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
 
 fn parse_short_flags<'a>(
     flags: &'a str,
-    cursor: &mut ArgCursor<'a>,
+    cursor: &mut ArgCursor<'a, std::ffi::OsString>,
     options: &mut Options,
 ) -> Result<(), Vec<AppletError>> {
     for (index, flag) in flags.char_indices() {
@@ -162,11 +162,13 @@ fn strip_syslog_prefix(line: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
+
     use super::{Options, parse_args, parse_number};
     use super::{strip_syslog_prefix, strip_syslog_prefixes};
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(|value| OsString::from(value)).collect()
     }
 
     #[test]

@@ -4,30 +4,31 @@ use std::os::unix::io::AsRawFd;
 use crate::common::applet::{AppletResult, finish};
 use crate::common::error::AppletError;
 
-pub fn main_sync(_: &[String]) -> i32 {
+pub fn main_sync(_: &[std::ffi::OsString]) -> i32 {
     // SAFETY: sync() has no failure mode.
     unsafe { libc::sync() };
     0
 }
 
-pub fn main_fsync(args: &[String]) -> i32 {
+pub fn main_fsync(args: &[std::ffi::OsString]) -> i32 {
     finish(run_fsync(args))
 }
 
-fn run_fsync(args: &[String]) -> AppletResult {
+fn run_fsync(args: &[std::ffi::OsString]) -> AppletResult {
     const APPLET: &str = "fsync";
     if args.is_empty() {
         return Err(vec![AppletError::new(APPLET, "missing operand")]);
     }
     let mut errors = Vec::new();
     for path in args {
+        let path_text = path.to_string_lossy().into_owned();
         match OpenOptions::new().read(true).write(true).open(path) {
-            Err(e) => errors.push(AppletError::from_io(APPLET, "opening", Some(path), e)),
+            Err(e) => errors.push(AppletError::from_io(APPLET, "opening", Some(&path_text), e)),
             Ok(file) => {
                 // SAFETY: file.as_raw_fd() is a valid open file descriptor.
                 if unsafe { libc::fsync(file.as_raw_fd()) } != 0 {
                     let e = std::io::Error::last_os_error();
-                    errors.push(AppletError::from_io(APPLET, "syncing", Some(path), e));
+                    errors.push(AppletError::from_io(APPLET, "syncing", Some(&path_text), e));
                 }
             }
         }
@@ -43,8 +44,8 @@ fn run_fsync(args: &[String]) -> AppletResult {
 mod tests {
     use super::{main_sync, run_fsync};
 
-    fn args(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
+    fn args(v: &[&str]) -> Vec<std::ffi::OsString> {
+        v.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

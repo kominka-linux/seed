@@ -5,6 +5,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "touch";
@@ -17,11 +18,11 @@ struct Options<'a> {
     reference: Option<&'a str>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let (options, paths) = parse_args(args)?;
     let mut errors = Vec::new();
 
@@ -38,31 +39,18 @@ fn run(args: &[String]) -> AppletResult {
     }
 }
 
-fn parse_args(args: &[String]) -> Result<(Options<'_>, Vec<&str>), Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<(Options<'_>, Vec<&str>), Vec<AppletError>> {
     let mut options = Options::default();
     let mut paths = Vec::new();
-    let mut i = 0;
+    let mut cursor = ArgCursor::new(args);
 
-    while i < args.len() {
-        let arg = &args[i];
-        match arg.as_str() {
-            "--" => {
-                i += 1;
-                while i < args.len() {
-                    paths.push(args[i].as_str());
-                    i += 1;
-                }
-                break;
-            }
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        match arg {
             "-c" | "--no-create" => options.no_create = true,
             "-a" => options.access_only = true,
             "-m" => options.modify_only = true,
             "-r" | "--reference" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "r")]);
-                }
-                options.reference = Some(args[i].as_str());
+                options.reference = Some(cursor.next_value(APPLET, "r")?);
             }
             a if a.starts_with('-') && a.len() > 1 => {
                 return Err(vec![AppletError::invalid_option(
@@ -72,7 +60,6 @@ fn parse_args(args: &[String]) -> Result<(Options<'_>, Vec<&str>), Vec<AppletErr
             }
             _ => paths.push(arg),
         }
-        i += 1;
     }
 
     if paths.is_empty() {
@@ -167,13 +154,17 @@ fn set_times(path: &Path, times: &[libc::timespec; 2]) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use std::os::unix::fs::MetadataExt;
+    use std::ffi::OsString;
     use std::thread;
     use std::time::Duration;
 
     use super::{Options, parse_args, touch_path};
 
     fn parse(input: &[&str]) -> (bool, bool, bool, Option<String>, Vec<String>) {
-        let args = input.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let args = input
+            .iter()
+            .map(OsString::from)
+            .collect::<Vec<_>>();
         let (options, paths) = parse_args(&args).expect("parse args");
         (
             options.no_create,

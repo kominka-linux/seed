@@ -60,11 +60,11 @@ struct Record {
     original_index: usize,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let (options, files) = parse_args(args)?;
     let inputs = if files.is_empty() {
         vec![String::from("-")]
@@ -92,12 +92,12 @@ fn run(args: &[String]) -> AppletResult {
     Ok(())
 }
 
-fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<(Options, Vec<String>), Vec<AppletError>> {
     let mut options = Options::default();
     let mut files = Vec::new();
     let mut cursor = ArgCursor::new(args);
 
-    while let Some(arg) = cursor.next_arg() {
+    while let Some(arg) = cursor.next_arg(APPLET)? {
         match arg {
             ArgToken::ShortFlags(flags) => {
                 let mut chars = flags.chars();
@@ -551,10 +551,11 @@ mod tests {
         KeySpec, Options, SortMode, compare_human_numeric, field_span_with_blanks,
         field_span_with_delimiter, parse_args, parse_key_spec, scale_suffix,
     };
+    use std::ffi::OsString;
     use std::cmp::Ordering;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(OsString::from).collect()
     }
 
     #[test]

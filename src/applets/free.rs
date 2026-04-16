@@ -2,6 +2,7 @@ use std::fs;
 use std::io::Write;
 
 use crate::common::applet::finish;
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
@@ -31,12 +32,13 @@ struct Stats {
     swap_free: u64,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
-    let options = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> Result<(), Vec<AppletError>> {
+    let args = argv_to_strings(APPLET, args)?;
+    let options = parse_args(&args)?;
     let stats = read_stats()?;
     let mut out = stdout();
     writeln!(out, "{:>12} {:>12} {:>12}", "total", "used", "free")
@@ -165,7 +167,7 @@ fn required_meminfo_value(name: &str, value: Option<u64>) -> Result<u64, AppletE
 
 #[cfg(test)]
 mod tests {
-    use super::{Options, Stats, Unit, parse_args, parse_meminfo, scale};
+    use super::{parse_args, parse_meminfo, scale, Options, Stats, Unit};
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()

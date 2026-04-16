@@ -1,20 +1,27 @@
+use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::os::unix::io::IntoRawFd;
 use std::os::unix::process::ExitStatusExt;
 
 use crate::common::applet::finish_code_or;
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "nohup";
 
-pub fn main(args: &[String]) -> i32 {
-    let args = if args.first().map(|a| a.as_str()) == Some("--") {
-        &args[1..]
-    } else {
-        args
-    };
-
-    finish_code_or(run(args), 125)
+pub fn main(args: &[OsString]) -> i32 {
+    finish_code_or(
+        (|| {
+            let args = argv_to_strings(APPLET, args)?;
+            let args = if args.first().map(String::as_str) == Some("--") {
+                &args[1..]
+            } else {
+                &args[..]
+            };
+            run(args)
+        })(),
+        125,
+    )
 }
 
 fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
@@ -75,7 +82,7 @@ mod tests {
     use super::{main, run};
 
     fn args(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
+        v.iter().map(|value| value.to_string()).collect()
     }
 
     #[test]

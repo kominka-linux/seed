@@ -47,21 +47,21 @@ struct Reply {
     elapsed: Duration,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(APPLET_PING, Family::Inet4, args))
 }
 
-pub fn main_ping6(args: &[String]) -> i32 {
+pub fn main_ping6(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(APPLET_PING6, Family::Inet6, args))
 }
 
-fn run(applet: &'static str, family: Family, args: &[String]) -> AppletCodeResult {
+fn run(applet: &'static str, family: Family, args: &[std::ffi::OsString]) -> AppletCodeResult {
     let options = parse_args(applet, family, args)?;
     let _guard = SigintGuard::install();
     ping(&options)
 }
 
-fn parse_args(applet: &'static str, family: Family, args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(applet: &'static str, family: Family, args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut options = Options {
         family,
         count: None,
@@ -76,7 +76,7 @@ fn parse_args(applet: &'static str, family: Family, args: &[String]) -> Result<O
     };
     let mut cursor = ArgCursor::new(args);
 
-    while let Some(token) = cursor.next_arg() {
+    while let Some(token) = cursor.next_arg(applet)? {
         match token {
             ArgToken::ShortFlags(flags) => {
                 for (index, flag) in flags.char_indices() {
@@ -695,8 +695,8 @@ mod tests {
     use super::{Family, checksum, parse_args, parse_reply};
     use std::time::Duration;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

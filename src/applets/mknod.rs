@@ -23,21 +23,21 @@ struct Options {
     minor: Option<u32>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let options = parse_args(args)?;
     create_node(&options)
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut mode = DEFAULT_MODE;
     let mut positional = Vec::new();
     let mut cursor = ArgCursor::new(args);
 
-    while let Some(arg) = cursor.next_token() {
+    while let Some(arg) = cursor.next_token(APPLET)? {
         if cursor.parsing_flags() && arg == "-m" {
             let value = cursor.next_value(APPLET, "m")?;
             mode = parse_mode(value)?;
@@ -161,12 +161,12 @@ mod tests {
     #[test]
     fn parses_char_device_with_mode() {
         let options = parse_args(&[
-            "-m".to_string(),
-            "600".to_string(),
-            "null".to_string(),
-            "c".to_string(),
-            "1".to_string(),
-            "3".to_string(),
+            "-m".into(),
+            "600".into(),
+            "null".into(),
+            "c".into(),
+            "1".into(),
+            "3".into(),
         ])
         .expect("parse mknod args");
 
@@ -179,7 +179,7 @@ mod tests {
 
     #[test]
     fn parses_fifo_without_device_numbers() {
-        let options = parse_args(&["pipe".to_string(), "p".to_string()]).expect("parse fifo");
+        let options = parse_args(&["pipe".into(), "p".into()]).expect("parse fifo");
         assert_eq!(options.mode, DEFAULT_MODE);
         assert_eq!(options.node_type, NodeType::Fifo);
         assert_eq!(options.major, None);

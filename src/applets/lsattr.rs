@@ -3,6 +3,7 @@ use std::io::Write;
 use std::path::Path;
 
 use crate::common::applet::finish;
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::extattr::{format_long_flags, format_short_flags, get_flags, get_version};
 use crate::common::io::stdout;
@@ -19,12 +20,13 @@ struct Options {
     operands: Vec<String>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
-    let mut options = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> Result<(), Vec<AppletError>> {
+    let args = argv_to_strings(APPLET, args)?;
+    let mut options = parse_args(&args)?;
     if options.operands.is_empty() {
         options.operands.push(String::from("."));
     }
@@ -172,7 +174,10 @@ fn format_entry(path: &Path, options: &Options) -> Result<String, AppletError> {
     };
 
     if options.long_names {
-        Ok(format!("{prefix}{path_text:<28} {}", format_long_flags(flags)))
+        Ok(format!(
+            "{prefix}{path_text:<28} {}",
+            format_long_flags(flags)
+        ))
     } else {
         Ok(format!("{prefix}{} {path_text}", format_short_flags(flags)))
     }

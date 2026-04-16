@@ -1,8 +1,8 @@
-pub fn main_true(_: &[String]) -> i32 {
+pub fn main_true(_: &[std::ffi::OsString]) -> i32 {
     0
 }
 
-pub fn main_false(_: &[String]) -> i32 {
+pub fn main_false(_: &[std::ffi::OsString]) -> i32 {
     1
 }
 

@@ -72,11 +72,11 @@ struct SignalGuard {
     previous_usr2: libc::sighandler_t,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args))
 }
 
-fn run(args: &[String]) -> AppletCodeResult {
+fn run(args: &[std::ffi::OsString]) -> AppletCodeResult {
     let options = parse_args(args)?;
     ensure_pid1()?;
     let inittab = read_inittab(&options.inittab_path)?;
@@ -84,7 +84,7 @@ fn run(args: &[String]) -> AppletCodeResult {
     run_init(inittab)
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     if !args.is_empty() {
         return Err(vec![AppletError::new(APPLET, "extra operand")]);
     }
@@ -562,8 +562,8 @@ mod tests {
     use crate::common::test_env;
     use std::time::Duration;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

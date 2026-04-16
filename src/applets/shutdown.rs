@@ -20,29 +20,32 @@ struct Options {
     write_wtmp_only: bool,
 }
 
-pub fn main_halt(args: &[String]) -> i32 {
+pub fn main_halt(args: &[std::ffi::OsString]) -> i32 {
     finish(run(Action::Halt, args))
 }
 
-pub fn main_poweroff(args: &[String]) -> i32 {
+pub fn main_poweroff(args: &[std::ffi::OsString]) -> i32 {
     finish(run(Action::Poweroff, args))
 }
 
-pub fn main_reboot(args: &[String]) -> i32 {
+pub fn main_reboot(args: &[std::ffi::OsString]) -> i32 {
     finish(run(Action::Reboot, args))
 }
 
-fn run(action: Action, args: &[String]) -> AppletResult {
+fn run(action: Action, args: &[std::ffi::OsString]) -> AppletResult {
     let applet = action.applet_name();
     let options = parse_args(applet, args)?;
     run_linux(action, options)
 }
 
-fn parse_args(applet: &'static str, args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(
+    applet: &'static str,
+    args: &[std::ffi::OsString],
+) -> Result<Options, Vec<AppletError>> {
     let mut options = Options::default();
     let mut cursor = ArgCursor::new(args);
 
-    while let Some(token) = cursor.next_arg() {
+    while let Some(token) = cursor.next_arg(applet)? {
         match token {
             ArgToken::ShortFlags(flags) => {
                 parse_short_flags(applet, flags, &mut cursor, &mut options)?
@@ -57,7 +60,7 @@ fn parse_args(applet: &'static str, args: &[String]) -> Result<Options, Vec<Appl
 fn parse_short_flags<'a>(
     applet: &'static str,
     flags: &'a str,
-    cursor: &mut ArgCursor<'a>,
+    cursor: &mut ArgCursor<'a, std::ffi::OsString>,
     options: &mut Options,
 ) -> Result<(), Vec<AppletError>> {
     for (index, flag) in flags.char_indices() {
@@ -69,10 +72,7 @@ fn parse_short_flags<'a>(
                 let attached = &flags[index + flag.len_utf8()..];
                 let value = cursor.next_value_or_attached(attached, applet, "d")?;
                 options.delay_secs = value.parse::<u64>().map_err(|_| {
-                    vec![AppletError::new(
-                        applet,
-                        format!("invalid delay '{value}'"),
-                    )]
+                    vec![AppletError::new(applet, format!("invalid delay '{value}'"))]
                 })?;
                 break;
             }
@@ -113,7 +113,10 @@ fn request_init_shutdown(action: Action) -> Result<(), String> {
     if rc == 0 {
         Ok(())
     } else {
-        Err(format!("signaling init: {}", std::io::Error::last_os_error()))
+        Err(format!(
+            "signaling init: {}",
+            std::io::Error::last_os_error()
+        ))
     }
 }
 
@@ -158,18 +161,19 @@ impl Action {
 
 #[cfg(test)]
 mod tests {
-    use super::{Options, parse_args};
-    use super::Action;
+    use std::ffi::OsString;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    use super::Action;
+    use super::{Options, parse_args};
+
+    fn args(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(|value| OsString::from(value)).collect()
     }
 
     #[test]
     fn parses_delay_and_flags() {
         assert_eq!(
-            parse_args("reboot", &args(&["-nfd5", "ignored"]))
-                .expect("parse shutdown flags"),
+            parse_args("reboot", &args(&["-nfd5", "ignored"])).expect("parse shutdown flags"),
             Options {
                 delay_secs: 5,
                 no_sync: true,

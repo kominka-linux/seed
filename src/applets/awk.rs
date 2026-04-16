@@ -5,17 +5,19 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::mem::MaybeUninit;
 
 use crate::common::applet::{AppletCodeResult, finish_code};
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "awk";
 const MATCH_SLOTS: usize = 1;
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args))
 }
 
-fn run(args: &[String]) -> AppletCodeResult {
-    let options = parse_options(args)?;
+fn run(args: &[std::ffi::OsString]) -> AppletCodeResult {
+    let args = argv_to_strings(APPLET, args)?;
+    let options = parse_options(&args)?;
     let program = parse_program(&options.program)?;
 
     let mut env = Environment::new(program.functions.clone());
@@ -37,7 +39,11 @@ fn run(args: &[String]) -> AppletCodeResult {
         let paths = if options.files.is_empty() {
             vec![None]
         } else {
-            options.files.iter().map(|path| Some(path.as_str())).collect()
+            options
+                .files
+                .iter()
+                .map(|path| Some(path.as_str()))
+                .collect()
         };
 
         for path in paths {
@@ -46,7 +52,12 @@ fn run(args: &[String]) -> AppletCodeResult {
                 Some(path) => match fs::File::open(path) {
                     Ok(file) => Box::new(BufReader::new(file)),
                     Err(err) => {
-                        return Err(vec![AppletError::from_io(APPLET, "opening", Some(path), err)]);
+                        return Err(vec![AppletError::from_io(
+                            APPLET,
+                            "opening",
+                            Some(path),
+                            err,
+                        )]);
                     }
                 },
                 None => Box::new(BufReader::new(io::stdin().lock())),
@@ -145,7 +156,8 @@ fn execute_stmt(
             Ok(ExecFlow::Next)
         }
         Stmt::Printf(format, exprs) => {
-            let rendered = render_printf(&eval_expr(format, env, out)?.as_string(), exprs, env, out)?;
+            let rendered =
+                render_printf(&eval_expr(format, env, out)?.as_string(), exprs, env, out)?;
             out.write_all(rendered.as_bytes())
                 .map_err(|err| vec![AppletError::new(APPLET, format!("writing stdout: {err}"))])?;
             Ok(ExecFlow::Next)
@@ -170,7 +182,7 @@ fn execute_stmt(
                     ExecFlow::Next | ExecFlow::Continue => {}
                     ExecFlow::Break => break,
                     flow @ (ExecFlow::Return(_) | ExecFlow::Exit(_) | ExecFlow::NextRecord) => {
-                        return Ok(flow)
+                        return Ok(flow);
                     }
                 }
             }
@@ -193,7 +205,7 @@ fn execute_stmt(
                     ExecFlow::Next | ExecFlow::Continue => {}
                     ExecFlow::Break => break,
                     flow @ (ExecFlow::Return(_) | ExecFlow::Exit(_) | ExecFlow::NextRecord) => {
-                        return Ok(flow)
+                        return Ok(flow);
                     }
                 }
                 if let Some(step) = step {
@@ -209,7 +221,7 @@ fn execute_stmt(
                     ExecFlow::Next | ExecFlow::Continue => {}
                     ExecFlow::Break => break,
                     flow @ (ExecFlow::Return(_) | ExecFlow::Exit(_) | ExecFlow::NextRecord) => {
-                        return Ok(flow)
+                        return Ok(flow);
                     }
                 }
             }
@@ -246,7 +258,11 @@ fn execute_stmt(
     }
 }
 
-fn print_exprs(exprs: &[Expr], env: &mut Environment, out: &mut dyn Write) -> Result<(), Vec<AppletError>> {
+fn print_exprs(
+    exprs: &[Expr],
+    env: &mut Environment,
+    out: &mut dyn Write,
+) -> Result<(), Vec<AppletError>> {
     let mut line = String::new();
     if exprs.is_empty() {
         line.push_str(&env.record_text());
@@ -265,23 +281,32 @@ fn print_exprs(exprs: &[Expr], env: &mut Environment, out: &mut dyn Write) -> Re
     Ok(())
 }
 
-fn print_current_record(env: &mut Environment, out: &mut dyn Write) -> Result<ExecFlow, Vec<AppletError>> {
+fn print_current_record(
+    env: &mut Environment,
+    out: &mut dyn Write,
+) -> Result<ExecFlow, Vec<AppletError>> {
     print_exprs(&[], env, out)?;
     Ok(ExecFlow::Next)
 }
 
-fn eval_expr(expr: &Expr, env: &mut Environment, out: &mut dyn Write) -> Result<Value, Vec<AppletError>> {
+fn eval_expr(
+    expr: &Expr,
+    env: &mut Environment,
+    out: &mut dyn Write,
+) -> Result<Value, Vec<AppletError>> {
     match expr {
         Expr::Number(value) => Ok(Value::Number(*value)),
         Expr::String(value) => Ok(Value::String(value.clone())),
         Expr::Regex(pattern) => {
             let regex = Regex::compile_with_fallback(pattern, true)
                 .map_err(|message| vec![AppletError::new(APPLET, message)])?;
-            Ok(Value::Number(if regex.find(&env.record_text(), 0)?.is_some() {
-                1.0
-            } else {
-                0.0
-            }))
+            Ok(Value::Number(
+                if regex.find(&env.record_text(), 0)?.is_some() {
+                    1.0
+                } else {
+                    0.0
+                },
+            ))
         }
         Expr::Var(name) => {
             if name == "length" && !env.has_user_var(name) && !env.has_array(name) {
@@ -318,82 +343,94 @@ fn eval_expr(expr: &Expr, env: &mut Environment, out: &mut dyn Write) -> Result<
                 eval_expr(no, env, out)
             }
         }
-        Expr::Binary(op, left, right) => {
-            match op {
-                BinaryOp::Or => {
-                    let left = eval_expr(left, env, out)?;
-                    if left.is_truthy() {
-                        Ok(Value::Number(1.0))
+        Expr::Binary(op, left, right) => match op {
+            BinaryOp::Or => {
+                let left = eval_expr(left, env, out)?;
+                if left.is_truthy() {
+                    Ok(Value::Number(1.0))
+                } else {
+                    Ok(Value::Number(if eval_expr(right, env, out)?.is_truthy() {
+                        1.0
                     } else {
-                        Ok(Value::Number(if eval_expr(right, env, out)?.is_truthy() { 1.0 } else { 0.0 }))
-                    }
+                        0.0
+                    }))
                 }
-                BinaryOp::And => {
-                    let left = eval_expr(left, env, out)?;
-                    if !left.is_truthy() {
-                        Ok(Value::Number(0.0))
+            }
+            BinaryOp::And => {
+                let left = eval_expr(left, env, out)?;
+                if !left.is_truthy() {
+                    Ok(Value::Number(0.0))
+                } else {
+                    Ok(Value::Number(if eval_expr(right, env, out)?.is_truthy() {
+                        1.0
                     } else {
-                        Ok(Value::Number(if eval_expr(right, env, out)?.is_truthy() { 1.0 } else { 0.0 }))
+                        0.0
+                    }))
+                }
+            }
+            BinaryOp::Match | BinaryOp::NotMatch => {
+                let left = eval_expr(left, env, out)?.as_string();
+                let pattern = regex_pattern_from_expr(right, env, out)?;
+                let regex = Regex::compile_with_fallback(&pattern, true)
+                    .map_err(|message| vec![AppletError::new(APPLET, message)])?;
+                let matched = regex.find(&left, 0)?.is_some();
+                Ok(Value::Number(if matches!(op, BinaryOp::Match) == matched {
+                    1.0
+                } else {
+                    0.0
+                }))
+            }
+            _ => {
+                let left = eval_expr(left, env, out)?;
+                let right = eval_expr(right, env, out)?;
+                match op {
+                    BinaryOp::Pow => Ok(Value::Number(left.as_number().powf(right.as_number()))),
+                    BinaryOp::Add => Ok(Value::Number(left.as_number() + right.as_number())),
+                    BinaryOp::Sub => Ok(Value::Number(left.as_number() - right.as_number())),
+                    BinaryOp::Mul => Ok(Value::Number(left.as_number() * right.as_number())),
+                    BinaryOp::Div => Ok(Value::Number(left.as_number() / right.as_number())),
+                    BinaryOp::Mod => Ok(Value::Number(left.as_number() % right.as_number())),
+                    BinaryOp::Eq => Ok(Value::Number(if compare_values(&left, &right) == 0 {
+                        1.0
+                    } else {
+                        0.0
+                    })),
+                    BinaryOp::Ne => Ok(Value::Number(if compare_values(&left, &right) != 0 {
+                        1.0
+                    } else {
+                        0.0
+                    })),
+                    BinaryOp::Lt => Ok(Value::Number(if compare_values(&left, &right) < 0 {
+                        1.0
+                    } else {
+                        0.0
+                    })),
+                    BinaryOp::Le => Ok(Value::Number(if compare_values(&left, &right) <= 0 {
+                        1.0
+                    } else {
+                        0.0
+                    })),
+                    BinaryOp::Gt => Ok(Value::Number(if compare_values(&left, &right) > 0 {
+                        1.0
+                    } else {
+                        0.0
+                    })),
+                    BinaryOp::Ge => Ok(Value::Number(if compare_values(&left, &right) >= 0 {
+                        1.0
+                    } else {
+                        0.0
+                    })),
+                    BinaryOp::Concat => {
+                        let mut text = left.as_string();
+                        text.push_str(&right.as_string());
+                        Ok(Value::String(text))
                     }
-                }
-                BinaryOp::Match | BinaryOp::NotMatch => {
-                    let left = eval_expr(left, env, out)?.as_string();
-                    let pattern = regex_pattern_from_expr(right, env, out)?;
-                    let regex = Regex::compile_with_fallback(&pattern, true)
-                        .map_err(|message| vec![AppletError::new(APPLET, message)])?;
-                    let matched = regex.find(&left, 0)?.is_some();
-                    Ok(Value::Number(if matches!(op, BinaryOp::Match) == matched { 1.0 } else { 0.0 }))
-                }
-                _ => {
-                    let left = eval_expr(left, env, out)?;
-                    let right = eval_expr(right, env, out)?;
-                    match op {
-                        BinaryOp::Pow => Ok(Value::Number(left.as_number().powf(right.as_number()))),
-                        BinaryOp::Add => Ok(Value::Number(left.as_number() + right.as_number())),
-                        BinaryOp::Sub => Ok(Value::Number(left.as_number() - right.as_number())),
-                        BinaryOp::Mul => Ok(Value::Number(left.as_number() * right.as_number())),
-                        BinaryOp::Div => Ok(Value::Number(left.as_number() / right.as_number())),
-                        BinaryOp::Mod => Ok(Value::Number(left.as_number() % right.as_number())),
-                        BinaryOp::Eq => Ok(Value::Number(if compare_values(&left, &right) == 0 {
-                            1.0
-                        } else {
-                            0.0
-                        })),
-                        BinaryOp::Ne => Ok(Value::Number(if compare_values(&left, &right) != 0 {
-                            1.0
-                        } else {
-                            0.0
-                        })),
-                        BinaryOp::Lt => Ok(Value::Number(if compare_values(&left, &right) < 0 {
-                            1.0
-                        } else {
-                            0.0
-                        })),
-                        BinaryOp::Le => Ok(Value::Number(if compare_values(&left, &right) <= 0 {
-                            1.0
-                        } else {
-                            0.0
-                        })),
-                        BinaryOp::Gt => Ok(Value::Number(if compare_values(&left, &right) > 0 {
-                            1.0
-                        } else {
-                            0.0
-                        })),
-                        BinaryOp::Ge => Ok(Value::Number(if compare_values(&left, &right) >= 0 {
-                            1.0
-                        } else {
-                            0.0
-                        })),
-                        BinaryOp::Concat => {
-                            let mut text = left.as_string();
-                            text.push_str(&right.as_string());
-                            Ok(Value::String(text))
-                        }
-                        BinaryOp::Or | BinaryOp::And | BinaryOp::Match | BinaryOp::NotMatch => unreachable!(),
+                    BinaryOp::Or | BinaryOp::And | BinaryOp::Match | BinaryOp::NotMatch => {
+                        unreachable!()
                     }
                 }
             }
-        }
+        },
         Expr::Call(name, args) => match name.as_str() {
             "length" => {
                 if let Some(Expr::Var(name)) = args.first()
@@ -418,7 +455,10 @@ fn eval_expr(expr: &Expr, env: &mut Environment, out: &mut dyn Write) -> Result<
             }
             "index" => {
                 if args.len() != 2 {
-                    return Err(vec![AppletError::new(APPLET, "index() expects 2 arguments")]);
+                    return Err(vec![AppletError::new(
+                        APPLET,
+                        "index() expects 2 arguments",
+                    )]);
                 }
                 let haystack = eval_expr(&args[0], env, out)?.as_string();
                 let needle = eval_expr(&args[1], env, out)?.as_string();
@@ -427,7 +467,10 @@ fn eval_expr(expr: &Expr, env: &mut Environment, out: &mut dyn Write) -> Result<
             }
             "substr" => {
                 if args.len() < 2 || args.len() > 3 {
-                    return Err(vec![AppletError::new(APPLET, "substr() expects 2 or 3 arguments")]);
+                    return Err(vec![AppletError::new(
+                        APPLET,
+                        "substr() expects 2 or 3 arguments",
+                    )]);
                 }
                 let text = eval_expr(&args[0], env, out)?.as_string();
                 let start = eval_expr(&args[1], env, out)?.as_number().max(1.0) as usize;
@@ -442,13 +485,23 @@ fn eval_expr(expr: &Expr, env: &mut Environment, out: &mut dyn Write) -> Result<
                 }
                 let start_index = start - 1;
                 let end_index = len.map_or(chars.len(), |len| (start_index + len).min(chars.len()));
-                Ok(Value::String(chars[start_index..end_index].iter().collect()))
+                Ok(Value::String(
+                    chars[start_index..end_index].iter().collect(),
+                ))
             }
             "sprintf" => {
                 if args.is_empty() {
-                    return Err(vec![AppletError::new(APPLET, "sprintf() expects a format string")]);
+                    return Err(vec![AppletError::new(
+                        APPLET,
+                        "sprintf() expects a format string",
+                    )]);
                 }
-                let rendered = render_printf(&eval_expr(&args[0], env, out)?.as_string(), &args[1..], env, out)?;
+                let rendered = render_printf(
+                    &eval_expr(&args[0], env, out)?.as_string(),
+                    &args[1..],
+                    env,
+                    out,
+                )?;
                 Ok(Value::String(rendered))
             }
             "close" => {
@@ -462,7 +515,10 @@ fn eval_expr(expr: &Expr, env: &mut Environment, out: &mut dyn Write) -> Result<
             "gsub" => execute_substitution(args, env, out, true),
             "match" => {
                 if args.len() != 2 {
-                    return Err(vec![AppletError::new(APPLET, "match() expects 2 arguments")]);
+                    return Err(vec![AppletError::new(
+                        APPLET,
+                        "match() expects 2 arguments",
+                    )]);
                 }
                 let text = eval_expr(&args[0], env, out)?.as_string();
                 let pattern = regex_pattern_from_expr(&args[1], env, out)?;
@@ -478,11 +534,17 @@ fn eval_expr(expr: &Expr, env: &mut Environment, out: &mut dyn Write) -> Result<
             }
             "split" => {
                 if args.len() < 2 || args.len() > 3 {
-                    return Err(vec![AppletError::new(APPLET, "split() expects 2 or 3 arguments")]);
+                    return Err(vec![AppletError::new(
+                        APPLET,
+                        "split() expects 2 or 3 arguments",
+                    )]);
                 }
                 let text = eval_expr(&args[0], env, out)?.as_string();
                 let Some(Expr::Var(array_name)) = args.get(1) else {
-                    return Err(vec![AppletError::new(APPLET, "split() expects an array variable")]);
+                    return Err(vec![AppletError::new(
+                        APPLET,
+                        "split() expects an array variable",
+                    )]);
                 };
                 let separator = if let Some(arg) = args.get(2) {
                     regex_pattern_from_expr(arg, env, out)?
@@ -492,7 +554,11 @@ fn eval_expr(expr: &Expr, env: &mut Environment, out: &mut dyn Write) -> Result<
                 let fields = split_fields(&text, &separator)?;
                 env.clear_array(array_name);
                 for (index, field) in fields.iter().enumerate() {
-                    env.set_array_element(array_name, (index + 1).to_string(), Value::String(field.clone()));
+                    env.set_array_element(
+                        array_name,
+                        (index + 1).to_string(),
+                        Value::String(field.clone()),
+                    );
                 }
                 Ok(Value::Number(fields.len() as f64))
             }
@@ -614,7 +680,10 @@ fn execute_getline(
             Err(_) => return Ok(-1),
         }
     } else {
-        return Err(vec![AppletError::new(APPLET, "getline without source not yet supported")]);
+        return Err(vec![AppletError::new(
+            APPLET,
+            "getline without source not yet supported",
+        )]);
     };
 
     match line {
@@ -637,7 +706,10 @@ fn execute_substitution(
     global: bool,
 ) -> Result<Value, Vec<AppletError>> {
     if args.len() < 2 || args.len() > 3 {
-        return Err(vec![AppletError::new(APPLET, "gsub() expects 2 or 3 arguments")]);
+        return Err(vec![AppletError::new(
+            APPLET,
+            "gsub() expects 2 or 3 arguments",
+        )]);
     }
     let pattern = regex_pattern_from_expr(&args[0], env, out)?;
     let replacement = eval_expr(&args[1], env, out)?.as_string();
@@ -651,7 +723,10 @@ fn execute_substitution(
     let count = regex.replace_all(&mut text, &replacement, global)?;
     if let Some(target) = args.get(2) {
         let Some(lvalue) = expr_to_lvalue(target) else {
-            return Err(vec![AppletError::new(APPLET, "expected substitution target")]);
+            return Err(vec![AppletError::new(
+                APPLET,
+                "expected substitution target",
+            )]);
         };
         assign_lvalue(&lvalue, Value::String(text), env, out)?;
     } else {
@@ -905,11 +980,12 @@ impl Environment {
         args: &[Expr],
         out: &mut dyn Write,
     ) -> Result<Value, Vec<AppletError>> {
-        let function = self
-            .functions
-            .get(name)
-            .cloned()
-            .ok_or_else(|| vec![AppletError::new(APPLET, format!("undefined function: {name}"))])?;
+        let function = self.functions.get(name).cloned().ok_or_else(|| {
+            vec![AppletError::new(
+                APPLET,
+                format!("undefined function: {name}"),
+            )]
+        })?;
         let mut frame = HashMap::new();
         for (index, param) in function.params.iter().enumerate() {
             let value = if let Some(arg) = args.get(index) {
@@ -1024,7 +1100,11 @@ impl Environment {
     }
 
     fn has_user_var(&self, name: &str) -> bool {
-        self.frames.iter().rev().any(|frame| frame.contains_key(name)) || self.vars.contains_key(name)
+        self.frames
+            .iter()
+            .rev()
+            .any(|frame| frame.contains_key(name))
+            || self.vars.contains_key(name)
     }
 }
 
@@ -1120,8 +1200,12 @@ impl Regex {
 
     fn find(&self, text: &str, start: usize) -> Result<Option<(usize, usize)>, Vec<AppletError>> {
         let haystack = &text[start..];
-        let c_text = CString::new(haystack)
-            .map_err(|_| vec![AppletError::new(APPLET, "input contains NUL byte, unsupported by awk")])?;
+        let c_text = CString::new(haystack).map_err(|_| {
+            vec![AppletError::new(
+                APPLET,
+                "input contains NUL byte, unsupported by awk",
+            )]
+        })?;
         let mut matches = [libc::regmatch_t {
             rm_so: -1,
             rm_eo: -1,
@@ -1160,7 +1244,10 @@ impl Regex {
         while let Some((match_start, match_end)) = self.find(&original, start)? {
             count += 1;
             result.push_str(&original[start..match_start]);
-            result.push_str(&expand_replacement(replacement, &original[match_start..match_end]));
+            result.push_str(&expand_replacement(
+                replacement,
+                &original[match_start..match_end],
+            ));
             if match_end == match_start {
                 if let Some(next) = original[match_end..].chars().next() {
                     result.push(next);
@@ -1266,14 +1353,13 @@ fn parse_options(args: &[String]) -> Result<Options, Vec<AppletError>> {
             };
             let program = if path == "-" {
                 let mut stdin = String::new();
-                io::stdin()
-                    .read_to_string(&mut stdin)
-                    .map_err(|err| vec![AppletError::new(APPLET, format!("reading stdin: {err}"))])?;
+                io::stdin().read_to_string(&mut stdin).map_err(|err| {
+                    vec![AppletError::new(APPLET, format!("reading stdin: {err}"))]
+                })?;
                 stdin
             } else {
-                fs::read_to_string(path).map_err(|err| {
-                    vec![AppletError::from_io(APPLET, "reading", Some(path), err)]
-                })?
+                fs::read_to_string(path)
+                    .map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some(path), err)])?
             };
             program_parts.push(program);
             saw_program = true;
@@ -1757,7 +1843,12 @@ impl<'a> Parser<'a> {
                     Some(self.parse_expr()?)
                 };
                 self.expect(Token::RParen)?;
-                Ok(Stmt::ForLoop(init, condition, step, Box::new(self.parse_stmt()?)))
+                Ok(Stmt::ForLoop(
+                    init,
+                    condition,
+                    step,
+                    Box::new(self.parse_stmt()?),
+                ))
             }
             Token::Delete => {
                 self.bump()?;
@@ -1828,7 +1919,11 @@ impl<'a> Parser<'a> {
         let yes = self.parse_expr()?;
         self.expect(Token::Colon)?;
         let no = self.parse_expr()?;
-        Ok(Expr::Conditional(Box::new(left), Box::new(yes), Box::new(no)))
+        Ok(Expr::Conditional(
+            Box::new(left),
+            Box::new(yes),
+            Box::new(no),
+        ))
     }
 
     fn parse_logical_or(&mut self) -> Result<Expr, Vec<AppletError>> {
@@ -2077,7 +2172,10 @@ impl<'a> Parser<'a> {
         if !matches!(self.current, Token::RParen) {
             loop {
                 let Token::Ident(param) = &self.current else {
-                    return Err(vec![AppletError::new(APPLET, "expected function parameter")]);
+                    return Err(vec![AppletError::new(
+                        APPLET,
+                        "expected function parameter",
+                    )]);
                 };
                 params.push(param.clone());
                 self.bump()?;
@@ -2323,8 +2421,12 @@ impl<'a> Lexer<'a> {
                     Ok((Token::Gt, had_space))
                 }
             }
-            '"' => self.read_string().map(|token| (Token::String(token), had_space)),
-            ch if ch.is_ascii_digit() => self.read_number().map(|token| (Token::Number(token), had_space)),
+            '"' => self
+                .read_string()
+                .map(|token| (Token::String(token), had_space)),
+            ch if ch.is_ascii_digit() => self
+                .read_number()
+                .map(|token| (Token::Number(token), had_space)),
             ch if is_ident_start(ch) => {
                 let ident = self.read_identifier();
                 Ok(match ident.as_str() {
@@ -2409,7 +2511,9 @@ impl<'a> Lexer<'a> {
 
     fn read_number(&mut self) -> Result<f64, Vec<AppletError>> {
         let start = self.index;
-        if self.source[self.index..].starts_with("0x") || self.source[self.index..].starts_with("0X") {
+        if self.source[self.index..].starts_with("0x")
+            || self.source[self.index..].starts_with("0X")
+        {
             self.index += 2;
             while matches!(self.peek(), Some(ch) if ch.is_ascii_hexdigit()) {
                 self.index += 1;
@@ -2509,7 +2613,11 @@ fn unescape_string(text: &str) -> Result<String, Vec<AppletError>> {
     Ok(result)
 }
 
-fn parse_escape_char(index: &mut usize, escaped: char, source: &str) -> Result<char, Vec<AppletError>> {
+fn parse_escape_char(
+    index: &mut usize,
+    escaped: char,
+    source: &str,
+) -> Result<char, Vec<AppletError>> {
     Ok(match escaped {
         'n' => '\n',
         't' => '\t',
@@ -2524,7 +2632,8 @@ fn parse_escape_char(index: &mut usize, escaped: char, source: &str) -> Result<c
             *index += chars[0].len_utf8() + chars[1].len_utf8();
             let hex = chars.iter().collect::<String>();
             u8::from_str_radix(&hex, 16)
-                .map_err(|_| vec![AppletError::new(APPLET, "invalid hex escape")])? as char
+                .map_err(|_| vec![AppletError::new(APPLET, "invalid hex escape")])?
+                as char
         }
         other => other,
     })
@@ -2551,7 +2660,8 @@ mod tests {
 
     #[test]
     fn parser_handles_begin_and_main_blocks() {
-        let program = parse_program("BEGIN { print 1 }\n{ print $1 }\nEND { print 2 }").expect("program");
+        let program =
+            parse_program("BEGIN { print 1 }\n{ print $1 }\nEND { print 2 }").expect("program");
         assert_eq!(program.begin_rules.len(), 1);
         assert_eq!(program.main_rules.len(), 1);
         assert_eq!(program.end_rules.len(), 1);

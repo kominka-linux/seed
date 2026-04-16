@@ -9,11 +9,11 @@ const APPLET: &str = "nologin";
 const NOLOGIN_PATH: &str = "/etc/nologin.txt";
 const DEFAULT_MESSAGE: &str = "This account is currently not available.";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args))
 }
 
-fn run(args: &[String]) -> AppletCodeResult {
+fn run(args: &[std::ffi::OsString]) -> AppletCodeResult {
     validate_args(args)?;
 
     match File::open(NOLOGIN_PATH) {
@@ -31,7 +31,7 @@ fn run(args: &[String]) -> AppletCodeResult {
     Ok(1)
 }
 
-fn validate_args(args: &[String]) -> Result<(), Vec<AppletError>> {
+fn validate_args(args: &[std::ffi::OsString]) -> Result<(), Vec<AppletError>> {
     match args {
         [] => Ok(()),
         [arg] if arg == "--" => Ok(()),
@@ -47,8 +47,8 @@ fn io_error(action: &str, err: io::Error) -> Vec<AppletError> {
 mod tests {
     use super::validate_args;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

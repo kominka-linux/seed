@@ -17,11 +17,11 @@ struct ModuleEntry {
     used_by: Option<String>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<(), Vec<AppletError>> {
     if !args.is_empty() {
         return Err(vec![AppletError::new(APPLET, "extra operand")]);
     }

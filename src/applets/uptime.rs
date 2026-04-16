@@ -12,11 +12,11 @@ const PROC_LOADAVG: &str = "/proc/loadavg";
 const PROC_UPTIME: &str = "/proc/uptime";
 const UTMP_PATHS: &[&str] = &["/run/utmp", "/var/run/utmp"];
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<(), Vec<AppletError>> {
     parse_args(args)?;
     let snapshot = collect_snapshot()?;
     let mut out = stdout();
@@ -27,7 +27,7 @@ fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
     Ok(())
 }
 
-fn parse_args(args: &[String]) -> Result<(), Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<(), Vec<AppletError>> {
     if args.is_empty() {
         Ok(())
     } else {
@@ -235,8 +235,8 @@ mod tests {
     use super::{Snapshot, format_snapshot, format_uptime, parse_args};
     use super::count_utmp_users;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

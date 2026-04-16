@@ -15,12 +15,13 @@ struct Options {
     command: Vec<String>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args))
 }
 
-fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
-    let options = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> Result<i32, Vec<AppletError>> {
+    let args = crate::common::args::argv_to_strings(APPLET, args)?;
+    let options = parse_args(&args)?;
 
     loop {
         let status = Command::new("sh")
@@ -42,7 +43,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     let mut interval = 2.0_f64;
     let mut cursor = ArgCursor::new(args);
 
-    while let Some(arg) = cursor.next_arg() {
+    while let Some(arg) = cursor.next_arg(APPLET)? {
         match arg {
             ArgToken::ShortFlags(flags) => {
                 let mut chars = flags.chars();

@@ -8,11 +8,11 @@ use crate::common::fs::move_path;
 
 const APPLET: &str = "mv";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<(), Vec<AppletError>> {
     let (no_target_directory, sources, destination) = parse_args(args)?;
     let destination_path = Path::new(&destination);
     let dest_is_dir = !no_target_directory
@@ -48,13 +48,13 @@ fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
     }
 }
 
-fn parse_args(args: &[String]) -> Result<(bool, Vec<String>, String), Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<(bool, Vec<String>, String), Vec<AppletError>> {
     let mut no_target_directory = false;
     let mut target_directory: Option<String> = None;
     let mut paths = Vec::new();
     let mut cursor = ArgCursor::new(args);
 
-    while let Some(arg) = cursor.next_token() {
+    while let Some(arg) = cursor.next_token(APPLET)? {
         if cursor.parsing_flags() && arg == "--no-target-directory" {
             no_target_directory = true;
             continue;
@@ -102,7 +102,10 @@ mod tests {
     use super::parse_args;
 
     fn parse(input: &[&str]) -> (bool, Vec<String>, String) {
-        let args = input.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let args = input
+            .iter()
+            .map(std::ffi::OsString::from)
+            .collect::<Vec<_>>();
         parse_args(&args).expect("parse args")
     }
 

@@ -1,42 +1,30 @@
 use std::io::{self, BufRead, BufReader, Write};
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
 use crate::common::io::{open_input, stdout};
 
 const APPLET: &str = "fold";
 const DEFAULT_WIDTH: usize = 80;
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let mut byte_mode = false;
     let mut break_spaces = false;
     let mut width = DEFAULT_WIDTH;
     let mut paths: Vec<&str> = Vec::new();
-    let mut i = 0;
+    let mut cursor = ArgCursor::new(args);
 
-    while i < args.len() {
-        let arg = &args[i];
-        match arg.as_str() {
-            "--" => {
-                i += 1;
-                while i < args.len() {
-                    paths.push(&args[i]);
-                    i += 1;
-                }
-                break;
-            }
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        match arg {
             "-b" | "--bytes" => byte_mode = true,
             "-s" | "--spaces" => break_spaces = true,
             "-w" | "--width" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "w")]);
-                }
-                width = parse_width(APPLET, &args[i])?;
+                width = parse_width(APPLET, cursor.next_value(APPLET, "w")?)?;
             }
             a if a.starts_with("-w") && a.len() > 2 => {
                 width = parse_width(APPLET, &a[2..])?;
@@ -56,7 +44,6 @@ fn run(args: &[String]) -> AppletResult {
             }
             _ => paths.push(arg),
         }
-        i += 1;
     }
 
     let mut out = stdout();

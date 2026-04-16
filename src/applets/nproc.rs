@@ -1,28 +1,30 @@
 use std::io::Write;
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::{ParsedArg, Parser};
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET: &str = "nproc";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let mut all = false;
-    for arg in args {
-        match arg.as_str() {
-            "--all" => all = true,
-            "--" => break,
-            a if a.starts_with('-') => {
-                return Err(vec![AppletError::invalid_option(
+    let mut parser = Parser::new(APPLET, args);
+    while let Some(arg) = parser.next_arg()? {
+        match arg {
+            ParsedArg::Long(name) if name == "all" => all = true,
+            ParsedArg::Short(flag) => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
+            ParsedArg::Long(name) => {
+                return Err(vec![AppletError::unrecognized_option(
                     APPLET,
-                    a.chars().nth(1).unwrap_or('-'),
-                )]);
+                    &format!("--{name}"),
+                )])
             }
-            _ => {}
+            ParsedArg::Value(_) => {}
         }
     }
 
@@ -44,8 +46,8 @@ fn run(args: &[String]) -> AppletResult {
 mod tests {
     use super::run;
 
-    fn args(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
+    fn args(v: &[&str]) -> Vec<std::ffi::OsString> {
+        v.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

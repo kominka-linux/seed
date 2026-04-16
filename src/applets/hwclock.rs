@@ -7,6 +7,7 @@ use std::os::fd::RawFd;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::common::applet::finish;
+use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "hwclock";
@@ -50,26 +51,24 @@ unsafe extern "C" {
     fn settimeofday_sys(tv: *const libc::timeval, tz: *const LinuxTimezone) -> libc::c_int;
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<(), Vec<AppletError>> {
     let options = parse_args(args)?;
     run_linux(&options)
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut options = Options {
         show: true,
         ..Options::default()
     };
-    let mut index = 0;
+    let mut cursor = ArgCursor::new(args);
 
-    while index < args.len() {
-        let arg = &args[index];
-        index += 1;
-        match arg.as_str() {
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        match arg {
             "-u" => options.utc = Some(true),
             "-l" => options.utc = Some(false),
             "-r" | "--show" => options.show = true,
@@ -86,19 +85,15 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
                 options.show = false;
             }
             "-f" => {
-                let Some(value) = args.get(index) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "f")]);
-                };
-                index += 1;
-                options.device = Some(value.clone());
+                options.device = Some(cursor.next_value(APPLET, "f")?.to_owned());
             }
-            value if value.starts_with("--param-") => {
+            value if cursor.parsing_flags() && value.starts_with("--param-") => {
                 return Err(vec![AppletError::new(
                     APPLET,
                     "RTC parameter access is not supported",
                 )]);
             }
-            _ if arg.starts_with('-') => {
+            _ if cursor.parsing_flags() && arg.starts_with('-') => {
                 return Err(vec![AppletError::invalid_option(
                     APPLET,
                     arg.chars().nth(1).unwrap_or('-'),
@@ -397,8 +392,8 @@ mod tests {
     use crate::common::test_env;
     use std::fs;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

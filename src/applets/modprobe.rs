@@ -1,7 +1,9 @@
 use std::collections::HashSet;
+use std::ffi::OsString;
 use std::process::Command;
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::modules::{
     ModprobeConfig, ModuleEntry, ModuleIndex, delete_module, finit_module, module_tree_dir,
@@ -24,22 +26,37 @@ enum RequestKind {
     Alias,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
-    let options = parse_args(args)?;
+fn run(args: &[OsString]) -> AppletResult {
+    let args = argv_to_strings(APPLET, args)?;
+    let options = parse_args(&args)?;
     let root = module_tree_dir(None).map_err(|err| vec![map_module_error(err)])?;
-    let index = ModuleIndex::scan(&root)
-        .map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some(&root.to_string_lossy()), err)])?;
-    let config = ModprobeConfig::load().map_err(|err| vec![AppletError::new(APPLET, err.to_string())])?;
+    let index = ModuleIndex::scan(&root).map_err(|err| {
+        vec![AppletError::from_io(
+            APPLET,
+            "reading",
+            Some(&root.to_string_lossy()),
+            err,
+        )]
+    })?;
+    let config =
+        ModprobeConfig::load().map_err(|err| vec![AppletError::new(APPLET, err.to_string())])?;
     let module = options.module.as_deref().unwrap_or_default();
 
     if options.remove {
         remove_request(&index, &config, module, options.quiet, options.dry_run)
     } else {
-        insert_request(&index, &config, module, &options.params, options.quiet, options.dry_run)
+        insert_request(
+            &index,
+            &config,
+            module,
+            &options.params,
+            options.quiet,
+            options.dry_run,
+        )
     }
 }
 
@@ -84,7 +101,14 @@ fn insert_request(
     quiet: bool,
     dry_run: bool,
 ) -> AppletResult {
-    let Some(entry) = resolve_request(index, config, request, RequestKind::Explicit, &mut HashSet::new())? else {
+    let Some(entry) = resolve_request(
+        index,
+        config,
+        request,
+        RequestKind::Explicit,
+        &mut HashSet::new(),
+    )?
+    else {
         return if quiet {
             Ok(())
         } else {
@@ -110,6 +134,10 @@ fn insert_request(
         if let Some(command) = config.install_command(&module.name) {
             run_module_command(command, &module.name, &module_params)?;
         } else {
+            let module_params = module_params
+                .into_iter()
+                .map(OsString::from)
+                .collect::<Vec<_>>();
             finit_module(&module.path, &module_params).map_err(wrap_module_error)?;
         }
     }
@@ -123,7 +151,14 @@ fn remove_request(
     quiet: bool,
     dry_run: bool,
 ) -> AppletResult {
-    let Some(entry) = resolve_request(index, config, request, RequestKind::Explicit, &mut HashSet::new())? else {
+    let Some(entry) = resolve_request(
+        index,
+        config,
+        request,
+        RequestKind::Explicit,
+        &mut HashSet::new(),
+    )?
+    else {
         return if quiet {
             Ok(())
         } else {
@@ -184,7 +219,10 @@ fn resolve_request<'a>(
     }
 
     let resolved = index.resolve_alias(request);
-    if matches!(kind, RequestKind::Alias) && let Some(entry) = resolved && config.is_blacklisted(&entry.name) {
+    if matches!(kind, RequestKind::Alias)
+        && let Some(entry) = resolved
+        && config.is_blacklisted(&entry.name)
+    {
         return Err(vec![AppletError::new(
             APPLET,
             format!("module '{}' is blacklisted", entry.name),
@@ -225,7 +263,14 @@ fn dependency_visit<'a>(
     seen: &mut HashSet<String>,
     order: &mut Vec<&'a ModuleEntry>,
 ) -> AppletResult {
-    let Some(entry) = resolve_request(index, config, request, RequestKind::Alias, &mut HashSet::new())? else {
+    let Some(entry) = resolve_request(
+        index,
+        config,
+        request,
+        RequestKind::Alias,
+        &mut HashSet::new(),
+    )?
+    else {
         return Ok(());
     };
     dependency_order(index, config, entry, seen, order)

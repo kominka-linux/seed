@@ -2,67 +2,57 @@ use std::ffi::{CStr, CString};
 use std::io::Write;
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::{ParsedArg, Parser};
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET: &str = "hostname";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
-    let mut file: Option<&str> = None;
-    let mut new_name: Option<&str> = None;
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
+    let mut file: Option<String> = None;
+    let mut new_name: Option<String> = None;
     let mut short = false;
-    let mut i = 0;
+    let mut parser = Parser::new(APPLET, args);
 
-    while i < args.len() {
-        let arg = &args[i];
-        match arg.as_str() {
-            "--" => {
-                i += 1;
-                if i >= args.len() {
-                    break;
-                }
-                if new_name.is_some() || i + 1 != args.len() {
-                    return Err(vec![AppletError::new(APPLET, "extra operand")]);
-                }
-                new_name = Some(&args[i]);
-                break;
-            }
-            "-F" | "--file" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "F")]);
-                }
-                file = Some(&args[i]);
-            }
-            "-s" => short = true,
-            a if a.starts_with('-') && a.len() > 1 => {
-                return Err(vec![AppletError::invalid_option(
+    while let Some(arg) = parser.next_arg()? {
+        match arg {
+            ParsedArg::Short('F') => file = Some(parser.value_str("F")?),
+            ParsedArg::Long(name) if name == "file" => file = Some(parser.value_str("file")?),
+            ParsedArg::Short('s') => short = true,
+            ParsedArg::Short(flag) => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
+            ParsedArg::Long(name) => {
+                return Err(vec![AppletError::unrecognized_option(
                     APPLET,
-                    a.chars().nth(1).unwrap_or('-'),
-                )]);
+                    &format!("--{name}"),
+                )])
             }
-            _ => {
+            ParsedArg::Value(arg) => {
+                let arg = arg.into_string().map_err(|arg| {
+                    vec![AppletError::new(
+                        APPLET,
+                        format!("argument is invalid unicode: {:?}", arg),
+                    )]
+                })?;
                 if new_name.is_some() {
                     return Err(vec![AppletError::new(APPLET, "extra operand")]);
                 }
                 new_name = Some(arg);
             }
         }
-        i += 1;
     }
 
-    if let Some(path) = file {
+    if let Some(path) = file.as_deref() {
         let content = std::fs::read_to_string(path)
             .map_err(|e| vec![AppletError::from_io(APPLET, "reading", Some(path), e)])?;
         let name = content.lines().next().unwrap_or("").trim();
         return set_hostname(name);
     }
 
-    if let Some(name) = new_name {
+    if let Some(name) = new_name.as_deref() {
         return set_hostname(name);
     }
 
@@ -123,8 +113,8 @@ fn set_hostname(name: &str) -> AppletResult {
 mod tests {
     use super::{get_hostname, run, set_hostname, shorten_hostname};
 
-    fn args(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
+    fn args(v: &[&str]) -> Vec<std::ffi::OsString> {
+        v.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

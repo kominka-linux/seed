@@ -472,7 +472,18 @@ fn strip_modprobe_comment(line: &str) -> &str {
     line
 }
 
-pub(crate) fn finit_module(path: &Path, params: &[String]) -> Result<(), AppletError> {
+pub(crate) fn finit_module(path: &Path, params: &[std::ffi::OsString]) -> Result<(), AppletError> {
+    let params = params
+        .iter()
+        .map(|param| {
+            param.to_str().map(ToOwned::to_owned).ok_or_else(|| {
+                AppletError::new(
+                    "modules",
+                    format!("module parameter is invalid unicode: {:?}", param),
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     if let Some(log_path) = std::env::var_os("SEED_MODULE_ACTION_LOG") {
         let suffix = if params.is_empty() {
             String::new()

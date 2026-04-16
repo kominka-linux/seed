@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::io::Write;
 
 use crate::common::applet::finish_code;
+use crate::common::args::{ParsedArg, Parser};
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 use crate::common::process::list_processes;
@@ -15,11 +16,11 @@ struct Options {
     names: Vec<String>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args).map(match_exit_code))
 }
 
-fn run(args: &[String]) -> Result<bool, Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<bool, Vec<AppletError>> {
     let mut options = parse_args(args)?;
     options.omit.insert(std::process::id() as i32);
 
@@ -59,29 +60,29 @@ fn run(args: &[String]) -> Result<bool, Vec<AppletError>> {
     Ok(true)
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut options = Options::default();
-    let mut index = 0;
+    let mut parser = Parser::new(APPLET, args);
 
-    while index < args.len() {
-        let arg = &args[index];
-        index += 1;
-        match arg.as_str() {
-            "-s" => options.single = true,
-            "-o" => {
-                let Some(value) = args.get(index) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "o")]);
-                };
-                index += 1;
-                options.omit.insert(parse_omit_pid(value)?);
+    while let Some(arg) = parser.next_arg()? {
+        match arg {
+            ParsedArg::Short('s') => options.single = true,
+            ParsedArg::Short('o') => {
+                options.omit.insert(parse_omit_pid(&parser.value_str("o")?)?);
             }
-            _ if arg.starts_with('-') => {
-                return Err(vec![AppletError::invalid_option(
+            ParsedArg::Short(flag) => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
+            ParsedArg::Long(name) => {
+                return Err(vec![AppletError::unrecognized_option(
                     APPLET,
-                    arg.chars().nth(1).unwrap_or('-'),
-                )]);
+                    &format!("--{name}"),
+                )])
             }
-            _ => options.names.push(arg.clone()),
+            ParsedArg::Value(arg) => options.names.push(arg.into_string().map_err(|arg| {
+                vec![AppletError::new(
+                    APPLET,
+                    format!("argument is invalid unicode: {:?}", arg),
+                )]
+            })?),
         }
     }
 
@@ -109,8 +110,8 @@ fn match_exit_code(matched: bool) -> i32 {
 mod tests {
     use super::{Options, parse_args};
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

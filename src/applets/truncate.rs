@@ -1,38 +1,26 @@
 use std::fs::OpenOptions;
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "truncate";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let mut size_spec: Option<&str> = None;
     let mut no_create = false;
     let mut paths: Vec<&str> = Vec::new();
-    let mut i = 0;
+    let mut cursor = ArgCursor::new(args);
 
-    while i < args.len() {
-        let arg = &args[i];
-        match arg.as_str() {
-            "--" => {
-                i += 1;
-                while i < args.len() {
-                    paths.push(&args[i]);
-                    i += 1;
-                }
-                break;
-            }
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        match arg {
             "-c" | "--no-create" => no_create = true,
             "-s" | "--size" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "s")]);
-                }
-                size_spec = Some(&args[i]);
+                size_spec = Some(cursor.next_value(APPLET, "s")?);
             }
             a if a.starts_with("--size=") => size_spec = Some(&a["--size=".len()..]),
             a if a.starts_with('-') && a.len() > 1 => {
@@ -43,7 +31,6 @@ fn run(args: &[String]) -> AppletResult {
             }
             _ => paths.push(arg),
         }
-        i += 1;
     }
 
     let spec = size_spec.ok_or_else(|| {

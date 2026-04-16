@@ -3,6 +3,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
@@ -33,12 +34,13 @@ struct RfkillEntry {
     soft_path: PathBuf,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
-    let (command, target) = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
+    let args = argv_to_strings(APPLET, args)?;
+    let (command, target) = parse_args(&args)?;
     run_linux(command, target)
 }
 
@@ -80,10 +82,12 @@ fn parse_target(value: &str) -> Result<Target, Vec<AppletError>> {
         "wwan" => Ok(Target::Type("wwan")),
         "gps" => Ok(Target::Type("gps")),
         "fm" => Ok(Target::Type("fm")),
-        _ => value
-            .parse::<u32>()
-            .map(Target::Index)
-            .map_err(|_| vec![AppletError::new(APPLET, format!("invalid number '{value}'"))]),
+        _ => value.parse::<u32>().map(Target::Index).map_err(|_| {
+            vec![AppletError::new(
+                APPLET,
+                format!("invalid number '{value}'"),
+            )]
+        }),
     }
 }
 
@@ -108,11 +112,22 @@ fn read_rfkill_entries() -> Result<Vec<RfkillEntry>, Vec<AppletError>> {
     }
 
     let mut entries = Vec::new();
-    for entry in fs::read_dir(directory)
-        .map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some(SYS_CLASS_RFKILL), err)])?
-    {
-        let entry =
-            entry.map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some(SYS_CLASS_RFKILL), err)])?;
+    for entry in fs::read_dir(directory).map_err(|err| {
+        vec![AppletError::from_io(
+            APPLET,
+            "reading",
+            Some(SYS_CLASS_RFKILL),
+            err,
+        )]
+    })? {
+        let entry = entry.map_err(|err| {
+            vec![AppletError::from_io(
+                APPLET,
+                "reading",
+                Some(SYS_CLASS_RFKILL),
+                err,
+            )]
+        })?;
         let path = entry.path();
         let name = entry.file_name();
         let Some(name) = name.to_str() else {
@@ -141,7 +156,14 @@ fn read_trimmed(path: PathBuf) -> Result<String, Vec<AppletError>> {
     let path_text = path.to_string_lossy().into_owned();
     fs::read_to_string(&path)
         .map(|value| value.trim().to_string())
-        .map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some(&path_text), err)])
+        .map_err(|err| {
+            vec![AppletError::from_io(
+                APPLET,
+                "reading",
+                Some(&path_text),
+                err,
+            )]
+        })
 }
 
 fn normalize_type(kind: &str) -> String {
@@ -163,8 +185,14 @@ fn matches_target(entry: &RfkillEntry, target: Target) -> bool {
 fn list_entries(entries: &[RfkillEntry], target: Target) -> AppletResult {
     let mut out = stdout();
     for entry in entries.iter().filter(|entry| matches_target(entry, target)) {
-        writeln!(out, "{}: {}: {}", entry.index, entry.name, display_type(&entry.kind))
-            .map_err(|err| vec![AppletError::from_io(APPLET, "writing stdout", None, err)])?;
+        writeln!(
+            out,
+            "{}: {}: {}",
+            entry.index,
+            entry.name,
+            display_type(&entry.kind)
+        )
+        .map_err(|err| vec![AppletError::from_io(APPLET, "writing stdout", None, err)])?;
         writeln!(
             out,
             "\tSoft blocked: {}",

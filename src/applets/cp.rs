@@ -3,6 +3,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::fs::{CopyContext, CopyError, CopyOptions, Dereference, copy_path};
 
@@ -19,12 +20,13 @@ struct Options {
     no_target_directory: bool,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
-    let (options, sources, destination) = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
+    let args = argv_to_strings(APPLET, args)?;
+    let (options, sources, destination) = parse_args(&args)?;
     let destination_path = Path::new(&destination);
     let dest_is_dir = !options.no_target_directory
         && fs::metadata(destination_path)

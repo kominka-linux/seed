@@ -1,41 +1,29 @@
 use std::io::Write;
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET: &str = "kill";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let mut list_signals = false;
     let mut signal: libc::c_int = libc::SIGTERM;
     let mut pids: Vec<&str> = Vec::new();
-    let mut i = 0;
+    let mut cursor = ArgCursor::new(args);
 
-    while i < args.len() {
-        let arg = &args[i];
-        match arg.as_str() {
-            "--" => {
-                i += 1;
-                while i < args.len() {
-                    pids.push(&args[i]);
-                    i += 1;
-                }
-                break;
-            }
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        match arg {
             "-l" | "--list" => {
                 list_signals = true;
             }
             "-s" | "--signal" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "s")]);
-                }
-                signal = parse_signal(APPLET, &args[i])?;
+                signal = parse_signal(APPLET, cursor.next_value(APPLET, "s")?)?;
             }
             a if a.starts_with('-') && a.len() > 1 => {
                 // -N or -SIGNAME or -NAME
@@ -43,7 +31,6 @@ fn run(args: &[String]) -> AppletResult {
             }
             _ => pids.push(arg),
         }
-        i += 1;
     }
 
     let mut out = stdout();
@@ -229,8 +216,8 @@ fn print_signal_list(out: &mut dyn std::io::Write) -> std::io::Result<()> {
 mod tests {
     use super::{parse_signal, run, signal_name};
 
-    fn args(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
+    fn args(v: &[&str]) -> Vec<std::ffi::OsString> {
+        v.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

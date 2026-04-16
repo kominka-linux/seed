@@ -1,17 +1,20 @@
+use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Write};
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::io::{open_input, stdout};
 
 const APPLET: &str = "rev";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
-    let mut paths: Vec<&str> = Vec::new();
+fn run(args: &[OsString]) -> AppletResult {
+    let args = argv_to_strings(APPLET, args)?;
+    let mut paths: Vec<String> = Vec::new();
     let mut end_of_opts = false;
 
     for arg in args {
@@ -25,14 +28,18 @@ fn run(args: &[String]) -> AppletResult {
                 arg.chars().nth(1).unwrap(),
             )]);
         }
-        paths.push(arg);
+        paths.push(arg.clone());
     }
 
-    let paths: Vec<&str> = if paths.is_empty() { vec!["-"] } else { paths };
+    let paths: Vec<String> = if paths.is_empty() {
+        vec![String::from("-")]
+    } else {
+        paths
+    };
     let mut out = stdout();
     let mut errors = Vec::new();
 
-    for &path in &paths {
+    for path in &paths {
         match open_input(path) {
             Err(e) => errors.push(AppletError::from_io(APPLET, "opening", Some(path), e)),
             Ok(f) => {
@@ -66,8 +73,8 @@ fn run(args: &[String]) -> AppletResult {
 mod tests {
     use super::run;
 
-    fn args(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
+    fn args(v: &[&str]) -> Vec<std::ffi::OsString> {
+        v.iter().map(std::ffi::OsString::from).collect()
     }
 
     // rev is tested through the internal logic; capture via run() return value only.

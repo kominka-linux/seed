@@ -6,16 +6,18 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::common::applet::finish_code;
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "chroot";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args))
 }
 
-fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
-    let (new_root, command, command_args) = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> Result<i32, Vec<AppletError>> {
+    let args = argv_to_strings(APPLET, args)?;
+    let (new_root, command, command_args) = parse_args(&args)?;
     run_linux(&new_root, &command, &command_args)
 }
 

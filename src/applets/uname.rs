@@ -2,6 +2,7 @@ use std::ffi::CStr;
 use std::mem::MaybeUninit;
 
 use crate::common::applet::fail;
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "uname";
@@ -19,7 +20,7 @@ struct Options {
     operating_system: bool,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     match run(args) {
         Ok(output) => {
             println!("{output}");
@@ -29,8 +30,9 @@ pub fn main(args: &[String]) -> i32 {
     }
 }
 
-fn run(args: &[String]) -> Result<String, Vec<AppletError>> {
-    let mut options = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> Result<String, Vec<AppletError>> {
+    let args = argv_to_strings(APPLET, args)?;
+    let mut options = parse_args(&args)?;
     if options.all {
         options.machine = true;
         options.nodename = true;

@@ -1,19 +1,20 @@
-
-use std::ffi::CString;
+use std::ffi::{CString, OsString};
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
 use crate::common::applet::finish;
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "pivot_root";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
-    let (new_root, put_old) = parse_args(args)?;
+fn run(args: &[OsString]) -> Result<(), Vec<AppletError>> {
+    let args = argv_to_strings(APPLET, args)?;
+    let (new_root, put_old) = parse_args(&args)?;
     run_linux(&new_root, &put_old)
 }
 

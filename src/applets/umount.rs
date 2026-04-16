@@ -1,9 +1,11 @@
 
 use std::ffi::CString;
 use std::fs::OpenOptions;
+use std::ffi::OsString;
 use std::os::fd::AsRawFd;
 
 use crate::common::applet::finish_code;
+use crate::common::args::Parser;
 use crate::common::error::AppletError;
 use crate::common::mounts::{self, MountInfo};
 
@@ -26,11 +28,11 @@ struct Options {
     operands: Vec<String>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args))
 }
 
-fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<i32, Vec<AppletError>> {
     let options = parse_args(args)?;
     let targets = unmount_targets(&options)?;
     if targets.is_empty() {
@@ -48,13 +50,13 @@ fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
     Ok(exit_code)
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut options = Options::default();
-    let mut index = 0;
+    let mut parser = Parser::new(APPLET, args);
+    let mut args = parser.raw_args()?;
 
-    while index < args.len() {
-        let arg = &args[index];
-        index += 1;
+    while let Some(arg) = args.next() {
+        let arg = to_string(APPLET, arg)?;
         match arg.as_str() {
             "-a" => options.all = true,
             "-r" => options.remount_readonly = true,
@@ -62,18 +64,16 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
             "-f" => options.force = true,
             "-d" => options.free_loop = true,
             "-t" => {
-                let Some(value) = args.get(index) else {
+                let Some(value) = args.next() else {
                     return Err(vec![AppletError::option_requires_arg(APPLET, "t")]);
                 };
-                index += 1;
-                options.type_filter = Some(split_csv(value));
+                options.type_filter = Some(split_csv(&to_string(APPLET, value)?));
             }
             "-O" => {
-                let Some(value) = args.get(index) else {
+                let Some(value) = args.next() else {
                     return Err(vec![AppletError::option_requires_arg(APPLET, "O")]);
                 };
-                index += 1;
-                options.option_filter = Some(split_csv(value));
+                options.option_filter = Some(split_csv(&to_string(APPLET, value)?));
             }
             _ if arg.starts_with('-') => {
                 return Err(vec![AppletError::invalid_option(
@@ -90,6 +90,15 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     }
 
     Ok(options)
+}
+
+fn to_string(applet: &'static str, value: OsString) -> Result<String, Vec<AppletError>> {
+    value.into_string().map_err(|value| {
+        vec![AppletError::new(
+            applet,
+            format!("argument is invalid unicode: {:?}", value),
+        )]
+    })
 }
 
 fn unmount_targets(options: &Options) -> Result<Vec<MountInfo>, Vec<AppletError>> {
@@ -241,8 +250,8 @@ unsafe extern "C" {
 mod tests {
     use super::parse_args;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

@@ -1,7 +1,9 @@
+use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 
 use crate::common::applet::finish;
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "mkswap";
@@ -18,12 +20,13 @@ struct Options {
     size_kib: Option<u64>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
-    let options = parse_args(args)?;
+fn run(args: &[OsString]) -> Result<(), Vec<AppletError>> {
+    let args = argv_to_strings(APPLET, args)?;
+    let options = parse_args(&args)?;
     write_swap_header(&options)
 }
 
@@ -62,12 +65,10 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     let size_kib = if size.is_empty() {
         None
     } else {
-        Some(size.parse::<u64>().map_err(|_| {
-            vec![AppletError::new(
-                APPLET,
-                format!("invalid size '{size}'"),
-            )]
-        })?)
+        Some(
+            size.parse::<u64>()
+                .map_err(|_| vec![AppletError::new(APPLET, format!("invalid size '{size}'"))])?,
+        )
     };
 
     Ok(Options {
@@ -81,27 +82,53 @@ fn write_swap_header(options: &Options) -> Result<(), Vec<AppletError>> {
     if let Some(label) = &options.label
         && label.len() > 16
     {
-        return Err(vec![AppletError::new(APPLET, "label may not exceed 16 bytes")]);
+        return Err(vec![AppletError::new(
+            APPLET,
+            "label may not exceed 16 bytes",
+        )]);
     }
 
     let mut file = OpenOptions::new()
         .read(true)
         .write(true)
         .open(&options.path)
-        .map_err(|err| vec![AppletError::from_io(APPLET, "opening", Some(&options.path), err)])?;
+        .map_err(|err| {
+            vec![AppletError::from_io(
+                APPLET,
+                "opening",
+                Some(&options.path),
+                err,
+            )]
+        })?;
 
     if let Some(size_kib) = options.size_kib {
-        file.set_len(size_kib.saturating_mul(1024))
-            .map_err(|err| vec![AppletError::from_io(APPLET, "resizing", Some(&options.path), err)])?;
+        file.set_len(size_kib.saturating_mul(1024)).map_err(|err| {
+            vec![AppletError::from_io(
+                APPLET,
+                "resizing",
+                Some(&options.path),
+                err,
+            )]
+        })?;
     }
 
     let page_size = page_size()?;
     let size = file
         .metadata()
-        .map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some(&options.path), err)])?
+        .map_err(|err| {
+            vec![AppletError::from_io(
+                APPLET,
+                "reading",
+                Some(&options.path),
+                err,
+            )]
+        })?
         .len();
     if size < (page_size as u64) * 10 {
-        return Err(vec![AppletError::new(APPLET, "swap area needs to be at least 10 pages")]);
+        return Err(vec![AppletError::new(
+            APPLET,
+            "swap area needs to be at least 10 pages",
+        )]);
     }
 
     let last_page = size
@@ -116,7 +143,8 @@ fn write_swap_header(options: &Options) -> Result<(), Vec<AppletError>> {
     header[8..12].copy_from_slice(&0_u32.to_ne_bytes());
     fill_random(&mut header[SWAP_UUID_OFFSET..SWAP_UUID_OFFSET + 16])?;
     if let Some(label) = &options.label {
-        header[SWAP_LABEL_OFFSET..SWAP_LABEL_OFFSET + label.len()].copy_from_slice(label.as_bytes());
+        header[SWAP_LABEL_OFFSET..SWAP_LABEL_OFFSET + label.len()]
+            .copy_from_slice(label.as_bytes());
     }
     let magic_offset = page_size - SWAP_MAGIC.len();
 
@@ -128,7 +156,14 @@ fn write_swap_header(options: &Options) -> Result<(), Vec<AppletError>> {
         .and_then(|_| file.write_all(SWAP_MAGIC))
         .and_then(|_| file.flush())
         .and_then(|_| file.sync_all())
-        .map_err(|err| vec![AppletError::from_io(APPLET, "writing", Some(&options.path), err)])?;
+        .map_err(|err| {
+            vec![AppletError::from_io(
+                APPLET,
+                "writing",
+                Some(&options.path),
+                err,
+            )]
+        })?;
     Ok(())
 }
 
@@ -184,7 +219,8 @@ mod tests {
         .unwrap();
         let mut file = fs::File::open(&path).unwrap();
         let page_size = super::page_size().unwrap();
-        file.seek(SeekFrom::Start((page_size - SWAP_MAGIC.len()) as u64)).unwrap();
+        file.seek(SeekFrom::Start((page_size - SWAP_MAGIC.len()) as u64))
+            .unwrap();
         let mut trailer = [0_u8; 10];
         file.read_exact(&mut trailer).unwrap();
         assert_eq!(&trailer, SWAP_MAGIC);

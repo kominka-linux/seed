@@ -2,6 +2,7 @@ use std::fs::OpenOptions;
 use std::io::{Read, Write};
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::io::{BUFFER_SIZE, stdin, stdout};
 
@@ -12,12 +13,13 @@ struct Options {
     append: bool,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
-    let (options, files) = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
+    let args = argv_to_strings(APPLET, args)?;
+    let (options, files) = parse_args(&args)?;
     let mut writers: Vec<Box<dyn Write>> = Vec::new();
     writers.push(Box::new(stdout()));
 

@@ -1,4 +1,6 @@
+use std::ffi::OsStr;
 use std::fs;
+use std::path::Path;
 
 use crate::common::applet::{AppletResult, finish};
 use crate::common::error::AppletError;
@@ -6,24 +8,28 @@ use crate::common::error::AppletError;
 const APPLET_LINK: &str = "link";
 const APPLET_UNLINK: &str = "unlink";
 
-pub fn main_link(args: &[String]) -> i32 {
+pub fn main_link(args: &[std::ffi::OsString]) -> i32 {
     finish(run_link(args))
 }
 
-pub fn main_unlink(args: &[String]) -> i32 {
+pub fn main_unlink(args: &[std::ffi::OsString]) -> i32 {
     finish(run_unlink(args))
 }
 
-fn run_link(args: &[String]) -> AppletResult {
+fn run_link<S: AsRef<OsStr>>(args: &[S]) -> AppletResult {
     match args {
-        [src, dst] => fs::hard_link(src, dst).map_err(|e| {
-            vec![AppletError::from_io(
-                APPLET_LINK,
-                "creating link",
-                Some(dst),
-                e,
-            )]
-        }),
+        [src, dst] => {
+            let src = Path::new(src);
+            let dst = Path::new(dst);
+            fs::hard_link(src, dst).map_err(|e| {
+                vec![AppletError::from_io(
+                    APPLET_LINK,
+                    "creating link",
+                    dst.to_str(),
+                    e,
+                )]
+            })
+        }
         [] => Err(vec![AppletError::new(APPLET_LINK, "missing operand")]),
         [_] => Err(vec![AppletError::new(
             APPLET_LINK,
@@ -33,13 +39,13 @@ fn run_link(args: &[String]) -> AppletResult {
     }
 }
 
-fn run_unlink(args: &[String]) -> AppletResult {
+fn run_unlink<S: AsRef<OsStr>>(args: &[S]) -> AppletResult {
     match args {
-        [path] => fs::remove_file(path).map_err(|e| {
+        [path] => fs::remove_file(Path::new(path)).map_err(|e| {
             vec![AppletError::from_io(
                 APPLET_UNLINK,
                 "unlinking",
-                Some(path),
+                Path::new(path).to_str(),
                 e,
             )]
         }),
@@ -52,8 +58,8 @@ fn run_unlink(args: &[String]) -> AppletResult {
 mod tests {
     use super::{run_link, run_unlink};
 
-    fn args(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
+    fn args(v: &[&str]) -> Vec<std::ffi::OsString> {
+        v.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

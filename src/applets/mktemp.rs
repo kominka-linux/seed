@@ -3,50 +3,35 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET: &str = "mktemp";
 const RANDOM_CHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let mut dir_mode = false;
     let mut quiet = false;
     let mut dry_run = false;
     let mut tmpdir_opt: Option<PathBuf> = None;
     let mut template: Option<&str> = None;
-    let mut i = 0;
+    let mut cursor = ArgCursor::new(args);
 
-    while i < args.len() {
-        let arg = &args[i];
-        match arg.as_str() {
-            "--" => {
-                i += 1;
-                if i < args.len() {
-                    template = Some(&args[i]);
-                }
-                break;
-            }
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        match arg {
             "-d" | "--directory" => dir_mode = true,
             "-q" | "--quiet" => quiet = true,
             "-u" | "--dry-run" => dry_run = true,
             "-p" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "p")]);
-                }
-                tmpdir_opt = Some(PathBuf::from(&args[i]));
+                tmpdir_opt = Some(PathBuf::from(cursor.next_value(APPLET, "p")?));
             }
             "--tmpdir" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "-tmpdir")]);
-                }
-                tmpdir_opt = Some(PathBuf::from(&args[i]));
+                tmpdir_opt = Some(PathBuf::from(cursor.next_value(APPLET, "tmpdir")?));
             }
             a if a.starts_with("--tmpdir=") => {
                 tmpdir_opt = Some(PathBuf::from(&a["--tmpdir=".len()..]));
@@ -61,7 +46,6 @@ fn run(args: &[String]) -> AppletResult {
                 template = Some(arg);
             }
         }
-        i += 1;
     }
 
     let tmpl = template.unwrap_or("tmp.XXXXXXXXXX");
@@ -163,8 +147,8 @@ pub(crate) fn create_unique(
 mod tests {
     use super::{create_unique, run};
 
-    fn args(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
+    fn args(v: &[&str]) -> Vec<std::ffi::OsString> {
+        v.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

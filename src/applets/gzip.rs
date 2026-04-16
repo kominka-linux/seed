@@ -21,11 +21,11 @@ const CODEC: Codec<'static> = Codec {
     process_reader_to_writer,
 };
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args, Invocation::default()))
 }
 
-pub fn main_gunzip(args: &[String]) -> i32 {
+pub fn main_gunzip(args: &[std::ffi::OsString]) -> i32 {
     finish(run(
         args,
         Invocation {
@@ -35,7 +35,7 @@ pub fn main_gunzip(args: &[String]) -> i32 {
     ))
 }
 
-pub fn main_zcat(args: &[String]) -> i32 {
+pub fn main_zcat(args: &[std::ffi::OsString]) -> i32 {
     finish(run(
         args,
         Invocation {
@@ -45,13 +45,13 @@ pub fn main_zcat(args: &[String]) -> i32 {
     ))
 }
 
-fn run(args: &[String], invocation: Invocation) -> Result<(), Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString], invocation: Invocation) -> Result<(), Vec<AppletError>> {
     compression::run_with_codec(&CODEC, args, invocation)
 }
 
 #[cfg(test)]
 fn parse_args(
-    args: &[String],
+    args: &[std::ffi::OsString],
     invocation: Invocation,
 ) -> Result<(Options, Vec<String>), Vec<AppletError>> {
     compression::parse_args_with_codec(&CODEC, args, invocation)
@@ -97,7 +97,7 @@ mod tests {
     #[test]
     fn parse_aliases_seed_default_behavior() {
         let (options, files) = parse_args(
-            &["-c".to_string(), "archive.gz".to_string()],
+            &["-c".into(), "archive.gz".into()],
             Invocation {
                 decompress: true,
                 stdout: true,
@@ -160,7 +160,7 @@ mod tests {
         let input = dir.join("hello.txt");
         fs::write(&input, b"hello gzip\n").expect("write input");
 
-        let status = super::main(&[input.display().to_string()]);
+        let status = super::main(&[input.display().to_string().into()]);
         assert_eq!(status, 0);
 
         let compressed = dir.join("hello.txt.gz");
@@ -168,7 +168,7 @@ mod tests {
         data.truncate(data.len().saturating_sub(4));
         fs::write(&compressed, data).expect("truncate compressed");
 
-        let status = super::main_gunzip(&[compressed.display().to_string()]);
+        let status = super::main_gunzip(&[compressed.display().to_string().into()]);
         assert_ne!(status, 0);
         assert!(!dir.join("hello.txt").exists());
 

@@ -41,11 +41,11 @@ unsafe extern "C" {
     fn crypt(key: *const libc::c_char, salt: *const libc::c_char) -> *mut libc::c_char;
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let options = parse_args(args)?;
     let paths = account_paths();
     let passwd = read_passwd(&paths.passwd)
@@ -85,7 +85,7 @@ fn run(args: &[String]) -> AppletResult {
         .map_err(|err| vec![AppletError::from_io(APPLET, "writing", Some("shadow"), err)])
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut cursor = ArgCursor::new(args);
     let mut options = Options {
         algorithm: Algorithm::Sha512,
@@ -93,7 +93,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
         user: None,
     };
 
-    while let Some(arg) = cursor.next_arg() {
+    while let Some(arg) = cursor.next_arg(APPLET)? {
         match arg {
             ArgToken::Operand(value) => {
                 if options.user.is_some() {
@@ -309,8 +309,8 @@ fn days_since_epoch() -> u64 {
 mod tests {
     use super::{Action, Algorithm, Options, lock_password, parse_args, unlock_password};
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

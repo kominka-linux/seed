@@ -30,11 +30,11 @@ const DEFAULT_RETRY_WAIT_SECS: u64 = 20;
 const DEFAULT_ARP_TIMEOUT_MILLIS: u32 = 2000;
 const BROADCAST_FLAG: u16 = 0x8000;
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args))
 }
 
-fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<i32, Vec<AppletError>> {
     let options = parse_args(args)?;
     let _pidfile = options
         .pidfile
@@ -104,7 +104,7 @@ struct LeaseInfo {
     boot_file: Option<String>,
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut cursor = ArgCursor::new(args);
     let mut interface = String::from(DEFAULT_INTERFACE);
     let mut script = None;
@@ -123,7 +123,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     let mut send_options = BTreeMap::new();
     let mut omit_client_id = false;
 
-    while let Some(arg) = cursor.next_arg() {
+    while let Some(arg) = cursor.next_arg(APPLET)? {
         match arg {
             ArgToken::Operand(value) => {
                 return Err(vec![AppletError::new(
@@ -700,8 +700,8 @@ mod tests {
     use super::{DEFAULT_ARP_TIMEOUT_MILLIS, OPTION_HOSTNAME, parse_args, parse_extra_option};
     use std::path::PathBuf;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

@@ -2,18 +2,20 @@ use std::ffi::CString;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
-use crate::common::applet::{AppletResult, finish};
+use crate::common::applet::{finish, AppletResult};
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::mounts;
 
 const APPLET: &str = "df";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
-    let paths = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
+    let args = argv_to_strings(APPLET, args)?;
+    let paths = parse_args(&args)?;
     let paths = if paths.is_empty() {
         vec![String::from(".")]
     } else {

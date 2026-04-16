@@ -3,6 +3,7 @@ use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "ln";
@@ -15,15 +16,16 @@ struct Options {
     no_target_directory: bool,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
-    let (options, sources, destination) = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
+    let args = argv_to_strings(APPLET, args)?;
+    let (options, sources, destination) = parse_args(&args)?;
     let destination_path = Path::new(&destination);
-    let dest_is_dir =
-        !options.no_target_directory && is_target_directory(destination_path, options.no_dereference);
+    let dest_is_dir = !options.no_target_directory
+        && is_target_directory(destination_path, options.no_dereference);
 
     if sources.len() > 1 && !dest_is_dir {
         return Err(vec![AppletError::new(

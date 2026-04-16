@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use std::io::Write;
 
+use crate::common::args::argv_to_strings;
+
 const APPLET: &str = "getopt";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     match run(args) {
         Ok(code) => code,
         Err(message) => {
@@ -13,7 +15,8 @@ pub fn main(args: &[String]) -> i32 {
     }
 }
 
-fn run(args: &[String]) -> Result<i32, String> {
+fn run(args: &[std::ffi::OsString]) -> Result<i32, String> {
+    let args = argv_to_strings(APPLET, args).map_err(|errors| errors[0].to_string())?;
     let Some((optstring, params)) = args.split_first() else {
         return Err(String::from("missing operand"));
     };

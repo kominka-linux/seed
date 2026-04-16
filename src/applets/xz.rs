@@ -28,11 +28,11 @@ const LZMA_CODEC: Codec<'static> = Codec {
     process_reader_to_writer: process_lzma_reader_to_writer,
 };
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args, &XZ_CODEC, Invocation::default()))
 }
 
-pub fn main_unxz(args: &[String]) -> i32 {
+pub fn main_unxz(args: &[std::ffi::OsString]) -> i32 {
     finish(run(
         args,
         &XZ_CODEC,
@@ -43,7 +43,7 @@ pub fn main_unxz(args: &[String]) -> i32 {
     ))
 }
 
-pub fn main_xzcat(args: &[String]) -> i32 {
+pub fn main_xzcat(args: &[std::ffi::OsString]) -> i32 {
     finish(run(
         args,
         &XZ_CODEC,
@@ -54,11 +54,11 @@ pub fn main_xzcat(args: &[String]) -> i32 {
     ))
 }
 
-pub fn main_lzma(args: &[String]) -> i32 {
+pub fn main_lzma(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args, &LZMA_CODEC, Invocation::default()))
 }
 
-pub fn main_unlzma(args: &[String]) -> i32 {
+pub fn main_unlzma(args: &[std::ffi::OsString]) -> i32 {
     finish(run(
         args,
         &LZMA_CODEC,
@@ -69,7 +69,7 @@ pub fn main_unlzma(args: &[String]) -> i32 {
     ))
 }
 
-pub fn main_lzcat(args: &[String]) -> i32 {
+pub fn main_lzcat(args: &[std::ffi::OsString]) -> i32 {
     finish(run(
         args,
         &LZMA_CODEC,
@@ -80,13 +80,13 @@ pub fn main_lzcat(args: &[String]) -> i32 {
     ))
 }
 
-fn run(args: &[String], codec: &Codec<'_>, invocation: Invocation) -> Result<(), Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString], codec: &Codec<'_>, invocation: Invocation) -> Result<(), Vec<AppletError>> {
     compression::run_with_codec(codec, args, invocation)
 }
 
 #[cfg(test)]
 fn parse_args(
-    args: &[String],
+    args: &[std::ffi::OsString],
     codec: &Codec<'_>,
     invocation: Invocation,
 ) -> Result<(Options, Vec<String>), Vec<AppletError>> {
@@ -164,6 +164,7 @@ mod tests {
         XZ_DECOMPRESSED_SUFFIXES, parse_args,
     };
     use crate::applets::compression;
+    use std::ffi::OsString;
     use std::fs;
     use std::os::unix::ffi::OsStrExt;
     use std::path::Path;
@@ -171,7 +172,7 @@ mod tests {
     #[test]
     fn xz_aliases_seed_default_behavior() {
         let (options, files) = parse_args(
-            &["-c".to_string(), "archive.xz".to_string()],
+            &[OsString::from("-c"), OsString::from("archive.xz")],
             &XZ_CODEC,
             Invocation {
                 decompress: true,
@@ -240,7 +241,7 @@ mod tests {
         let input = dir.join("hello.txt");
         fs::write(&input, b"hello xz\n").expect("write input");
 
-        let status = super::main(&[input.display().to_string()]);
+        let status = super::main(&[OsString::from(input.display().to_string())]);
         assert_eq!(status, 0);
 
         let compressed = dir.join(
@@ -253,7 +254,7 @@ mod tests {
         );
         assert!(fs::read(&compressed).is_ok());
 
-        let status = super::main_unxz(&[compressed.display().to_string()]);
+        let status = super::main_unxz(&[OsString::from(compressed.display().to_string())]);
         assert_eq!(status, 0);
         assert_eq!(fs::read(&input).expect("read output"), b"hello xz\n");
 
@@ -266,7 +267,7 @@ mod tests {
         let input = dir.join("hello.txt");
         fs::write(&input, b"hello lzma\n").expect("write input");
 
-        let status = super::main_lzma(&[input.display().to_string()]);
+        let status = super::main_lzma(&[OsString::from(input.display().to_string())]);
         assert_eq!(status, 0);
 
         let compressed = dir.join(
@@ -279,7 +280,7 @@ mod tests {
         );
         assert!(fs::read(&compressed).is_ok());
 
-        let status = super::main_unlzma(&[compressed.display().to_string()]);
+        let status = super::main_unlzma(&[OsString::from(compressed.display().to_string())]);
         assert_eq!(status, 0);
         assert_eq!(fs::read(&input).expect("read output"), b"hello lzma\n");
 
@@ -292,7 +293,7 @@ mod tests {
         let input = dir.join("hello.txt");
         fs::write(&input, b"hello xz\n").expect("write input");
 
-        let status = super::main(&[input.display().to_string()]);
+        let status = super::main(&[OsString::from(input.display().to_string())]);
         assert_eq!(status, 0);
 
         let compressed = dir.join("hello.txt.xz");
@@ -300,7 +301,7 @@ mod tests {
         data.truncate(data.len().saturating_sub(4));
         fs::write(&compressed, data).expect("truncate compressed");
 
-        let status = super::main_unxz(&[compressed.display().to_string()]);
+        let status = super::main_unxz(&[OsString::from(compressed.display().to_string())]);
         assert_ne!(status, 0);
         assert!(!dir.join("hello.txt").exists());
 
@@ -313,7 +314,7 @@ mod tests {
         let input = dir.join("hello.txt");
         fs::write(&input, b"hello lzma\n").expect("write input");
 
-        let status = super::main_lzma(&[input.display().to_string()]);
+        let status = super::main_lzma(&[OsString::from(input.display().to_string())]);
         assert_eq!(status, 0);
 
         let compressed = dir.join("hello.txt.lzma");
@@ -321,7 +322,7 @@ mod tests {
         data.truncate(data.len().saturating_sub(4));
         fs::write(&compressed, data).expect("truncate compressed");
 
-        let status = super::main_unlzma(&[compressed.display().to_string()]);
+        let status = super::main_unlzma(&[OsString::from(compressed.display().to_string())]);
         assert_ne!(status, 0);
         assert!(!dir.join("hello.txt").exists());
 

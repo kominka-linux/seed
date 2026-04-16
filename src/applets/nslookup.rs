@@ -1,19 +1,22 @@
 use std::collections::BTreeSet;
+use std::ffi::OsString;
 use std::io::Write;
 use std::net::ToSocketAddrs;
 
 use crate::common::applet::finish;
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET: &str = "nslookup";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
-    let host = parse_args(args)?;
+fn run(args: &[OsString]) -> Result<(), Vec<AppletError>> {
+    let args = argv_to_strings(APPLET, args)?;
+    let host = parse_args(&args)?;
     let addresses = lookup_host(&host)?;
     let mut out = stdout();
     writeln!(out, "Name:\t{host}")

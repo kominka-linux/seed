@@ -22,13 +22,14 @@ struct Options {
     ca_certificate: Option<String>,
     headers: Vec<String>,
     post_data: Option<String>,
+    post_file: Option<String>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let (options, urls) = parse_args(args)?;
     let agent = make_agent(&options).map_err(|e| vec![e])?;
     let mut errors = Vec::new();
@@ -46,12 +47,12 @@ fn run(args: &[String]) -> AppletResult {
     }
 }
 
-fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<(Options, Vec<String>), Vec<AppletError>> {
     let mut options = Options::default();
     let mut urls = Vec::new();
     let mut cursor = ArgCursor::new(args);
 
-    while let Some(arg) = cursor.next_token() {
+    while let Some(arg) = cursor.next_token(APPLET)? {
         if !cursor.parsing_flags() || !arg.starts_with('-') || arg.len() == 1 {
             urls.push(arg.to_owned());
             continue;
@@ -67,6 +68,12 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
         }
         if let Some(val) = arg.strip_prefix("--post-data=") {
             options.post_data = Some(val.to_owned());
+            options.post_file = None;
+            continue;
+        }
+        if let Some(val) = arg.strip_prefix("--post-file=") {
+            options.post_file = Some(val.to_owned());
+            options.post_data = None;
             continue;
         }
 
@@ -91,6 +98,11 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError
             }
             "--post-data" => {
                 options.post_data = Some(cursor.next_value(APPLET, "post-data")?.to_owned());
+                options.post_file = None;
+            }
+            "--post-file" => {
+                options.post_file = Some(cursor.next_value(APPLET, "post-file")?.to_owned());
+                options.post_data = None;
             }
             _ if !arg.starts_with("--") => {
                 for flag in arg[1..].chars() {
@@ -167,7 +179,8 @@ fn load_ca_certs(path: &str) -> Result<Vec<ureq::tls::Certificate<'static>>, App
 fn fetch_url(agent: &Agent, url: &str, options: &Options) -> Result<(), AppletError> {
     let output_path = output_path(url, options)?;
     let mut request = ureq::http::Request::builder().uri(url);
-    request = if options.post_data.is_some() {
+    let request_body = request_body(options)?;
+    request = if request_body.is_some() {
         request.method("POST")
     } else {
         request.method("GET")
@@ -176,8 +189,8 @@ fn fetch_url(agent: &Agent, url: &str, options: &Options) -> Result<(), AppletEr
         let (name, value) = split_header(header)?;
         request = request.header(name, value);
     }
-    let mut response = if let Some(post_data) = options.post_data.as_deref() {
-        agent.run(request.body(post_data.as_bytes()).map_err(|err| {
+    let mut response = if let Some(body) = request_body {
+        agent.run(request.body(body).map_err(|err| {
             AppletError::new(APPLET, format!("building request for {url}: {err}"))
         })?)
     } else {
@@ -207,6 +220,19 @@ fn fetch_url(agent: &Agent, url: &str, options: &Options) -> Result<(), AppletEr
         AppletError::from_io(APPLET, "creating", Some(path_for_error(&output_path)), err)
     })?;
     copy_response_body(response.body_mut().as_reader(), &mut file, url)
+}
+
+fn request_body(options: &Options) -> Result<Option<Vec<u8>>, AppletError> {
+    if let Some(post_file) = options.post_file.as_deref() {
+        return fs::read(post_file)
+            .map(Some)
+            .map_err(|err| AppletError::from_io(APPLET, "reading", Some(post_file), err));
+    }
+
+    Ok(options
+        .post_data
+        .as_ref()
+        .map(|post_data| post_data.as_bytes().to_vec()))
 }
 
 fn copy_response_body(
@@ -272,25 +298,26 @@ mod tests {
     use super::{Options, default_filename, output_path, parse_args};
     use crate::common::unix;
     use std::collections::HashMap;
+    use std::ffi::OsString;
     use std::fs;
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::sync::mpsc;
     use std::thread;
 
-    fn args(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
+    fn args(v: &[&str]) -> Vec<OsString> {
+        v.iter().map(OsString::from).collect()
     }
 
     #[test]
     fn parse_supports_quiet_output_document_and_directory() {
         let (options, urls) = parse_args(&[
-            "-q".to_string(),
-            "-O".to_string(),
-            "out".to_string(),
-            "-P".to_string(),
-            "dir".to_string(),
-            "http://example.com".to_string(),
+            "-q".into(),
+            "-O".into(),
+            "out".into(),
+            "-P".into(),
+            "dir".into(),
+            "http://example.com".into(),
         ])
         .expect("parse");
 
@@ -321,6 +348,19 @@ mod tests {
                 String::from("Content-Type: application/json"),
             ]
         );
+        assert_eq!(urls, vec![String::from("http://example.com")]);
+    }
+
+    #[test]
+    fn parse_supports_post_file() {
+        let (options, urls) = parse_args(&args(&[
+            "--post-file=/tmp/request.json",
+            "http://example.com",
+        ]))
+        .expect("parse");
+
+        assert_eq!(options.post_file.as_deref(), Some("/tmp/request.json"));
+        assert_eq!(options.post_data, None);
         assert_eq!(urls, vec![String::from("http://example.com")]);
     }
 
@@ -408,10 +448,10 @@ mod tests {
         let server = spawn_test_server(b"hello wget");
 
         let status = super::main(&[
-            "-q".to_string(),
-            "-O".to_string(),
-            output.display().to_string(),
-            server.url.clone(),
+            "-q".into(),
+            "-O".into(),
+            output.display().to_string().into(),
+            server.url.clone().into(),
         ]);
         assert_eq!(status, 0);
         assert_eq!(fs::read(&output).expect("read output"), b"hello wget");
@@ -447,6 +487,39 @@ mod tests {
         assert_eq!(request.header("authorization"), Some("Bearer test-token"));
         assert_eq!(request.header("content-type"), Some("application/json"));
         assert_eq!(request.body, payload.as_bytes());
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn wget_posts_file_with_headers() {
+        let dir = unix::temp_dir("wget");
+        let output = dir.join("foo");
+        let payload_path = dir.join("payload.json");
+        let payload = br#"{"arch":"x86_64","pkg":"seed-from-file"}"#;
+        fs::write(&payload_path, payload).expect("write payload");
+        let server = spawn_inspecting_test_server(b"ok");
+
+        let status = super::main(&args(&[
+            "-q",
+            "-O",
+            output.to_str().expect("utf-8 path"),
+            "--post-file",
+            payload_path.to_str().expect("utf-8 path"),
+            "--header",
+            "Authorization: Bearer file-token",
+            "--header",
+            "Content-Type: application/json",
+            &server.url,
+        ]));
+        assert_eq!(status, 0);
+        assert_eq!(fs::read(&output).expect("read output"), b"ok");
+
+        let request = server.join_with_request();
+        assert_eq!(request.request_line, "POST / HTTP/1.1");
+        assert_eq!(request.header("authorization"), Some("Bearer file-token"));
+        assert_eq!(request.header("content-type"), Some("application/json"));
+        assert_eq!(request.body, payload);
 
         let _ = fs::remove_dir_all(dir);
     }

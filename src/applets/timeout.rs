@@ -5,6 +5,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::common::applet::finish_code_or;
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "timeout";
@@ -13,14 +14,15 @@ const EXIT_CANNOT_INVOKE: i32 = 126;
 const EXIT_NOT_FOUND: i32 = 127;
 const TERM_GRACE_PERIOD: Duration = Duration::from_millis(100);
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code_or(run(args), 125)
 }
 
-fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
-    let (duration, command, command_args) = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> Result<i32, Vec<AppletError>> {
+    let args = argv_to_strings(APPLET, args)?;
+    let (duration, command, command_args) = parse_args(&args)?;
 
-    let mut child = spawn_command(command, command_args).map_err(|e| {
+    let mut child = spawn_command(&command, &command_args).map_err(|e| {
             let code = match e.kind() {
                 std::io::ErrorKind::NotFound => EXIT_NOT_FOUND,
                 _ => EXIT_CANNOT_INVOKE,
@@ -43,7 +45,7 @@ fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
         }
 
         if Instant::now() >= deadline {
-            terminate_child(&mut child, command)?;
+            terminate_child(&mut child, &command)?;
             return Ok(EXIT_TIMEOUT);
         }
 
@@ -114,7 +116,7 @@ fn signal_process_group(pid: i32, signal: libc::c_int, command: &str) -> Result<
     }
 }
 
-fn parse_args(args: &[String]) -> Result<(f64, &str, &[String]), Vec<AppletError>> {
+fn parse_args(args: &[String]) -> Result<(f64, String, Vec<String>), Vec<AppletError>> {
     let Some(duration_arg) = args.first() else {
         return Err(vec![AppletError::new(APPLET, "missing operand")]);
     };
@@ -129,7 +131,7 @@ fn parse_args(args: &[String]) -> Result<(f64, &str, &[String]), Vec<AppletError
         return Err(vec![AppletError::new(APPLET, "missing command operand")]);
     };
 
-    Ok((duration, command.as_str(), &args[2..]))
+    Ok((duration, command.clone(), args[2..].to_vec()))
 }
 
 fn exit_code(status: std::process::ExitStatus) -> i32 {
@@ -142,24 +144,27 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::{EXIT_TIMEOUT, parse_args, run};
+    use crate::common::args::argv_to_strings;
+    use std::ffi::OsString;
     use std::time::{Duration, Instant};
 
-    fn args(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
+    fn args(v: &[&str]) -> Vec<OsString> {
+        v.iter().map(OsString::from).collect()
     }
 
     #[test]
     fn parses_duration_and_command() {
-        let argv = args(&["1.5", "echo", "hi"]);
+        let argv = argv_to_strings("timeout", &args(&["1.5", "echo", "hi"])).unwrap();
         let (duration, command, rest) = parse_args(&argv).unwrap();
         assert_eq!(duration, 1.5);
         assert_eq!(command, "echo");
-        assert_eq!(rest, &["hi".to_string()]);
+        assert_eq!(rest, vec![String::from("hi")]);
     }
 
     #[test]
     fn missing_command_errors() {
-        assert!(parse_args(&args(&["1"])).is_err());
+        let argv = argv_to_strings("timeout", &args(&["1"])).unwrap();
+        assert!(parse_args(&argv).is_err());
     }
 
     #[test]

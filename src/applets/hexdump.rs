@@ -1,8 +1,9 @@
 use std::io::{self, BufReader, Read, Write};
 
 use crate::common::applet::finish;
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
-use crate::common::io::{BUFFER_SIZE, open_input, stdout};
+use crate::common::io::{open_input, stdout, BUFFER_SIZE};
 
 const APPLET: &str = "hexdump";
 const LINE_WIDTH: usize = 16;
@@ -12,12 +13,13 @@ struct Options {
     no_squeeze: bool,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
-    let (options, path) = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> Result<(), Vec<AppletError>> {
+    let args = argv_to_strings(APPLET, args)?;
+    let (options, path) = parse_args(&args)?;
     let input = open_input(&path)
         .map_err(|err| vec![AppletError::from_io(APPLET, "opening", Some(&path), err)])?;
     let mut reader = BufReader::with_capacity(BUFFER_SIZE, input);
@@ -141,7 +143,7 @@ fn write_canonical_line(writer: &mut impl Write, offset: usize, bytes: &[u8]) ->
 mod tests {
     use std::io::Cursor;
 
-    use super::{Options, dump_canonical, parse_args, write_canonical_line};
+    use super::{dump_canonical, parse_args, write_canonical_line, Options};
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()

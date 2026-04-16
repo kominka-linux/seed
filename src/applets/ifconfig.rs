@@ -1,6 +1,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+use crate::common::args::ArgCursor;
 use crate::common::applet::finish;
 use crate::common::error::AppletError;
 use crate::common::net::{parse_mac, parse_prefix};
@@ -39,44 +40,42 @@ struct Options {
     trailers: Option<bool>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<(), Vec<AppletError>> {
     let options = parse_args(args)?;
     run_linux(&options)
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut options = Options::default();
-    let mut index = 0;
+    let mut cursor = ArgCursor::new(args);
 
-    if args.first().is_some_and(|arg| arg == "-a") {
-        options.all = true;
-        index += 1;
+    if let Some(token) = cursor.next_token(APPLET)? {
+        if token == "-a" {
+            options.all = true;
+        } else {
+            options.interface = Some(token.to_string());
+        }
     }
 
-    if let Some(interface) = args.get(index) {
-        options.interface = Some(interface.clone());
-        index += 1;
+    if options.all && options.interface.is_none() {
+        if let Some(token) = cursor.next_token(APPLET)? {
+            options.interface = Some(token.to_string());
+        }
     }
 
-    while index < args.len() {
-        let arg = &args[index];
-        index += 1;
-        match arg.as_str() {
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        match arg {
             "netmask" => {
-                let Some(value) = args.get(index) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "netmask")]);
-                };
-                index += 1;
-                options.netmask = Some(parse_ipv4(value)?);
+                options.netmask = Some(parse_ipv4(cursor.next_value(APPLET, "netmask")?)?);
             }
             "broadcast" => {
-                if let Some(value) = args.get(index) {
+                if let Some(value) = cursor.remaining().first().and_then(|value| value.to_str()) {
                     if !is_flag_like(value) {
-                        index += 1;
+                        let value = cursor.next_value(APPLET, "broadcast")?;
                         options.broadcast = Some(if value == "+" {
                             None
                         } else {
@@ -90,67 +89,35 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
                 }
             }
             "pointopoint" | "dstaddr" => {
-                let Some(value) = args.get(index) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "pointopoint")]);
-                };
-                index += 1;
-                options.pointopoint = Some(parse_ipv4(value)?);
+                options.pointopoint = Some(parse_ipv4(cursor.next_value(APPLET, "pointopoint")?)?);
             }
             "mtu" => {
-                let Some(value) = args.get(index) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "mtu")]);
-                };
-                index += 1;
-                options.mtu = Some(parse_u32("mtu", value)?);
+                options.mtu = Some(parse_u32("mtu", cursor.next_value(APPLET, "mtu")?)?);
             }
             "metric" => {
-                let Some(value) = args.get(index) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "metric")]);
-                };
-                index += 1;
-                options.metric = Some(parse_u32("metric", value)?);
+                options.metric = Some(parse_u32("metric", cursor.next_value(APPLET, "metric")?)?);
             }
             "txqueuelen" => {
-                let Some(value) = args.get(index) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "txqueuelen")]);
-                };
-                index += 1;
-                options.tx_queue_len = Some(parse_u32("txqueuelen", value)?);
+                options.tx_queue_len =
+                    Some(parse_u32("txqueuelen", cursor.next_value(APPLET, "txqueuelen")?)?);
             }
             "mem_start" => {
-                let Some(value) = args.get(index) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "mem_start")]);
-                };
-                index += 1;
-                options.mem_start = Some(parse_u64("mem_start", value)?);
+                options.mem_start = Some(parse_u64("mem_start", cursor.next_value(APPLET, "mem_start")?)?);
             }
             "io_addr" => {
-                let Some(value) = args.get(index) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "io_addr")]);
-                };
-                index += 1;
-                options.io_addr = Some(parse_u16("io_addr", value)?);
+                options.io_addr = Some(parse_u16("io_addr", cursor.next_value(APPLET, "io_addr")?)?);
             }
             "irq" => {
-                let Some(value) = args.get(index) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "irq")]);
-                };
-                index += 1;
-                options.irq = Some(parse_u8("irq", value)?);
+                options.irq = Some(parse_u8("irq", cursor.next_value(APPLET, "irq")?)?);
             }
             "hw" => {
-                let Some(kind) = args.get(index) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "hw")]);
-                };
+                let kind = cursor.next_value(APPLET, "hw")?;
                 if kind != "ether" {
                     return Err(vec![AppletError::new(APPLET, "only 'hw ether' is supported")]);
                 }
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "hw")]);
-                };
+                let value = cursor.next_value(APPLET, "hw")?;
                 parse_mac(value).map_err(|err| vec![AppletError::new(APPLET, err.to_string())])?;
-                options.hwaddr = Some(value.clone());
-                index += 2;
+                options.hwaddr = Some(value.to_string());
             }
             "up" => options.up = Some(true),
             "down" => options.up = Some(false),
@@ -167,19 +134,11 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
             "trailers" => options.trailers = Some(true),
             "-trailers" => options.trailers = Some(false),
             "add" => {
-                let Some(value) = args.get(index) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "add")]);
-                };
-                index += 1;
-                let (family, address, prefix_len) = parse_any_prefix(value)?;
+                let (family, address, prefix_len) = parse_any_prefix(cursor.next_value(APPLET, "add")?)?;
                 options.add_address = Some((family, address, prefix_len));
             }
             "del" => {
-                let Some(value) = args.get(index) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "del")]);
-                };
-                index += 1;
-                let parsed = parse_ip_addr(value)?;
+                let parsed = parse_ip_addr(cursor.next_value(APPLET, "del")?)?;
                 options.del_address = Some((
                     match parsed {
                         IpAddr::V4(_) => AddressFamily::Inet4,
@@ -526,8 +485,8 @@ mod tests {
     use super::{AddressFamily, Options, parse_args};
     use std::net::Ipv4Addr;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

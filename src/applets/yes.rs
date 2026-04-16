@@ -1,7 +1,14 @@
 use std::io::{self, Write};
 
-pub fn main(args: &[String]) -> i32 {
-    let line = output_line(args);
+use crate::common::applet::fail;
+use crate::common::args::argv_to_strings;
+
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
+    let args = match argv_to_strings("yes", args) {
+        Ok(args) => args,
+        Err(errors) => return fail(errors, 1),
+    };
+    let line = output_line(&args);
     let bytes = line.as_bytes();
     let stdout = io::stdout();
     let mut out = stdout.lock();
@@ -30,7 +37,7 @@ mod tests {
     use super::output_line;
 
     fn args(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
+        v.iter().map(|value| value.to_string()).collect()
     }
 
     #[test]

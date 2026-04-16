@@ -8,11 +8,11 @@ use crate::common::io::stdout;
 
 const APPLET: &str = "lsof";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let _ = args;
     run_linux()
 }

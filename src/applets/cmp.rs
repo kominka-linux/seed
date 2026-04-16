@@ -1,6 +1,7 @@
 use std::io::{self, BufReader, Read, Write};
 
 use crate::common::applet::finish_code_or;
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::io::{BUFFER_SIZE, open_input, stdout};
 
@@ -17,7 +18,7 @@ enum Comparison {
     Different { byte: usize, line: usize },
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code_or(
         run(args).map(|comparison| match comparison {
             Comparison::Same => 0,
@@ -27,8 +28,9 @@ pub fn main(args: &[String]) -> i32 {
     )
 }
 
-fn run(args: &[String]) -> Result<Comparison, Vec<AppletError>> {
-    let (options, left, right) = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> Result<Comparison, Vec<AppletError>> {
+    let args = argv_to_strings(APPLET, args)?;
+    let (options, left, right) = parse_args(&args)?;
     if left == "-" && right == "-" {
         return Err(vec![AppletError::new(
             APPLET,

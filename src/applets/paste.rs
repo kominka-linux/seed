@@ -1,6 +1,8 @@
+use std::ffi::OsString;
 use std::io::{self, BufRead, BufReader, Write};
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::Parser;
 use crate::common::error::AppletError;
 use crate::common::io::{open_input, stdout};
 
@@ -12,21 +14,25 @@ struct Options {
     delimiters: Vec<u8>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let (options, files) = parse_args(args)?;
-    let inputs = if files.is_empty() { vec!["-"] } else { files };
+    let inputs = if files.is_empty() {
+        vec![String::from("-")]
+    } else {
+        files
+    };
     let mut out = stdout();
 
     if options.serial {
         for path in inputs {
-            let input = open_input(path)
-                .map_err(|e| vec![AppletError::from_io(APPLET, "opening", Some(path), e)])?;
+            let input = open_input(&path)
+                .map_err(|e| vec![AppletError::from_io(APPLET, "opening", Some(&path), e)])?;
             paste_serial(BufReader::new(input), &mut out, &options)
-                .map_err(|e| vec![AppletError::from_io(APPLET, "reading", Some(path), e)])?;
+                .map_err(|e| vec![AppletError::from_io(APPLET, "reading", Some(&path), e)])?;
         }
     } else {
         let mut readers = Vec::new();
@@ -41,30 +47,28 @@ fn run(args: &[String]) -> AppletResult {
     Ok(())
 }
 
-fn parse_args(args: &[String]) -> Result<(Options, Vec<&str>), Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<(Options, Vec<String>), Vec<AppletError>> {
     let mut serial = false;
     let mut delimiters = vec![b'\t'];
     let mut files = Vec::new();
-    let mut i = 0;
+    let mut parser = Parser::new(APPLET, args);
+    let mut args = parser.raw_args()?;
 
-    while i < args.len() {
-        let arg = &args[i];
+    while let Some(arg) = args.next() {
+        let arg = to_string(APPLET, arg)?;
         match arg.as_str() {
             "--" => {
-                i += 1;
-                while i < args.len() {
-                    files.push(args[i].as_str());
-                    i += 1;
+                for value in args.by_ref() {
+                    files.push(to_string(APPLET, value)?);
                 }
                 break;
             }
             "-s" => serial = true,
             "-d" => {
-                i += 1;
-                if i >= args.len() {
+                let Some(value) = args.next() else {
                     return Err(vec![AppletError::option_requires_arg(APPLET, "d")]);
-                }
-                delimiters = parse_delimiters(&args[i]);
+                };
+                delimiters = parse_delimiters(&to_string(APPLET, value)?);
             }
             a if a.starts_with('-') && a.len() > 1 => {
                 return Err(vec![AppletError::invalid_option(
@@ -74,10 +78,18 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<&str>), Vec<AppletError>>
             }
             _ => files.push(arg),
         }
-        i += 1;
     }
 
     Ok((Options { serial, delimiters }, files))
+}
+
+fn to_string(applet: &'static str, value: OsString) -> Result<String, Vec<AppletError>> {
+    value.into_string().map_err(|value| {
+        vec![AppletError::new(
+            applet,
+            format!("argument is invalid unicode: {:?}", value),
+        )]
+    })
 }
 
 fn parse_delimiters(input: &str) -> Vec<u8> {

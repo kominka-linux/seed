@@ -1,6 +1,7 @@
 use std::io::{Read, Write};
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
 use crate::common::io::{BUFFER_SIZE, stdout};
 
@@ -12,11 +13,11 @@ struct Options {
     squeeze: bool,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let (options, set1, set2) = parse_args(args)?;
     let set1 = expand_set(set1)?;
     let set2 = expand_set(set2.unwrap_or(""))?;
@@ -66,17 +67,13 @@ fn run(args: &[String]) -> AppletResult {
     Ok(())
 }
 
-fn parse_args(args: &[String]) -> Result<(Options, &str, Option<&str>), Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<(Options, &str, Option<&str>), Vec<AppletError>> {
     let mut options = Options::default();
-    let mut parsing_flags = true;
     let mut positionals = Vec::new();
+    let mut cursor = ArgCursor::new(args);
 
-    for arg in args {
-        if parsing_flags && arg == "--" {
-            parsing_flags = false;
-            continue;
-        }
-        if parsing_flags && arg.starts_with('-') && arg.len() > 1 {
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        if cursor.parsing_flags() && arg.starts_with('-') && arg.len() > 1 {
             for flag in arg[1..].chars() {
                 match flag {
                     'd' => options.delete = true,
@@ -86,7 +83,7 @@ fn parse_args(args: &[String]) -> Result<(Options, &str, Option<&str>), Vec<Appl
             }
             continue;
         }
-        positionals.push(arg.as_str());
+        positionals.push(arg);
     }
 
     match positionals.as_slice() {
@@ -166,10 +163,11 @@ fn build_translation_map(set1: &[u8], set2: &[u8], map: &mut [Option<u8>; 256]) 
 #[cfg(test)]
 mod tests {
     use super::{build_translation_map, expand_set, parse_args};
+    use std::ffi::OsString;
 
     #[test]
     fn parses_delete_and_squeeze_flags() {
-        let args = vec!["-ds".to_string(), "a-z".to_string()];
+        let args = vec![OsString::from("-ds"), OsString::from("a-z")];
         let (options, set1, set2) = parse_args(&args).unwrap();
         assert!(options.delete);
         assert!(options.squeeze);
@@ -194,7 +192,7 @@ mod tests {
 
     #[test]
     fn translation_requires_two_sets_without_delete_or_squeeze_only_mode() {
-        let args = vec!["abc".to_string()];
+        let args = vec![OsString::from("abc")];
         assert!(parse_args(&args).is_err());
     }
 }

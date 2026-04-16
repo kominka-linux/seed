@@ -20,11 +20,11 @@ struct Options {
     command: Vec<String>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args))
 }
 
-fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<i32, Vec<AppletError>> {
     let options = parse_args(args)?;
     let env = build_environment(&options);
     if options.command.is_empty() {
@@ -34,7 +34,7 @@ fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
     run_command(&env, &options.command)
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut options = Options::default();
     let mut parser = Parser::new(APPLET, args);
 
@@ -49,7 +49,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
                 continue;
             }
             ParsedArg::Short('u') => {
-                options.unset.push(parser.value("u")?);
+                options.unset.push(parser.value_str("u")?);
                 continue;
             }
             ParsedArg::Short(flag) => {
@@ -67,8 +67,12 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
                     continue;
                 }
 
+                let arg = arg
+                    .into_string()
+                    .map_err(|arg| vec![AppletError::new(APPLET, format!("argument is invalid unicode: {:?}", arg))])?;
+
                 if let Some((name, value)) = arg.split_once('=')
-            && !name.is_empty()
+                    && !name.is_empty()
                 {
                     options
                         .assignments
@@ -156,17 +160,19 @@ fn run_command(env: &[(OsString, OsString)], command: &[String]) -> Result<i32, 
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
+
     use super::parse_args;
 
     #[test]
     fn parses_assignments_and_command() {
         let options = parse_args(&[
-            "-i".to_string(),
-            "-u".to_string(),
-            "HOME".to_string(),
-            "FOO=bar".to_string(),
-            "printenv".to_string(),
-            "FOO".to_string(),
+            OsString::from("-i"),
+            OsString::from("-u"),
+            OsString::from("HOME"),
+            OsString::from("FOO=bar"),
+            OsString::from("printenv"),
+            OsString::from("FOO"),
         ])
         .expect("parse env args");
 

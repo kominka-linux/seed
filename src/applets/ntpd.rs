@@ -92,11 +92,11 @@ enum AuthAlgorithm {
     Sha1,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args))
 }
 
-fn run(args: &[String]) -> AppletCodeResult {
+fn run(args: &[std::ffi::OsString]) -> AppletCodeResult {
     let options = parse_args(args)?;
     let (peers, auth) = load_runtime_config(&options)?;
     if peers.is_empty() && !options.listen {
@@ -148,7 +148,7 @@ fn run_with_options(options: Options, peers: Vec<PeerSpec>, auth: AuthConfig) ->
     }
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut cursor = ArgCursor::new(args);
     let mut options = Options {
         verbose: 0,
@@ -161,7 +161,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
         keyfile: None,
     };
 
-    while let Some(arg) = cursor.next_arg() {
+    while let Some(arg) = cursor.next_arg(APPLET)? {
         match arg {
             ArgToken::Operand(value) => {
                 return Err(vec![AppletError::new(
@@ -920,8 +920,8 @@ mod tests {
     };
     use crate::common::unix::temp_dir;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

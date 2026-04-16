@@ -9,11 +9,11 @@ use crate::common::io::stdout;
 
 const APPLET: &str = "stat";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let (format, paths) = parse_args(args)?;
     let mut out = stdout();
     let mut errors = Vec::new();
@@ -36,12 +36,12 @@ fn run(args: &[String]) -> AppletResult {
     }
 }
 
-fn parse_args(args: &[String]) -> Result<(String, Vec<String>), Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<(String, Vec<String>), Vec<AppletError>> {
     let mut format = None;
     let mut paths = Vec::new();
     let mut cursor = ArgCursor::new(args);
 
-    while let Some(arg) = cursor.next_arg() {
+    while let Some(arg) = cursor.next_arg(APPLET)? {
         match arg {
             ArgToken::ShortFlags(flags) => {
                 let mut chars = flags.chars();
@@ -148,12 +148,13 @@ fn quoted_name(path: &str, target: Option<&std::path::Path>) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
     use std::os::unix::fs::PermissionsExt;
 
     use super::{file_type_name, parse_args, quoted_name, render_path};
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(OsString::from).collect()
     }
 
     #[test]

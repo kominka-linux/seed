@@ -7,6 +7,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::common::args::ArgCursor;
 use crate::common::applet::finish_code;
 use crate::common::error::AppletError;
 
@@ -23,39 +24,46 @@ struct Options {
     init_args: Vec<String>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args))
 }
 
-fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<i32, Vec<AppletError>> {
     let options = parse_args(args)?;
     run_linux(&options)
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut console = None;
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "-c" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "c")]);
-                };
-                console = Some(value.clone());
-                index += 2;
+    let mut operands = Vec::new();
+    let mut cursor = ArgCursor::new(args);
+
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        if cursor.parsing_flags() {
+            match arg {
+                "-c" => {
+                    console = Some(cursor.next_value(APPLET, "c")?.to_owned());
+                }
+                value if value.starts_with('-') => {
+                    return Err(vec![AppletError::invalid_option(
+                        APPLET,
+                        value.chars().nth(1).unwrap_or('-'),
+                    )]);
+                }
+                value => {
+                    operands.push(value.to_owned());
+                    for operand in cursor.remaining() {
+                        operands.push(crate::common::args::os_to_string(APPLET, operand.as_os_str())?);
+                    }
+                    break;
+                }
             }
-            value if value.starts_with('-') => {
-                return Err(vec![AppletError::invalid_option(
-                    APPLET,
-                    value.chars().nth(1).unwrap_or('-'),
-                )]);
-            }
-            _ => break,
+        } else {
+            operands.push(arg.to_owned());
         }
     }
 
-    let operands = &args[index..];
-    let [new_root, new_init, rest @ ..] = operands else {
+    let [new_root, new_init, rest @ ..] = operands.as_slice() else {
         return Err(vec![AppletError::new(APPLET, "missing operand")]);
     };
 
@@ -372,9 +380,10 @@ fn dry_run_enabled() -> bool {
 #[cfg(test)]
 mod tests {
     use super::{Options, parse_args};
+    use std::ffi::OsString;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(|value| OsString::from(value)).collect()
     }
 
     #[test]

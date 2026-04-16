@@ -1,12 +1,13 @@
 use std::io::{self, BufRead, BufReader, Write};
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
 use crate::common::io::{open_input, stdout};
 
 const APPLET: &str = "uniq";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
@@ -22,47 +23,26 @@ struct Options {
     check_chars: Option<usize>,
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let mut opts = Options::default();
     let mut positionals: Vec<&str> = Vec::new();
-    let mut i = 0;
+    let mut cursor = ArgCursor::new(args);
 
-    while i < args.len() {
-        let arg = &args[i];
-        match arg.as_str() {
-            "--" => {
-                i += 1;
-                while i < args.len() {
-                    positionals.push(&args[i]);
-                    i += 1;
-                }
-                break;
-            }
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        match arg {
             "-c" | "--count" => opts.count = true,
             "-d" | "--repeated" => opts.duplicates_only = true,
             "-D" | "--all-repeated" => opts.all_duplicates = true,
             "-u" | "--unique" => opts.unique_only = true,
             "-i" | "--ignore-case" => opts.ignore_case = true,
             "-f" | "--skip-fields" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "f")]);
-                }
-                opts.skip_fields = parse_usize(APPLET, &args[i])?;
+                opts.skip_fields = parse_usize(APPLET, cursor.next_value(APPLET, "f")?)?;
             }
             "-s" | "--skip-chars" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "s")]);
-                }
-                opts.skip_chars = parse_usize(APPLET, &args[i])?;
+                opts.skip_chars = parse_usize(APPLET, cursor.next_value(APPLET, "s")?)?;
             }
             "-w" | "--check-chars" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "w")]);
-                }
-                opts.check_chars = Some(parse_usize(APPLET, &args[i])?);
+                opts.check_chars = Some(parse_usize(APPLET, cursor.next_value(APPLET, "w")?)?);
             }
             a if a.starts_with('-') && a.len() > 1 => {
                 return Err(vec![AppletError::invalid_option(
@@ -72,7 +52,6 @@ fn run(args: &[String]) -> AppletResult {
             }
             _ => positionals.push(arg),
         }
-        i += 1;
     }
 
     let input_path = positionals.first().copied().unwrap_or("-");

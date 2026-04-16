@@ -1,6 +1,8 @@
+use std::ffi::OsString;
 use std::io::Write;
 
 use crate::common::applet::{AppletCodeResult, finish_code};
+use crate::common::args::Parser;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 use crate::common::process::list_processes;
@@ -13,11 +15,11 @@ const SIG_SYS: libc::c_int = 31;
 const SIG_RTMIN_LINUX: libc::c_int = 35;
 const SIG_RTMAX_LINUX: libc::c_int = 64;
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args))
 }
 
-fn run(args: &[String]) -> AppletCodeResult {
+fn run(args: &[std::ffi::OsString]) -> AppletCodeResult {
     let options = parse_args(args)?;
     if options.list_signals {
         return print_signal_list()
@@ -34,29 +36,28 @@ struct Options {
     omit_pids: Vec<i32>,
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut list_signals = false;
     let mut signal = libc::SIGTERM;
     let mut omit_pids = Vec::new();
-    let mut i = 0;
+    let mut parser = Parser::new(APPLET, args);
+    let mut args = parser.raw_args()?;
 
-    while i < args.len() {
-        let arg = &args[i];
+    while let Some(arg) = args.next() {
+        let arg = to_string(APPLET, arg)?;
         match arg.as_str() {
             "-l" => list_signals = true,
             "-o" => {
-                i += 1;
-                if i >= args.len() {
+                let Some(value) = args.next() else {
                     return Err(vec![AppletError::option_requires_arg(APPLET, "o")]);
-                }
-                omit_pids.push(parse_pid(&args[i])?);
+                };
+                omit_pids.push(parse_pid(&to_string(APPLET, value)?)?);
             }
             a if a.starts_with('-') && a.len() > 1 => {
                 signal = parse_signal(&a[1..])?;
             }
             _ => {}
         }
-        i += 1;
     }
 
     Ok(Options {
@@ -70,6 +71,15 @@ fn parse_pid(value: &str) -> Result<i32, Vec<AppletError>> {
     value
         .parse::<i32>()
         .map_err(|_| vec![AppletError::new(APPLET, format!("invalid number '{value}'"))])
+}
+
+fn to_string(applet: &'static str, value: OsString) -> Result<String, Vec<AppletError>> {
+    value.into_string().map_err(|value| {
+        vec![AppletError::new(
+            applet,
+            format!("argument is invalid unicode: {:?}", value),
+        )]
+    })
 }
 
 fn parse_signal(value: &str) -> Result<libc::c_int, Vec<AppletError>> {
@@ -224,8 +234,8 @@ fn session_id_of(pid: i32) -> Result<i32, std::io::Error> {
 mod tests {
     use super::{parse_args, parse_signal};
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

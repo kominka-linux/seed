@@ -1,7 +1,7 @@
-
 use std::fs;
 
 use crate::common::applet::finish;
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::mounts;
 use std::collections::{BTreeMap, BTreeSet};
@@ -47,12 +47,13 @@ struct Entry {
     fstype: Option<String>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
-    let operands = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> Result<(), Vec<AppletError>> {
+    let args = argv_to_strings(APPLET, args)?;
+    let operands = parse_args(&args)?;
     let mut entries = if operands.is_empty() {
         discover_entries()?
     } else {
@@ -107,7 +108,9 @@ fn discover_entries() -> Result<Vec<Entry>, Vec<AppletError>> {
             continue;
         }
         let path = normalize_device_path(&mount.source);
-        let entry = entries.entry(path.clone()).or_insert_with(|| base_entry(&path, &tags));
+        let entry = entries
+            .entry(path.clone())
+            .or_insert_with(|| base_entry(&path, &tags));
         if entry.fstype.is_none() {
             entry.fstype = Some(mount.filesystem);
         }
@@ -115,10 +118,17 @@ fn discover_entries() -> Result<Vec<Entry>, Vec<AppletError>> {
     }
 
     for (path, fstype) in proc_swaps().map_err(|err| {
-        vec![AppletError::from_io(APPLET, "reading", Some("/proc/swaps"), err)]
+        vec![AppletError::from_io(
+            APPLET,
+            "reading",
+            Some("/proc/swaps"),
+            err,
+        )]
     })? {
         let path = normalize_device_path(&path);
-        let entry = entries.entry(path.clone()).or_insert_with(|| base_entry(&path, &tags));
+        let entry = entries
+            .entry(path.clone())
+            .or_insert_with(|| base_entry(&path, &tags));
         if entry.fstype.is_none() {
             entry.fstype = Some(fstype);
         }
@@ -269,7 +279,11 @@ fn read_swap_tags(path: &Path) -> Option<Entry> {
     read_swap_tags_from_file(path, &metadata, &mut file)
 }
 
-fn read_swap_tags_from_file(path: &Path, metadata: &fs::Metadata, file: &mut fs::File) -> Option<Entry> {
+fn read_swap_tags_from_file(
+    path: &Path,
+    metadata: &fs::Metadata,
+    file: &mut fs::File,
+) -> Option<Entry> {
     let page_size = page_size()?;
     if metadata.len() < page_size as u64 {
         return None;
@@ -327,25 +341,35 @@ fn probe_entry(path: &Path) -> Option<Entry> {
 fn read_ext_tags(path: &Path, file: &mut fs::File) -> Option<Entry> {
     let mut superblock = [0_u8; EXT_SUPER_SIZE];
     read_at(file, EXT_SUPER_OFFSET, &mut superblock)?;
-    if u16::from_le_bytes(superblock[EXT_MAGIC_OFFSET..EXT_MAGIC_OFFSET + 2].try_into().ok()?) != 0xef53 {
+    if u16::from_le_bytes(
+        superblock[EXT_MAGIC_OFFSET..EXT_MAGIC_OFFSET + 2]
+            .try_into()
+            .ok()?,
+    ) != 0xef53
+    {
         return None;
     }
     let feature_compat = read_u32_le(&superblock, EXT_FEATURE_COMPAT_OFFSET)?;
     let feature_incompat = read_u32_le(&superblock, EXT_FEATURE_INCOMPAT_OFFSET)?;
     let feature_ro_compat = read_u32_le(&superblock, EXT_FEATURE_RO_COMPAT_OFFSET)?;
-    let fstype =
-        if feature_ro_compat & (EXT4_FEATURE_RO_COMPAT_HUGE_FILE | EXT4_FEATURE_RO_COMPAT_DIR_NLINK) != 0
-            || feature_incompat & (EXT4_FEATURE_INCOMPAT_EXTENTS | EXT4_FEATURE_INCOMPAT_64BIT) != 0
-        {
-            "ext4"
-        } else if feature_compat & EXT3_FEATURE_HAS_JOURNAL != 0 {
-            "ext3"
-        } else {
-            "ext2"
-        };
+    let fstype = if feature_ro_compat
+        & (EXT4_FEATURE_RO_COMPAT_HUGE_FILE | EXT4_FEATURE_RO_COMPAT_DIR_NLINK)
+        != 0
+        || feature_incompat & (EXT4_FEATURE_INCOMPAT_EXTENTS | EXT4_FEATURE_INCOMPAT_64BIT) != 0
+    {
+        "ext4"
+    } else if feature_compat & EXT3_FEATURE_HAS_JOURNAL != 0 {
+        "ext3"
+    } else {
+        "ext2"
+    };
     Some(Entry {
         path: path.to_string_lossy().into_owned(),
-        uuid: format_uuid(superblock[EXT_UUID_OFFSET..EXT_UUID_OFFSET + 16].try_into().ok()?),
+        uuid: format_uuid(
+            superblock[EXT_UUID_OFFSET..EXT_UUID_OFFSET + 16]
+                .try_into()
+                .ok()?,
+        ),
         label: read_c_string(&superblock[EXT_LABEL_OFFSET..EXT_LABEL_OFFSET + 16]),
         fstype: Some(String::from(fstype)),
     })
@@ -359,7 +383,11 @@ fn read_xfs_tags(path: &Path, file: &mut fs::File) -> Option<Entry> {
     }
     Some(Entry {
         path: path.to_string_lossy().into_owned(),
-        uuid: format_uuid(superblock[XFS_UUID_OFFSET..XFS_UUID_OFFSET + 16].try_into().ok()?),
+        uuid: format_uuid(
+            superblock[XFS_UUID_OFFSET..XFS_UUID_OFFSET + 16]
+                .try_into()
+                .ok()?,
+        ),
         label: read_c_string(&superblock[XFS_LABEL_OFFSET..XFS_LABEL_OFFSET + 12]),
         fstype: Some(String::from("xfs")),
     })
@@ -371,7 +399,8 @@ fn read_vfat_tags(path: &Path, file: &mut fs::File) -> Option<Entry> {
     if &boot[3..7] == b"NTFS" || boot[510] != 0x55 || boot[511] != 0xaa {
         return None;
     }
-    let (serial_offset, label_offset) = if &boot[82..90] == b"FAT32   " || &boot[54..59] == b"MSDOS" {
+    let (serial_offset, label_offset) = if &boot[82..90] == b"FAT32   " || &boot[54..59] == b"MSDOS"
+    {
         (VFAT_SERIAL32_OFFSET, VFAT_LABEL32_OFFSET)
     } else if &boot[54..62] == b"FAT16   " || &boot[54..62] == b"FAT12   " {
         (VFAT_SERIAL16_OFFSET, VFAT_LABEL16_OFFSET)
@@ -397,7 +426,11 @@ fn read_btrfs_tags(path: &Path, file: &mut fs::File) -> Option<Entry> {
     }
     Some(Entry {
         path: path.to_string_lossy().into_owned(),
-        uuid: format_uuid(superblock[BTRFS_FSID_OFFSET..BTRFS_FSID_OFFSET + 16].try_into().ok()?),
+        uuid: format_uuid(
+            superblock[BTRFS_FSID_OFFSET..BTRFS_FSID_OFFSET + 16]
+                .try_into()
+                .ok()?,
+        ),
         label: None,
         fstype: Some(String::from("btrfs")),
     })
@@ -410,7 +443,9 @@ fn read_at(file: &mut fs::File, offset: u64, buf: &mut [u8]) -> Option<()> {
 }
 
 fn read_u32_le(bytes: &[u8], offset: usize) -> Option<u32> {
-    Some(u32::from_le_bytes(bytes.get(offset..offset + 4)?.try_into().ok()?))
+    Some(u32::from_le_bytes(
+        bytes.get(offset..offset + 4)?.try_into().ok()?,
+    ))
 }
 
 fn format_uuid(bytes: [u8; 16]) -> Option<String> {
@@ -419,13 +454,35 @@ fn format_uuid(bytes: [u8; 16]) -> Option<String> {
     }
     Some(format!(
         "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+        bytes[0],
+        bytes[1],
+        bytes[2],
+        bytes[3],
+        bytes[4],
+        bytes[5],
+        bytes[6],
+        bytes[7],
+        bytes[8],
+        bytes[9],
+        bytes[10],
+        bytes[11],
+        bytes[12],
+        bytes[13],
+        bytes[14],
+        bytes[15]
     ))
 }
 
 fn read_c_string(bytes: &[u8]) -> Option<String> {
-    let len = bytes.iter().position(|byte| *byte == 0).unwrap_or(bytes.len());
-    (len > 0).then(|| String::from_utf8_lossy(&bytes[..len]).trim_end().to_string())
+    let len = bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(bytes.len());
+    (len > 0).then(|| {
+        String::from_utf8_lossy(&bytes[..len])
+            .trim_end()
+            .to_string()
+    })
 }
 
 fn read_trimmed_label(bytes: &[u8]) -> Option<String> {
@@ -442,7 +499,22 @@ fn read_swap_uuid(file: &mut fs::File) -> Option<String> {
     }
     Some(format!(
         "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+        bytes[0],
+        bytes[1],
+        bytes[2],
+        bytes[3],
+        bytes[4],
+        bytes[5],
+        bytes[6],
+        bytes[7],
+        bytes[8],
+        bytes[9],
+        bytes[10],
+        bytes[11],
+        bytes[12],
+        bytes[13],
+        bytes[14],
+        bytes[15]
     ))
 }
 
@@ -450,7 +522,10 @@ fn read_swap_label(file: &mut fs::File) -> Option<String> {
     let mut bytes = [0_u8; 16];
     file.seek(SeekFrom::Start(SWAP_LABEL_OFFSET)).ok()?;
     file.read_exact(&mut bytes).ok()?;
-    let len = bytes.iter().position(|byte| *byte == 0).unwrap_or(bytes.len());
+    let len = bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(bytes.len());
     (len > 0).then(|| String::from_utf8_lossy(&bytes[..len]).into_owned())
 }
 
@@ -498,9 +573,9 @@ fn nonempty(value: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        EXT_FEATURE_INCOMPAT_OFFSET, EXT_MAGIC_OFFSET, EXT_SUPER_OFFSET,
-        EXT_UUID_OFFSET, EXT_LABEL_OFFSET, EXT4_FEATURE_INCOMPAT_EXTENTS, Entry, format_entry,
-        parse_args, probe_entry, read_state_entries,
+        EXT_FEATURE_INCOMPAT_OFFSET, EXT_LABEL_OFFSET, EXT_MAGIC_OFFSET, EXT_SUPER_OFFSET,
+        EXT_UUID_OFFSET, EXT4_FEATURE_INCOMPAT_EXTENTS, Entry, format_entry, parse_args,
+        probe_entry, read_state_entries,
     };
     use std::fs;
 
@@ -510,7 +585,10 @@ mod tests {
 
     #[test]
     fn parses_operands() {
-        assert_eq!(parse_args(&args(&["/dev/sda1"])).unwrap(), vec![String::from("/dev/sda1")]);
+        assert_eq!(
+            parse_args(&args(&["/dev/sda1"])).unwrap(),
+            vec![String::from("/dev/sda1")]
+        );
     }
 
     #[test]
@@ -539,14 +617,17 @@ mod tests {
     fn probes_ext4_image() {
         let path = std::env::temp_dir().join(format!("seed-blkid-ext4-{}", std::process::id()));
         let mut image = vec![0_u8; 4096];
-        image[EXT_SUPER_OFFSET as usize + EXT_MAGIC_OFFSET..EXT_SUPER_OFFSET as usize + EXT_MAGIC_OFFSET + 2]
+        image[EXT_SUPER_OFFSET as usize + EXT_MAGIC_OFFSET
+            ..EXT_SUPER_OFFSET as usize + EXT_MAGIC_OFFSET + 2]
             .copy_from_slice(&0xef53_u16.to_le_bytes());
         image[EXT_SUPER_OFFSET as usize + EXT_FEATURE_INCOMPAT_OFFSET
             ..EXT_SUPER_OFFSET as usize + EXT_FEATURE_INCOMPAT_OFFSET + 4]
             .copy_from_slice(&EXT4_FEATURE_INCOMPAT_EXTENTS.to_le_bytes());
-        image[EXT_SUPER_OFFSET as usize + EXT_UUID_OFFSET..EXT_SUPER_OFFSET as usize + EXT_UUID_OFFSET + 16]
+        image[EXT_SUPER_OFFSET as usize + EXT_UUID_OFFSET
+            ..EXT_SUPER_OFFSET as usize + EXT_UUID_OFFSET + 16]
             .copy_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
-        image[EXT_SUPER_OFFSET as usize + EXT_LABEL_OFFSET..EXT_SUPER_OFFSET as usize + EXT_LABEL_OFFSET + 4]
+        image[EXT_SUPER_OFFSET as usize + EXT_LABEL_OFFSET
+            ..EXT_SUPER_OFFSET as usize + EXT_LABEL_OFFSET + 4]
             .copy_from_slice(b"root");
         fs::write(&path, image).unwrap();
         let entry = probe_entry(&path).unwrap();

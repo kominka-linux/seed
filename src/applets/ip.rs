@@ -1,6 +1,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+use crate::common::args::ArgCursor;
 use crate::common::applet::finish;
 use crate::common::error::AppletError;
 use crate::common::net::{
@@ -28,13 +29,13 @@ struct GlobalOptions {
     oneline: bool,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<(), Vec<AppletError>> {
     let (options, command_args) = parse_global_options(args)?;
-    run_linux(options, command_args)
+    run_linux(options, &command_args)
 }
 
 fn run_linux(options: GlobalOptions, args: &[String]) -> Result<(), Vec<AppletError>> {
@@ -60,23 +61,21 @@ fn run_linux(options: GlobalOptions, args: &[String]) -> Result<(), Vec<AppletEr
     }
 }
 
-fn parse_global_options(args: &[String]) -> Result<(GlobalOptions, &[String]), Vec<AppletError>> {
+fn parse_global_options(args: &[std::ffi::OsString]) -> Result<(GlobalOptions, Vec<String>), Vec<AppletError>> {
     let mut options = GlobalOptions {
         family: None,
         link_family: false,
         oneline: false,
     };
-    let mut index = 0;
-    while let Some(arg) = args.get(index) {
-        match arg.as_str() {
+    let mut cursor = ArgCursor::new(args);
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        match arg {
             "-4" => options.family = Some(AddressFamily::Inet4),
             "-6" => options.family = Some(AddressFamily::Inet6),
             "-o" | "-oneline" => options.oneline = true,
             "-f" | "-family" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "f")]);
-                };
-                match value.as_str() {
+                let value = cursor.next_value(APPLET, "f")?;
+                match value {
                     "inet" => options.family = Some(AddressFamily::Inet4),
                     "inet6" => options.family = Some(AddressFamily::Inet6),
                     "link" => options.link_family = true,
@@ -87,13 +86,22 @@ fn parse_global_options(args: &[String]) -> Result<(GlobalOptions, &[String]), V
                         )])
                     }
                 }
-                index += 1;
             }
-            _ => break,
+            _ => {
+                let mut command_args = vec![arg.to_string()];
+                for remaining in cursor.remaining() {
+                    command_args
+                        .push(crate::common::args::os_to_string(APPLET, remaining.as_os_str())?);
+                }
+                return Ok((options, command_args));
+            }
         }
-        index += 1;
     }
-    Ok((options, &args[index..]))
+    Ok((options, Vec::new()))
+}
+
+fn next_string(cursor: &mut ArgCursor<'_, String>, option: &str) -> Result<String, Vec<AppletError>> {
+    Ok(cursor.next_value(APPLET, option)?.to_string())
 }
 
 fn run_addr(
@@ -351,37 +359,13 @@ struct AddrFilter {
 
 fn parse_addr_filter(args: &[String]) -> Result<AddrFilter, Vec<AppletError>> {
     let mut filter = AddrFilter::default();
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "dev" => {
-                let Some(dev) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "dev")]);
-                };
-                filter.dev = Some(dev.clone());
-                index += 2;
-            }
-            "to" => {
-                let Some(prefix) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "to")]);
-                };
-                filter.prefix = Some(parse_ip_prefix(prefix, None)?);
-                index += 2;
-            }
-            "label" => {
-                let Some(label) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "label")]);
-                };
-                filter.label = Some(label.clone());
-                index += 2;
-            }
-            "scope" => {
-                let Some(scope) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "scope")]);
-                };
-                filter.scope = Some(scope.clone());
-                index += 2;
-            }
+    let mut cursor = ArgCursor::new(args);
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        match arg {
+            "dev" => filter.dev = Some(next_string(&mut cursor, "dev")?),
+            "to" => filter.prefix = Some(parse_ip_prefix(cursor.next_value(APPLET, "to")?, None)?),
+            "label" => filter.label = Some(next_string(&mut cursor, "label")?),
+            "scope" => filter.scope = Some(next_string(&mut cursor, "scope")?),
             _ => {
                 return Err(vec![AppletError::new(
                     APPLET,
@@ -394,20 +378,36 @@ fn parse_addr_filter(args: &[String]) -> Result<AddrFilter, Vec<AppletError>> {
 }
 
 fn parse_optional_dev(args: &[String]) -> Result<Option<String>, Vec<AppletError>> {
-    match args {
-        [] => Ok(None),
-        [name] => Ok(Some(name.clone())),
-        [label, dev] if label == "dev" => Ok(Some(dev.clone())),
-        _ => Err(vec![AppletError::new(APPLET, "extra operand")]),
+    let mut cursor = ArgCursor::new(args);
+    let Some(first) = cursor.next_token(APPLET)? else {
+        return Ok(None);
+    };
+    if first == "dev" {
+        let dev = next_string(&mut cursor, "dev")?;
+        if cursor.next_token(APPLET)?.is_some() {
+            return Err(vec![AppletError::new(APPLET, "extra operand")]);
+        }
+        return Ok(Some(dev));
     }
+    if cursor.next_token(APPLET)?.is_some() {
+        return Err(vec![AppletError::new(APPLET, "extra operand")]);
+    }
+    Ok(Some(first.to_string()))
 }
 
 fn parse_route_dev_filter(args: &[String]) -> Result<Option<String>, Vec<AppletError>> {
-    match args {
-        [] => Ok(None),
-        [label, dev] if label == "dev" => Ok(Some(dev.clone())),
-        _ => Err(vec![AppletError::new(APPLET, "expected 'dev IFACE'")]),
+    let mut cursor = ArgCursor::new(args);
+    let Some(first) = cursor.next_token(APPLET)? else {
+        return Ok(None);
+    };
+    if first != "dev" {
+        return Err(vec![AppletError::new(APPLET, "expected 'dev IFACE'")]);
     }
+    let dev = next_string(&mut cursor, "dev")?;
+    if cursor.next_token(APPLET)?.is_some() {
+        return Err(vec![AppletError::new(APPLET, "expected 'dev IFACE'")]);
+    }
+    Ok(Some(dev))
 }
 
 fn parse_neigh_filter(
@@ -415,30 +415,14 @@ fn parse_neigh_filter(
     family_hint: Option<AddressFamily>,
 ) -> Result<NeighFilter, Vec<AppletError>> {
     let mut filter = NeighFilter::default();
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "dev" => {
-                let Some(dev) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "dev")]);
-                };
-                filter.dev = Some(dev.clone());
-                index += 2;
-            }
+    let mut cursor = ArgCursor::new(args);
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        match arg {
+            "dev" => filter.dev = Some(next_string(&mut cursor, "dev")?),
             "to" => {
-                let Some(prefix) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "to")]);
-                };
-                filter.prefix = Some(parse_ip_prefix(prefix, family_hint)?);
-                index += 2;
+                filter.prefix = Some(parse_ip_prefix(cursor.next_value(APPLET, "to")?, family_hint)?)
             }
-            "nud" => {
-                let Some(state) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "nud")]);
-                };
-                filter.nud = parse_neigh_state(state)?;
-                index += 2;
-            }
+            "nud" => filter.nud = parse_neigh_state(cursor.next_value(APPLET, "nud")?)?,
             _ => {
                 return Err(vec![AppletError::new(
                     APPLET,
@@ -469,58 +453,32 @@ fn parse_addr_change(
     let mut broadcast = None;
     let mut label = None;
     let mut scope = None;
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "dev" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "dev")]);
-                };
-                dev = Some(value.clone());
-                index += 2;
-            }
+    let mut cursor = ArgCursor::new(args);
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        match arg {
+            "dev" => dev = Some(next_string(&mut cursor, "dev")?),
             "peer" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "peer")]);
-                };
-                let peer_prefix = parse_ip_prefix(value, family_hint)?;
+                let peer_prefix = parse_ip_prefix(cursor.next_value(APPLET, "peer")?, family_hint)?;
                 peer = Some(match peer_prefix {
                     ParsedPrefix::Inet4(address, prefix_len) => format!("{address}/{prefix_len}"),
                     ParsedPrefix::Inet6(address, prefix_len) => format!("{address}/{prefix_len}"),
                 });
-                index += 2;
             }
             "broadcast" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "broadcast")]);
-                };
-                broadcast = Some(match value.as_str() {
+                let value = cursor.next_value(APPLET, "broadcast")?;
+                broadcast = Some(match value {
                     "+" => None,
                     "-" => return Err(vec![AppletError::new(APPLET, "broadcast '-' is unsupported")]),
                     value => Some(parse_ip_addr(value)?.to_string()),
                 });
-                index += 2;
             }
-            "label" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "label")]);
-                };
-                label = Some(value.clone());
-                index += 2;
-            }
-            "scope" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "scope")]);
-                };
-                scope = Some(value.clone());
-                index += 2;
-            }
+            "label" => label = Some(next_string(&mut cursor, "label")?),
+            "scope" => scope = Some(next_string(&mut cursor, "scope")?),
             value => {
                 if prefix.is_some() {
                     return Err(vec![AppletError::new(APPLET, "extra operand")]);
                 }
                 prefix = Some(parse_ip_prefix(value, family_hint)?);
-                index += 1;
             }
         }
     }
@@ -548,13 +506,11 @@ fn parse_rule_change(
     let mut fwmark = None;
     let mut priority = None;
     let mut table = None;
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
+    let mut cursor = ArgCursor::new(args);
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        match arg {
             "from" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "from")]);
-                };
+                let value = cursor.next_value(APPLET, "from")?;
                 if value != "all" {
                     match parse_ip_prefix(value, family_hint)? {
                         ParsedPrefix::Inet4(address, prefix) => {
@@ -569,12 +525,9 @@ fn parse_rule_change(
                         }
                     }
                 }
-                index += 2;
             }
             "to" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "to")]);
-                };
+                let value = cursor.next_value(APPLET, "to")?;
                 if value != "all" {
                     match parse_ip_prefix(value, family_hint)? {
                         ParsedPrefix::Inet4(address, prefix) => {
@@ -589,43 +542,14 @@ fn parse_rule_change(
                         }
                     }
                 }
-                index += 2;
             }
-            "iif" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "iif")]);
-                };
-                iif = Some(value.clone());
-                index += 2;
-            }
-            "oif" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "oif")]);
-                };
-                oif = Some(value.clone());
-                index += 2;
-            }
-            "fwmark" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "fwmark")]);
-                };
-                fwmark = Some(parse_u32_auto_base("fwmark", value)?);
-                index += 2;
-            }
+            "iif" => iif = Some(next_string(&mut cursor, "iif")?),
+            "oif" => oif = Some(next_string(&mut cursor, "oif")?),
+            "fwmark" => fwmark = Some(parse_u32_auto_base("fwmark", cursor.next_value(APPLET, "fwmark")?)?),
             "priority" | "pref" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "priority")]);
-                };
-                priority = Some(parse_u32_auto_base("priority", value)?);
-                index += 2;
+                priority = Some(parse_u32_auto_base("priority", cursor.next_value(APPLET, "priority")?)?)
             }
-            "lookup" | "table" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "lookup")]);
-                };
-                table = Some(parse_route_table(value)?);
-                index += 2;
-            }
+            "lookup" | "table" => table = Some(parse_route_table(cursor.next_value(APPLET, "lookup")?)?),
             _ => return Err(vec![AppletError::new(APPLET, "unsupported rule selector/action")]),
         }
     }
@@ -645,84 +569,52 @@ fn parse_rule_change(
 }
 
 fn parse_link_change(args: &[String]) -> Result<(String, LinkChange), Vec<AppletError>> {
-    let (name, mut index) = match args {
-        [label, dev, ..] if label == "dev" => (dev.clone(), 2),
-        [dev, ..] => (dev.clone(), 1),
-        [] => return Err(vec![AppletError::new(APPLET, "missing operand")]),
+    let mut cursor = ArgCursor::new(args);
+    let Some(first) = cursor.next_token(APPLET)? else {
+        return Err(vec![AppletError::new(APPLET, "missing operand")]);
+    };
+    let name = if first == "dev" {
+        next_string(&mut cursor, "dev")?
+    } else {
+        first.to_string()
     };
     let mut change = LinkChange::default();
-    while index < args.len() {
-        match args[index].as_str() {
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        match arg {
             "up" => {
                 change.up = Some(true);
-                index += 1;
             }
             "down" => {
                 change.up = Some(false);
-                index += 1;
             }
-            "arp" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "arp")]);
-                };
-                change.arp = Some(parse_on_off(APPLET, "arp", value)?);
-                index += 2;
-            }
+            "arp" => change.arp = Some(parse_on_off(APPLET, "arp", cursor.next_value(APPLET, "arp")?)?),
             "multicast" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "multicast")]);
-                };
-                change.multicast = Some(parse_on_off(APPLET, "multicast", value)?);
-                index += 2;
+                change.multicast = Some(parse_on_off(APPLET, "multicast", cursor.next_value(APPLET, "multicast")?)?)
             }
             "allmulticast" | "allmulti" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "allmulticast")]);
-                };
-                change.allmulti = Some(parse_on_off(APPLET, "allmulticast", value)?);
-                index += 2;
+                change.allmulti =
+                    Some(parse_on_off(APPLET, "allmulticast", cursor.next_value(APPLET, "allmulticast")?)?)
             }
-            "promisc" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "promisc")]);
-                };
-                change.promisc = Some(parse_on_off(APPLET, "promisc", value)?);
-                index += 2;
-            }
+            "promisc" => change.promisc = Some(parse_on_off(APPLET, "promisc", cursor.next_value(APPLET, "promisc")?)?),
             "mtu" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "mtu")]);
-                };
+                let value = cursor.next_value(APPLET, "mtu")?;
                 change.mtu = Some(value.parse().map_err(|_| {
                     vec![AppletError::new(APPLET, format!("invalid mtu '{value}'"))]
                 })?);
-                index += 2;
             }
             "qlen" | "txqueuelen" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "qlen")]);
-                };
+                let value = cursor.next_value(APPLET, "qlen")?;
                 change.tx_queue_len = Some(value.parse().map_err(|_| {
                     vec![AppletError::new(APPLET, format!("invalid qlen '{value}'"))]
                 })?);
-                index += 2;
             }
             "address" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "address")]);
-                };
+                let value = cursor.next_value(APPLET, "address")?;
                 parse_mac(value).map_err(|err| vec![AppletError::new(APPLET, err.to_string())])?;
-                change.address = Some(value.clone());
-                index += 2;
+                change.address = Some(value.to_string());
             }
-            "name" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "name")]);
-                };
-                change.new_name = Some(value.clone());
-                index += 2;
-            }
-            _ => return Err(vec![AppletError::new(APPLET, format!("unsupported link option '{}'", args[index]))]),
+            "name" => change.new_name = Some(next_string(&mut cursor, "name")?),
+            _ => return Err(vec![AppletError::new(APPLET, format!("unsupported link option '{arg}'"))]),
         }
     }
     Ok((name, change))
@@ -741,67 +633,35 @@ fn parse_route_change(
     let mut table = None;
     let mut protocol = None;
     let mut family = family_hint;
-    let mut index = 0;
-
-    while index < args.len() {
-        match args[index].as_str() {
+    let mut cursor = ArgCursor::new(args);
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        match arg {
             "default" => {
                 destination = Some(match family_hint.unwrap_or(AddressFamily::Inet4) {
                     AddressFamily::Inet4 => String::from("0.0.0.0"),
                     AddressFamily::Inet6 => String::from("::"),
                 });
                 prefix_len = Some(0);
-                index += 1;
             }
             "via" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "via")]);
-                };
+                let value = cursor.next_value(APPLET, "via")?;
                 let parsed = parse_ip_addr(value)?;
                 family = Some(match parsed {
                     IpAddr::V4(_) => AddressFamily::Inet4,
                     IpAddr::V6(_) => AddressFamily::Inet6,
                 });
                 gateway = Some(parsed.to_string());
-                index += 2;
             }
-            "src" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "src")]);
-                };
-                source = Some(value.clone());
-                index += 2;
-            }
+            "src" => source = Some(next_string(&mut cursor, "src")?),
             "metric" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "metric")]);
-                };
+                let value = cursor.next_value(APPLET, "metric")?;
                 metric = Some(value.parse().map_err(|_| {
                     vec![AppletError::new(APPLET, format!("invalid metric '{value}'"))]
                 })?);
-                index += 2;
             }
-            "table" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "table")]);
-                };
-                table = Some(parse_route_table(value)?);
-                index += 2;
-            }
-            "proto" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "proto")]);
-                };
-                protocol = Some(parse_route_protocol(value)?);
-                index += 2;
-            }
-            "dev" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "dev")]);
-                };
-                dev = Some(value.clone());
-                index += 2;
-            }
+            "table" => table = Some(parse_route_table(cursor.next_value(APPLET, "table")?)?),
+            "proto" => protocol = Some(parse_route_protocol(cursor.next_value(APPLET, "proto")?)?),
+            "dev" => dev = Some(next_string(&mut cursor, "dev")?),
             value => {
                 match parse_ip_prefix(value, family_hint)? {
                     ParsedPrefix::Inet4(address, prefix) => {
@@ -815,7 +675,6 @@ fn parse_route_change(
                         prefix_len = Some(prefix);
                     }
                 }
-                index += 1;
             }
         }
     }
@@ -1309,6 +1168,10 @@ mod tests {
         values.iter().map(|value| value.to_string()).collect()
     }
 
+    fn args_os(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
+    }
+
     #[test]
     fn parses_addr_change() {
         let change = parse_addr_change(&args(&["10.0.0.2/24", "dev", "eth0"]), None).unwrap();
@@ -1378,7 +1241,7 @@ mod tests {
 
     #[test]
     fn parses_global_family_flag() {
-        let values = args(&["-6", "route", "show"]);
+        let values = args_os(&["-6", "route", "show"]);
         let (options, rest) = parse_global_options(&values).unwrap();
         assert_eq!(options.family, Some(AddressFamily::Inet6));
         assert_eq!(rest, args(&["route", "show"]));
@@ -1483,7 +1346,7 @@ mod tests {
 
     #[test]
     fn parses_family_option() {
-        let values = args(&["-f", "inet6", "route", "show"]);
+        let values = args_os(&["-f", "inet6", "route", "show"]);
         let (options, rest) = parse_global_options(&values).unwrap();
         assert_eq!(options.family, Some(AddressFamily::Inet6));
         assert_eq!(rest, args(&["route", "show"]));
@@ -1491,7 +1354,7 @@ mod tests {
 
     #[test]
     fn parses_oneline_option() {
-        let values = args(&["-o", "addr", "show"]);
+        let values = args_os(&["-o", "addr", "show"]);
         let (options, rest) = parse_global_options(&values).unwrap();
         assert!(options.oneline);
         assert_eq!(rest, args(&["addr", "show"]));

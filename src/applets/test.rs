@@ -1,24 +1,25 @@
 use std::fs;
 
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 
 const APPLET_TEST: &str = "test";
 const APPLET_BRACKET: &str = "[";
 const APPLET_DOUBLE_BRACKET: &str = "[[";
 
-pub fn main_test(args: &[String]) -> i32 {
+pub fn main_test(args: &[std::ffi::OsString]) -> i32 {
     main_with_mode(APPLET_TEST, args, None)
 }
 
-pub fn main_bracket(args: &[String]) -> i32 {
+pub fn main_bracket(args: &[std::ffi::OsString]) -> i32 {
     main_with_mode(APPLET_BRACKET, args, Some("]"))
 }
 
-pub fn main_double_bracket(args: &[String]) -> i32 {
+pub fn main_double_bracket(args: &[std::ffi::OsString]) -> i32 {
     main_with_mode(APPLET_DOUBLE_BRACKET, args, Some("]]"))
 }
 
-fn main_with_mode(applet: &'static str, args: &[String], closing: Option<&str>) -> i32 {
+fn main_with_mode(applet: &'static str, args: &[std::ffi::OsString], closing: Option<&str>) -> i32 {
     match evaluate(applet, args, closing) {
         Ok(true) => 0,
         Ok(false) => 1,
@@ -33,10 +34,11 @@ fn main_with_mode(applet: &'static str, args: &[String], closing: Option<&str>) 
 
 fn evaluate(
     applet: &'static str,
-    args: &[String],
+    args: &[std::ffi::OsString],
     closing: Option<&str>,
 ) -> Result<bool, Vec<AppletError>> {
-    let tokens = strip_closing(applet, args, closing)?;
+    let tokens = argv_to_strings(applet, args)?;
+    let tokens = strip_closing(applet, &tokens, closing)?;
     if tokens.is_empty() {
         return Ok(false);
     }
@@ -229,14 +231,19 @@ fn access(path: &str, mode: libc::c_int) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{evaluate, strip_closing};
+    use std::ffi::OsString;
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
     }
 
+    fn args_os(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(OsString::from).collect()
+    }
+
     #[test]
     fn test_without_args_is_false() {
-        assert!(!evaluate("test", &args(&[]), None).unwrap());
+        assert!(!evaluate("test", &args_os(&[]), None).unwrap());
     }
 
     #[test]
@@ -245,17 +252,17 @@ mod tests {
         let path = dir.join("file");
         std::fs::write(&path, b"x").unwrap();
 
-        assert!(evaluate("test", &args(&["a", "=", "a"]), None).unwrap());
-        assert!(evaluate("test", &args(&["-f", path.to_str().unwrap()]), None).unwrap());
+        assert!(evaluate("test", &args_os(&["a", "=", "a"]), None).unwrap());
+        assert!(evaluate("test", &args_os(&["-f", path.to_str().unwrap()]), None).unwrap());
 
         std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
     fn supports_boolean_operators() {
-        assert!(evaluate("test", &args(&["a", "-a", "!", ""]), None).unwrap());
-        assert!(evaluate("test", &args(&["", "-o", "a"]), None).unwrap());
-        assert!(!evaluate("test", &args(&["", "-a", "a"]), None).unwrap());
+        assert!(evaluate("test", &args_os(&["a", "-a", "!", ""]), None).unwrap());
+        assert!(evaluate("test", &args_os(&["", "-o", "a"]), None).unwrap());
+        assert!(!evaluate("test", &args_os(&["", "-a", "a"]), None).unwrap());
     }
 
     #[test]

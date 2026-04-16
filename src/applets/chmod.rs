@@ -3,6 +3,7 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::Path;
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "chmod";
@@ -40,12 +41,13 @@ struct SymbolicClause {
     permissions: Vec<Permission>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
-    let (recursive, mode, paths) = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
+    let args = argv_to_strings(APPLET, args)?;
+    let (recursive, mode, paths) = parse_args(&args)?;
     let mut errors = Vec::new();
 
     for path in &paths {

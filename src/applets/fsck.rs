@@ -2,6 +2,7 @@ use std::path::Path;
 use std::process::{Child, Command};
 
 use crate::common::applet::finish_code;
+use crate::common::args::ArgCursor;
 use crate::common::fstab::{self, FstabEntry};
 use crate::common::error::AppletError;
 
@@ -20,11 +21,11 @@ struct Options {
     devices: Vec<String>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args))
 }
 
-fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<i32, Vec<AppletError>> {
     let options = parse_args(args)?;
     let requests = build_requests(&options)?;
     if requests.is_empty() {
@@ -79,20 +80,13 @@ impl CheckRequest {
     }
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut options = Options::default();
-    let mut index = 0;
-    let mut parsing_flags = true;
+    let mut cursor = ArgCursor::new(args);
 
-    while index < args.len() {
-        let arg = &args[index];
-        index += 1;
-        if parsing_flags && arg == "--" {
-            parsing_flags = false;
-            continue;
-        }
-        if parsing_flags && arg.starts_with('-') && arg.len() > 1 {
-            match arg.as_str() {
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        if cursor.parsing_flags() && arg.starts_with('-') && arg.len() > 1 {
+            match arg {
                 "-A" => options.check_all = true,
                 "-N" => options.no_execute = true,
                 "-P" => options.parallel = true,
@@ -100,10 +94,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
                 "-T" => options.no_title = true,
                 "-V" => options.verbose = true,
                 "-t" => {
-                    let Some(value) = args.get(index) else {
-                        return Err(vec![AppletError::option_requires_arg(APPLET, "t")]);
-                    };
-                    index += 1;
+                    let value = cursor.next_value(APPLET, "t")?;
                     options.type_filter = Some(
                         value
                             .split(',')
@@ -112,12 +103,12 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
                             .collect(),
                     );
                 }
-                _ => options.helper_args.push(arg.clone()),
+                _ => options.helper_args.push(arg.to_owned()),
             }
             continue;
         }
 
-        options.devices.push(arg.clone());
+        options.devices.push(arg.to_owned());
     }
 
     if options.check_all && !options.devices.is_empty() {
@@ -281,8 +272,8 @@ mod tests {
     use crate::common::test_env;
     use std::fs;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

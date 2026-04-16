@@ -1,61 +1,57 @@
 use std::io::Write;
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::{ParsedArg, Parser};
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET_BASENAME: &str = "basename";
 const APPLET_DIRNAME: &str = "dirname";
 
-pub fn main_basename(args: &[String]) -> i32 {
+pub fn main_basename(args: &[std::ffi::OsString]) -> i32 {
     finish(run_basename(args))
 }
 
-pub fn main_dirname(args: &[String]) -> i32 {
+pub fn main_dirname(args: &[std::ffi::OsString]) -> i32 {
     finish(run_dirname(args))
 }
 
-fn run_basename(args: &[String]) -> AppletResult {
+fn run_basename(args: &[std::ffi::OsString]) -> AppletResult {
     // basename [-a] [-s SUFFIX] NAME...
     // basename NAME [SUFFIX]  (traditional form)
     let mut multiple = false;
-    let mut suffix: Option<&str> = None;
-    let mut names: Vec<&str> = Vec::new();
-    let mut i = 0;
+    let mut suffix: Option<String> = None;
+    let mut names: Vec<String> = Vec::new();
+    let mut parser = Parser::new(APPLET_BASENAME, args);
 
-    while i < args.len() {
-        let arg = &args[i];
-        match arg.as_str() {
-            "--" => {
-                i += 1;
-                while i < args.len() {
-                    names.push(&args[i]);
-                    i += 1;
-                }
-                break;
-            }
-            "-a" => multiple = true,
-            "-s" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(vec![AppletError::option_requires_arg(APPLET_BASENAME, "s")]);
-                }
-                suffix = Some(&args[i]);
+    while let Some(arg) = parser.next_arg()? {
+        match arg {
+            ParsedArg::Short('a') => multiple = true,
+            ParsedArg::Short('s') => {
+                let value = parser
+                    .optional_value_str()?
+                    .unwrap_or(parser.value_str("s")?);
+                suffix = Some(value);
                 multiple = true;
             }
-            a if a.starts_with("-s") && a.len() > 2 => {
-                suffix = Some(&args[i][2..]);
-                multiple = true;
+            ParsedArg::Short(flag) => {
+                return Err(vec![AppletError::invalid_option(APPLET_BASENAME, flag)])
             }
-            a if a.starts_with('-') && a.len() > 1 => {
-                return Err(vec![AppletError::invalid_option(
+            ParsedArg::Long(name) => {
+                return Err(vec![AppletError::unrecognized_option(
                     APPLET_BASENAME,
-                    a.chars().nth(1).unwrap_or('-'),
-                )]);
+                    &format!("--{name}"),
+                )])
             }
-            _ => names.push(arg),
+            ParsedArg::Value(arg) => {
+                names.push(arg.into_string().map_err(|arg| {
+                    vec![AppletError::new(
+                        APPLET_BASENAME,
+                        format!("argument is invalid unicode: {:?}", arg),
+                    )]
+                })?);
+            }
         }
-        i += 1;
     }
 
     if names.is_empty() {
@@ -68,7 +64,7 @@ fn run_basename(args: &[String]) -> AppletResult {
             return Err(vec![AppletError::new(APPLET_BASENAME, "extra operand")]);
         }
         if names.len() == 2 {
-            suffix = Some(names[1]);
+            suffix = Some(names[1].clone());
             names.truncate(1);
         }
     }
@@ -76,7 +72,7 @@ fn run_basename(args: &[String]) -> AppletResult {
     let mut out = stdout();
     for name in &names {
         let base = base_name(name);
-        let result = if let Some(suf) = suffix {
+        let result = if let Some(suf) = suffix.as_deref() {
             base.strip_suffix(suf).unwrap_or(base)
         } else {
             base
@@ -87,22 +83,30 @@ fn run_basename(args: &[String]) -> AppletResult {
     Ok(())
 }
 
-fn run_dirname(args: &[String]) -> AppletResult {
-    let mut names: Vec<&str> = Vec::new();
-    let mut parsing_flags = true;
+fn run_dirname(args: &[std::ffi::OsString]) -> AppletResult {
+    let mut names: Vec<String> = Vec::new();
+    let mut parser = Parser::new(APPLET_DIRNAME, args);
 
-    for arg in args {
-        if parsing_flags && arg == "--" {
-            parsing_flags = false;
-            continue;
+    while let Some(arg) = parser.next_arg()? {
+        match arg {
+            ParsedArg::Short(flag) => {
+                return Err(vec![AppletError::invalid_option(APPLET_DIRNAME, flag)])
+            }
+            ParsedArg::Long(name) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET_DIRNAME,
+                    &format!("--{name}"),
+                )])
+            }
+            ParsedArg::Value(arg) => {
+                names.push(arg.into_string().map_err(|arg| {
+                    vec![AppletError::new(
+                        APPLET_DIRNAME,
+                        format!("argument is invalid unicode: {:?}", arg),
+                    )]
+                })?);
+            }
         }
-        if parsing_flags && arg.starts_with('-') && arg.len() > 1 {
-            return Err(vec![AppletError::invalid_option(
-                APPLET_DIRNAME,
-                arg.chars().nth(1).unwrap_or('-'),
-            )]);
-        }
-        names.push(arg);
     }
 
     if names.is_empty() {

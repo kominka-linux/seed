@@ -167,7 +167,7 @@ struct AddressDecision {
     started_range: bool,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     match run(args) {
         Ok(code) => code,
         Err(message) => {
@@ -177,14 +177,14 @@ pub fn main(args: &[String]) -> i32 {
     }
 }
 
-fn run(args: &[String]) -> Result<i32, String> {
+fn run(args: &[std::ffi::OsString]) -> Result<i32, String> {
     let parsed = parse_args(args)?;
     let program = parse_program(&parsed.script, parsed.options.extended)?;
     let inputs = load_inputs(&parsed.files, parsed.options.in_place.is_some())?;
     execute(program, inputs, parsed.options)
 }
 
-fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<ParsedArgs, String> {
     let mut options = Options::default();
     let mut expressions = Vec::new();
     let mut script_files = Vec::new();
@@ -195,10 +195,23 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
         match arg {
             ParsedArg::Short('n') => options.quiet = true,
             ParsedArg::Short('E') | ParsedArg::Short('r') => options.extended = true,
-            ParsedArg::Short('e') => expressions.push(parser.value("e").map_err(|err| err[0].to_string())?),
-            ParsedArg::Short('f') => script_files.push(parser.value("f").map_err(|err| err[0].to_string())?),
+            ParsedArg::Short('e') => expressions.push(
+                parser
+                    .value_str("e")
+                    .map_err(|err| err[0].to_string())?,
+            ),
+            ParsedArg::Short('f') => script_files.push(
+                parser
+                    .value_str("f")
+                    .map_err(|err| err[0].to_string())?,
+            ),
             ParsedArg::Short('i') => {
-                options.in_place = Some(parser.optional_value().unwrap_or_default());
+                options.in_place = Some(
+                    parser
+                        .optional_value_str()
+                        .map_err(|err| err[0].to_string())?
+                        .unwrap_or_default(),
+                );
             }
             ParsedArg::Short(flag) => return Err(format!("invalid option -- '{flag}'")),
             ParsedArg::Long(name) => match name.as_str() {
@@ -206,18 +219,30 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
                 "regexp-extended" => options.extended = true,
                 "expression" => expressions.push(
                     parser
-                        .value("expression")
+                        .value_str("expression")
                         .map_err(|err| err[0].to_string())?,
                 ),
                 "file" => {
-                    script_files.push(parser.value("file").map_err(|err| err[0].to_string())?)
+                    script_files.push(
+                        parser
+                            .value_str("file")
+                            .map_err(|err| err[0].to_string())?,
+                    )
                 }
                 "in-place" => {
-                    options.in_place = Some(parser.optional_value().unwrap_or_default());
+                    options.in_place = Some(
+                        parser
+                            .optional_value_str()
+                            .map_err(|err| err[0].to_string())?
+                            .unwrap_or_default(),
+                    );
                 }
                 _ => return Err(format!("unrecognized option '--{name}'")),
             },
-            ParsedArg::Value(arg) => operands.push(arg),
+            ParsedArg::Value(arg) => operands.push(
+                arg.into_string()
+                    .map_err(|arg| format!("argument is invalid unicode: {:?}", arg))?,
+            ),
         }
     }
 
@@ -1584,6 +1609,7 @@ fn decode_text_argument(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
     use std::fs;
 
     use super::{
@@ -1591,8 +1617,8 @@ mod tests {
         split_lines,
     };
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(OsString::from).collect()
     }
 
     #[test]

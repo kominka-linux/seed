@@ -1,5 +1,7 @@
+use std::ffi::OsString;
 use std::io::{self, Read, Write};
 
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::io::open_input;
 
@@ -22,7 +24,7 @@ enum Format {
     Signed64,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[OsString]) -> i32 {
     match run(args) {
         Ok(()) => 0,
         Err(message) => {
@@ -32,8 +34,15 @@ pub fn main(args: &[String]) -> i32 {
     }
 }
 
-fn run(args: &[String]) -> Result<(), String> {
-    let (format, files) = parse_args(args)?;
+fn run(args: &[OsString]) -> Result<(), String> {
+    let args = argv_to_strings(APPLET, args).map_err(|errors| {
+        errors
+            .into_iter()
+            .map(|error| error.to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
+    })?;
+    let (format, files) = parse_args(&args)?;
     let path = files.first().map(String::as_str).unwrap_or("-");
     let mut input = open_input(path).map_err(|err| format!("opening {path}: {err}"))?;
 

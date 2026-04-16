@@ -3,18 +3,20 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use crate::common::applet::finish_code;
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET: &str = "which";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args).map(|found_all| i32::from(!found_all)))
 }
 
-fn run(args: &[String]) -> Result<bool, Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<bool, Vec<AppletError>> {
+    let args = argv_to_strings(APPLET, args)?;
     let mut all = false;
-    let mut commands: Vec<&str> = Vec::new();
+    let mut commands: Vec<String> = Vec::new();
     let mut parsing_flags = true;
 
     for arg in args {
@@ -32,7 +34,7 @@ fn run(args: &[String]) -> Result<bool, Vec<AppletError>> {
                 arg.chars().nth(1).unwrap_or('-'),
             )]);
         }
-        commands.push(arg);
+        commands.push(arg.clone());
     }
 
     if commands.is_empty() {

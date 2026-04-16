@@ -99,11 +99,11 @@ const GUID_BIOS_BOOT: Guid = Guid([
     0x49,
 ]);
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<(), Vec<AppletError>> {
     let options = parse_args(args)?;
     if options.list {
         return list_tables(&options);
@@ -114,11 +114,11 @@ fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
     run_interactive(&options)
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut options = Options::default();
     let mut cursor = ArgCursor::new(args);
 
-    while let Some(token) = cursor.next_arg() {
+    while let Some(token) = cursor.next_arg(APPLET)? {
         match token {
             ArgToken::ShortFlags(flags) => {
                 let mut chars = flags.char_indices().peekable();

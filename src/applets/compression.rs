@@ -5,6 +5,7 @@ use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 
 use crate::common::applet::AppletResult;
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::fs::AtomicFile;
 use crate::common::io::{BUFFER_SIZE, Input, open_input, stdout};
@@ -68,7 +69,7 @@ impl LevelRange {
 
 pub(crate) fn run<F>(
     applet: &'static str,
-    args: &[String],
+    args: &[std::ffi::OsString],
     invocation: Invocation,
     levels: LevelRange,
     mut process_target: F,
@@ -76,7 +77,8 @@ pub(crate) fn run<F>(
 where
     F: FnMut(&str, Options) -> Result<(), AppletError>,
 {
-    let (options, files) = parse_args(applet, args, invocation, levels)?;
+    let args = argv_to_strings(applet, args)?;
+    let (options, files) = parse_args(applet, &args, invocation, levels)?;
     let targets = if files.is_empty() {
         vec![String::from("-")]
     } else {
@@ -99,7 +101,7 @@ where
 
 pub(crate) fn run_with_codec(
     codec: &Codec<'_>,
-    args: &[String],
+    args: &[std::ffi::OsString],
     invocation: Invocation,
 ) -> AppletResult {
     run(
@@ -163,10 +165,11 @@ pub(crate) fn parse_args(
 #[cfg(test)]
 pub(crate) fn parse_args_with_codec(
     codec: &Codec<'_>,
-    args: &[String],
+    args: &[std::ffi::OsString],
     invocation: Invocation,
 ) -> Result<(Options, Vec<String>), Vec<AppletError>> {
-    parse_args(codec.applet, args, invocation, codec.level_range)
+    let args = argv_to_strings(codec.applet, args)?;
+    parse_args(codec.applet, &args, invocation, codec.level_range)
 }
 
 pub(crate) fn process_target<CompressPath, DecompressPath, InputSizeHint, Process>(

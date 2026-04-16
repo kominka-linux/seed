@@ -4,6 +4,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::process::Command;
 
+use crate::common::args::ArgCursor;
 use crate::common::applet::finish_code;
 use crate::common::error::AppletError;
 
@@ -63,11 +64,11 @@ struct Query {
     postorder: bool,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args))
 }
 
-fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<i32, Vec<AppletError>> {
     let (options, paths, mut query) = parse_args(args)?;
     let mut stdout = io::stdout().lock();
     let mut stderr = io::stderr().lock();
@@ -109,59 +110,38 @@ fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
     }
 }
 
-fn parse_args(args: &[String]) -> Result<(Options, Vec<String>, Query), Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<(Options, Vec<String>, Query), Vec<AppletError>> {
     let mut options = Options::default();
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "-mindepth" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "mindepth")]);
-                };
-                let Some(depth) = value.parse::<usize>().ok() else {
-                    return Err(vec![AppletError::new(
-                        APPLET,
-                        format!("bad mindepth '{value}'"),
-                    )]);
-                };
-                options.mindepth = Some(depth);
-                index += 2;
+    let mut cursor = ArgCursor::new(args);
+    let mut paths = Vec::new();
+    let mut expression_tokens = Vec::new();
+    let mut parsing_paths = true;
+
+    while let Some(token) = cursor.next_token(APPLET)? {
+        if parsing_paths {
+            match token {
+                "-mindepth" => options.mindepth = Some(parse_depth("mindepth", cursor.next_value(APPLET, "mindepth")?)?),
+                "-xdev" => options.xdev = true,
+                "-maxdepth" => options.maxdepth = Some(parse_depth("maxdepth", cursor.next_value(APPLET, "maxdepth")?)?),
+                "-H" | "-L" | "-follow" => {}
+                _ if is_expression_token(token) => {
+                    parsing_paths = false;
+                    expression_tokens.push(token.to_string());
+                }
+                _ => paths.push(token.to_string()),
             }
-            "-xdev" => {
-                options.xdev = true;
-                index += 1;
-            }
-            "-maxdepth" => {
-                let Some(value) = args.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "maxdepth")]);
-                };
-                let Some(depth) = value.parse::<usize>().ok() else {
-                    return Err(vec![AppletError::new(
-                        APPLET,
-                        format!("bad maxdepth '{value}'"),
-                    )]);
-                };
-                options.maxdepth = Some(depth);
-                index += 2;
-            }
-            "-H" | "-L" | "-follow" => {
-                index += 1;
-            }
-            _ => break,
+        } else {
+            expression_tokens.push(token.to_string());
         }
     }
 
-    let path_start = index;
-    while index < args.len() && !is_expression_token(&args[index]) {
-        index += 1;
-    }
-    let paths = if path_start == index {
+    let paths = if paths.is_empty() {
         vec![String::from(".")]
     } else {
-        args[path_start..index].to_vec()
+        paths
     };
 
-    let query = parse_query(&args[index..], &mut options)?;
+    let query = parse_query(&expression_tokens, &mut options)?;
     Ok((options, paths, query))
 }
 
@@ -170,45 +150,15 @@ fn is_expression_token(token: &str) -> bool {
 }
 
 fn parse_query(tokens: &[String], options: &mut Options) -> Result<Query, Vec<AppletError>> {
-    let mut index = 0;
+    let mut cursor = ArgCursor::new(tokens);
     let mut expression_tokens = Vec::new();
 
-    while index < tokens.len() {
-        match tokens[index].as_str() {
-            "-mindepth" => {
-                let Some(value) = tokens.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "mindepth")]);
-                };
-                let Some(depth) = value.parse::<usize>().ok() else {
-                    return Err(vec![AppletError::new(
-                        APPLET,
-                        format!("bad mindepth '{value}'"),
-                    )]);
-                };
-                options.mindepth = Some(depth);
-                index += 2;
-            }
-            "-xdev" => {
-                options.xdev = true;
-                index += 1;
-            }
-            "-maxdepth" => {
-                let Some(value) = tokens.get(index + 1) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "maxdepth")]);
-                };
-                let Some(depth) = value.parse::<usize>().ok() else {
-                    return Err(vec![AppletError::new(
-                        APPLET,
-                        format!("bad maxdepth '{value}'"),
-                    )]);
-                };
-                options.maxdepth = Some(depth);
-                index += 2;
-            }
-            _ => {
-                expression_tokens.push(tokens[index].clone());
-                index += 1;
-            }
+    while let Some(token) = cursor.next_token(APPLET)? {
+        match token {
+            "-mindepth" => options.mindepth = Some(parse_depth("mindepth", cursor.next_value(APPLET, "mindepth")?)?),
+            "-xdev" => options.xdev = true,
+            "-maxdepth" => options.maxdepth = Some(parse_depth("maxdepth", cursor.next_value(APPLET, "maxdepth")?)?),
+            _ => expression_tokens.push(token.to_string()),
         }
     }
 
@@ -233,6 +183,15 @@ fn parse_query(tokens: &[String], options: &mut Options) -> Result<Query, Vec<Ap
         expr,
         has_action: parser.has_action,
         postorder: parser.postorder,
+    })
+}
+
+fn parse_depth(option: &str, value: &str) -> Result<usize, Vec<AppletError>> {
+    value.parse::<usize>().map_err(|_| {
+        vec![AppletError::new(
+            APPLET,
+            format!("bad {option} '{value}'"),
+        )]
     })
 }
 
@@ -876,6 +835,10 @@ mod tests {
         values.iter().map(|value| value.to_string()).collect()
     }
 
+    fn args_os(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
+    }
+
     #[test]
     fn basename_matching_handles_rootish_inputs() {
         assert_eq!(basename_for_match("/"), "/");
@@ -909,7 +872,7 @@ mod tests {
 
     #[test]
     fn parser_supports_path_prune_and_delete() {
-        let parsed = parse_args(&args(&[
+        let parsed = parse_args(&args_os(&[
             ".",
             "-mindepth",
             "1",

@@ -6,6 +6,7 @@ use std::process::{Command, ExitStatus};
 
 use crate::common::account::{ShadowRecord, account_paths, find_passwd, read_passwd, read_shadow};
 use crate::common::applet::{AppletCodeResult, finish_code};
+use crate::common::args::{ParsedArg, Parser};
 use crate::common::error::AppletError;
 
 const APPLET: &str = "sulogin";
@@ -15,11 +16,11 @@ unsafe extern "C" {
     fn crypt(key: *const libc::c_char, salt: *const libc::c_char) -> *mut libc::c_char;
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args))
 }
 
-fn run(args: &[String]) -> AppletCodeResult {
+fn run(args: &[std::ffi::OsString]) -> AppletCodeResult {
     let (force, _tty) = parse_args(args)?;
     let paths = account_paths();
     let passwd = read_passwd(&paths.passwd)
@@ -47,21 +48,33 @@ fn run(args: &[String]) -> AppletCodeResult {
     Ok(status.code().unwrap_or(1))
 }
 
-fn parse_args(args: &[String]) -> Result<(bool, Option<String>), Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<(bool, Option<String>), Vec<AppletError>> {
     let mut force = false;
     let mut tty = None;
 
-    for arg in args {
-        match arg.as_str() {
-            "-e" | "--force" => force = true,
-            value if value.starts_with('-') => {
-                return Err(vec![AppletError::unrecognized_option(APPLET, value)])
+    let mut parser = Parser::new(APPLET, args);
+    while let Some(arg) = parser.next_arg()? {
+        match arg {
+            ParsedArg::Short('e') => force = true,
+            ParsedArg::Short(flag) => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
+            ParsedArg::Long(name) if name == "force" => force = true,
+            ParsedArg::Long(name) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET,
+                    &format!("--{name}"),
+                )])
             }
-            value => {
+            ParsedArg::Value(value) => {
+                let value = value.into_string().map_err(|arg| {
+                    vec![AppletError::new(
+                        APPLET,
+                        format!("argument is invalid unicode: {:?}", arg),
+                    )]
+                })?;
                 if tty.is_some() {
                     return Err(vec![AppletError::new(APPLET, "extra operand")]);
                 }
-                tty = Some(value.to_string());
+                tty = Some(value);
             }
         }
     }
@@ -154,9 +167,10 @@ fn spawn_root_shell(root: &crate::common::account::PasswdEntry) -> io::Result<Ex
 #[cfg(test)]
 mod tests {
     use super::parse_args;
+    use std::ffi::OsString;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(OsString::from).collect()
     }
 
     #[test]

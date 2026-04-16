@@ -1,17 +1,19 @@
 use std::io::Write;
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 use crate::common::unix::lookup_user;
 
 const APPLET: &str = "whoami";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
+    let args = argv_to_strings(APPLET, args)?;
     for arg in args {
         if arg.starts_with('-') && arg != "--" {
             return Err(vec![AppletError::invalid_option(
@@ -34,9 +36,10 @@ fn run(args: &[String]) -> AppletResult {
 mod tests {
     use super::run;
     use crate::common::unix::lookup_user;
+    use std::ffi::OsString;
 
-    fn args(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
+    fn args(v: &[&str]) -> Vec<OsString> {
+        v.iter().map(OsString::from).collect()
     }
 
     #[test]

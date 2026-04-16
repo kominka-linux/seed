@@ -2,59 +2,47 @@ use std::ffi::CString;
 use std::io::Write;
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::{ArgCursor, ArgToken};
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 use crate::common::unix::{lookup_group, lookup_user};
 
 const APPLET: &str = "id";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let mut show_uid = false;
     let mut show_gid = false;
     let mut show_groups = false;
     let mut name_only = false;
     let mut real_only = false;
     let mut user_arg: Option<&str> = None;
-    let mut parsing_flags = true;
-    let mut i = 0;
+    let mut cursor = ArgCursor::new(args);
 
-    while i < args.len() {
-        let arg = &args[i];
-        if parsing_flags {
-            match arg.as_str() {
-                "--" => {
-                    parsing_flags = false;
-                }
-                a if a.starts_with('-') && a.len() > 1 => {
-                    for ch in a[1..].chars() {
-                        match ch {
-                            'u' => show_uid = true,
-                            'g' => show_gid = true,
-                            'G' => show_groups = true,
-                            'n' => name_only = true,
-                            'r' => real_only = true,
-                            _ => return Err(vec![AppletError::invalid_option(APPLET, ch)]),
-                        }
+    while let Some(arg) = cursor.next_arg(APPLET)? {
+        match arg {
+            ArgToken::ShortFlags(flags) => {
+                for ch in flags.chars() {
+                    match ch {
+                        'u' => show_uid = true,
+                        'g' => show_gid = true,
+                        'G' => show_groups = true,
+                        'n' => name_only = true,
+                        'r' => real_only = true,
+                        _ => return Err(vec![AppletError::invalid_option(APPLET, ch)]),
                     }
                 }
-                _ => {
-                    if user_arg.is_some() {
-                        return Err(vec![AppletError::new(APPLET, "extra operand")]);
-                    }
-                    user_arg = Some(arg);
+            }
+            ArgToken::Operand(arg) => {
+                if user_arg.is_some() {
+                    return Err(vec![AppletError::new(APPLET, "extra operand")]);
                 }
+                user_arg = Some(arg);
             }
-        } else {
-            if user_arg.is_some() {
-                return Err(vec![AppletError::new(APPLET, "extra operand")]);
-            }
-            user_arg = Some(arg);
         }
-        i += 1;
     }
 
     let mode_count = [show_uid, show_gid, show_groups]
@@ -270,8 +258,8 @@ fn get_supplementary_groups() -> Vec<u32> {
 mod tests {
     use super::{get_supplementary_groups, run};
 
-    fn args(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
+    fn args(v: &[&str]) -> Vec<std::ffi::OsString> {
+        v.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

@@ -18,11 +18,11 @@ struct Options {
     mode: Option<u32>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let (options, paths) = parse_args(args)?;
 
     if options.create_directories {
@@ -42,12 +42,12 @@ fn run(args: &[String]) -> AppletResult {
     install_file(source, destination, options)
 }
 
-fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<(Options, Vec<String>), Vec<AppletError>> {
     let mut options = Options::default();
     let mut paths = Vec::new();
     let mut cursor = ArgCursor::new(args);
 
-    while let Some(arg) = cursor.next_arg() {
+    while let Some(arg) = cursor.next_arg(APPLET)? {
         match arg {
             ArgToken::ShortFlags(flags) => {
                 let mut chars = flags.chars();
@@ -236,8 +236,8 @@ mod tests {
 
     use super::{Options, install_file, parse_args};
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

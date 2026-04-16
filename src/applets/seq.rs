@@ -1,47 +1,31 @@
 use std::io::Write;
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET: &str = "seq";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let mut equal_width = false;
     let mut separator = "\n".to_string();
-    let mut format: Option<&str> = None;
-    let mut positionals: Vec<&str> = Vec::new();
-    let mut i = 0;
+    let mut format: Option<String> = None;
+    let mut positionals: Vec<String> = Vec::new();
+    let mut cursor = ArgCursor::new(args);
 
-    while i < args.len() {
-        let arg = &args[i];
-        match arg.as_str() {
-            "--" => {
-                i += 1;
-                while i < args.len() {
-                    positionals.push(&args[i]);
-                    i += 1;
-                }
-                break;
-            }
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        match arg {
             "-w" | "--equal-width" => equal_width = true,
             "-s" | "--separator" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "s")]);
-                }
-                separator = unescape(&args[i]);
+                separator = unescape(cursor.next_value(APPLET, "s")?);
             }
             "-f" | "--format" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "f")]);
-                }
-                format = Some(&args[i]);
+                format = Some(cursor.next_value(APPLET, "f")?.to_string());
             }
             // Negative numbers are positional operands, not flags
             a if a.starts_with('-') && a.len() > 1 && !looks_like_number(a) => {
@@ -50,9 +34,8 @@ fn run(args: &[String]) -> AppletResult {
                     a.chars().nth(1).unwrap_or('-'),
                 )]);
             }
-            _ => positionals.push(arg),
+            _ => positionals.push(arg.to_string()),
         }
-        i += 1;
     }
 
     let (first, incr, last) = match positionals.as_slice() {
@@ -79,7 +62,7 @@ fn run(args: &[String]) -> AppletResult {
 
     // Infer decimal precision from the input strings
     let prec = if format.is_none() {
-        let p0 = decimal_places(positionals[0]);
+        let p0 = decimal_places(&positionals[0]);
         let p_incr = positionals.get(1).map(|s| decimal_places(s)).unwrap_or(0);
         let p_last = positionals.last().map(|s| decimal_places(s)).unwrap_or(0);
         p0.max(p_incr).max(p_last)
@@ -104,7 +87,7 @@ fn run(args: &[String]) -> AppletResult {
         // Avoid floating-point drift on the last step
         let val = if k == count - 1 { last } else { val };
 
-        let s = if let Some(fmt) = format {
+        let s = if let Some(fmt) = format.as_deref() {
             apply_format(fmt, val)
         } else if equal_width {
             zero_pad(format_val(val, prec), width)
@@ -245,6 +228,8 @@ fn unescape(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
+
     use super::{
         apply_format, decimal_places, format_val, looks_like_number, run, unescape, zero_pad,
     };
@@ -278,13 +263,17 @@ mod tests {
 
     #[test]
     fn run_returns_ok_for_empty_range() {
-        let args: Vec<String> = vec!["5".to_string(), "3".to_string()];
+        let args: Vec<OsString> = vec![OsString::from("5"), OsString::from("3")];
         assert!(run(&args).is_ok());
     }
 
     #[test]
     fn run_errors_on_zero_increment() {
-        let args: Vec<String> = vec!["1".to_string(), "0".to_string(), "5".to_string()];
+        let args: Vec<OsString> = vec![
+            OsString::from("1"),
+            OsString::from("0"),
+            OsString::from("5"),
+        ];
         assert!(run(&args).is_err());
     }
 

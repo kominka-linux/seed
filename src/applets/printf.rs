@@ -1,4 +1,8 @@
+use std::ffi::OsString;
 use std::io::{self, Write};
+use std::os::unix::ffi::OsStrExt;
+
+use crate::common::args::argv_to_strings;
 
 const APPLET: &str = "printf";
 
@@ -40,7 +44,7 @@ enum SpecKind {
     Float,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[OsString]) -> i32 {
     match run(args) {
         Ok(code) => code,
         Err(message) => {
@@ -50,12 +54,19 @@ pub fn main(args: &[String]) -> i32 {
     }
 }
 
-fn run(args: &[String]) -> Result<i32, String> {
+fn run(args: &[OsString]) -> Result<i32, String> {
     let Some((format, argv)) = args.split_first() else {
         return Ok(0);
     };
 
-    let format = parse_format(format.as_bytes())?;
+    let argv = argv_to_strings(APPLET, argv).map_err(|errors| {
+        errors
+            .into_iter()
+            .map(|error| error.to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
+    })?;
+    let format = parse_format(format.as_os_str().as_bytes())?;
     let consumes_args = format
         .parts
         .iter()
@@ -78,7 +89,7 @@ fn run(args: &[String]) -> Result<i32, String> {
                 Part::Spec(spec) => {
                     if render_spec(
                         spec,
-                        argv,
+                        &argv,
                         &mut arg_index,
                         &mut stdout,
                         &mut stderr,

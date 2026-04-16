@@ -96,19 +96,19 @@ struct InputTarget {
     path: String,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     run_main(args, false, false)
 }
 
-pub fn main_extended(args: &[String]) -> i32 {
+pub fn main_extended(args: &[std::ffi::OsString]) -> i32 {
     run_main(args, true, false)
 }
 
-pub fn main_fixed(args: &[String]) -> i32 {
+pub fn main_fixed(args: &[std::ffi::OsString]) -> i32 {
     run_main(args, false, true)
 }
 
-fn run_main(args: &[String], default_extended: bool, default_fixed: bool) -> i32 {
+fn run_main(args: &[std::ffi::OsString], default_extended: bool, default_fixed: bool) -> i32 {
     match run_with_mode(args, default_extended, default_fixed) {
         Ok(code) => code,
         Err(message) => {
@@ -119,7 +119,7 @@ fn run_main(args: &[String], default_extended: bool, default_fixed: bool) -> i32
 }
 
 fn run_with_mode(
-    args: &[String],
+    args: &[std::ffi::OsString],
     default_extended: bool,
     default_fixed: bool,
 ) -> Result<i32, String> {
@@ -237,7 +237,7 @@ struct ProcessResult {
 }
 
 fn parse_args(
-    args: &[String],
+    args: &[std::ffi::OsString],
     default_extended: bool,
     default_fixed: bool,
 ) -> Result<ParsedArgs, String> {
@@ -271,10 +271,10 @@ fn parse_args(
             ParsedArg::Short('h') => options.label_mode = LabelMode::Never,
             ParsedArg::Short('c') => options.count = true,
             ParsedArg::Short('e') => {
-                inline_patterns.push(parser.value("e").map_err(|err| err[0].to_string())?)
+                inline_patterns.push(parser.value_str("e").map_err(|err| err[0].to_string())?)
             }
             ParsedArg::Short('f') => {
-                pattern_files.push(parser.value("f").map_err(|err| err[0].to_string())?)
+                pattern_files.push(parser.value_str("f").map_err(|err| err[0].to_string())?)
             }
             ParsedArg::Short(flag) => return Err(AppletError::invalid_option_message(flag)),
             ParsedArg::Long(name) => match name.as_str() {
@@ -297,11 +297,11 @@ fn parse_args(
                 "count" => options.count = true,
                 "regexp" => inline_patterns.push(
                     parser
-                        .value("regexp")
+                        .value_str("regexp")
                         .map_err(|err| err[0].to_string())?,
                 ),
                 "file" => pattern_files.push(
-                    parser.value("file").map_err(|err| err[0].to_string())?,
+                    parser.value_str("file").map_err(|err| err[0].to_string())?,
                 ),
                 _ => {
                     return Err(AppletError::unrecognized_option_message(&format!(
@@ -309,7 +309,10 @@ fn parse_args(
                     )))
                 }
             },
-            ParsedArg::Value(arg) => positionals.push(arg),
+            ParsedArg::Value(arg) => positionals.push(
+                arg.into_string()
+                    .map_err(|arg| format!("argument is invalid unicode: {:?}", arg))?,
+            ),
         }
     }
 
@@ -960,8 +963,8 @@ fn parse_posix_class(pattern: &[u8], index: usize) -> Option<(ClassItem, usize)>
 mod tests {
     use super::{LabelMode, parse_args, split_pattern_lines};
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

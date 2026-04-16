@@ -31,11 +31,11 @@ struct Options {
     overwrite: bool,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let options = parse_args(args)?;
     match options.mode {
         Mode::Extract => extract_archive(&options),
@@ -44,14 +44,14 @@ fn run(args: &[String]) -> AppletResult {
     }
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut directory = None;
     let mut members = Vec::new();
     let mut mode = Mode::Extract;
     let mut overwrite = false;
     let mut cursor = ArgCursor::new(args);
 
-    while let Some(arg) = cursor.next_token() {
+    while let Some(arg) = cursor.next_token(APPLET)? {
         if cursor.parsing_flags() && arg == "-d" {
             directory = Some(PathBuf::from(cursor.next_value(APPLET, "d")?));
             continue;
@@ -385,8 +385,8 @@ mod tests {
 
     use super::{Mode, Options, extract_archive, parse_args};
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| (*value).to_owned()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     fn archive_bytes(entries: &[(&str, &[u8])]) -> Vec<u8> {

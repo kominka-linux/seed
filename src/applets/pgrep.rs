@@ -1,18 +1,21 @@
+use std::ffi::OsString;
 use std::io::Write;
 
 use crate::common::applet::finish_code;
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 use crate::common::process::list_processes;
 
 const APPLET: &str = "pgrep";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[OsString]) -> i32 {
     finish_code(run(args).map(match_exit_code))
 }
 
-fn run(args: &[String]) -> Result<bool, Vec<AppletError>> {
-    let pattern = parse_args(args)?;
+fn run(args: &[OsString]) -> Result<bool, Vec<AppletError>> {
+    let args = argv_to_strings(APPLET, args)?;
+    let pattern = parse_args(&args)?;
     let processes = list_processes().map_err(|message| vec![AppletError::new(APPLET, message)])?;
     let self_pid = std::process::id() as i32;
     let mut out = stdout();

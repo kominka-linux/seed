@@ -24,11 +24,11 @@ struct Options {
     target: Option<String>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let options = parse_args(args)?;
     let patch_bytes = read_patch_input(options.input.as_deref())?;
     let chunks = split_patch_chunks(&patch_bytes);
@@ -44,12 +44,12 @@ fn run(args: &[String]) -> AppletResult {
     Ok(())
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut options = Options::default();
     let mut operands = Vec::new();
     let mut cursor = ArgCursor::new(args);
 
-    while let Some(arg) = cursor.next_token() {
+    while let Some(arg) = cursor.next_token(APPLET)? {
         if !cursor.parsing_flags() || !arg.starts_with('-') || arg == "-" {
             operands.push(arg.to_owned());
             continue;
@@ -328,8 +328,8 @@ mod tests {
 
     use super::{Options, apply_chunk, parse_args, split_patch_chunks, strip_components};
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| (*value).to_owned()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

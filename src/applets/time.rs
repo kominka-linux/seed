@@ -4,19 +4,21 @@ use std::process::Command;
 use std::time::Instant;
 
 use crate::common::applet::finish_code_or;
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "time";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code_or(run(args), 125)
 }
 
-fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
-    let command_args = if args.first().map(String::as_str) == Some("--") {
+fn run(args: &[std::ffi::OsString]) -> Result<i32, Vec<AppletError>> {
+    let args = argv_to_strings(APPLET, args)?;
+    let command_args: &[String] = if args.first().map(String::as_str) == Some("--") {
         &args[1..]
     } else {
-        args
+        &args
     };
 
     let Some(command) = command_args.first() else {
@@ -91,9 +93,10 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::{format_duration, run};
+    use std::ffi::OsString;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(OsString::from).collect()
     }
 
     #[test]

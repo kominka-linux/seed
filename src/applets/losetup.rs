@@ -40,16 +40,16 @@ struct Options {
     command: Command,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<(), Vec<AppletError>> {
     let options = parse_args(args)?;
     run_linux(options)
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut offset = 0_u64;
     let mut partscan = false;
     let mut read_only = false;
@@ -60,7 +60,7 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     let mut positional = Vec::new();
     let mut cursor = ArgCursor::new(args);
 
-    while let Some(arg) = cursor.next_token() {
+    while let Some(arg) = cursor.next_token(APPLET)? {
         if arg == "-o" {
             let value = cursor.next_value(APPLET, "o")?;
             offset = value.parse::<u64>().map_err(|_| {
@@ -456,7 +456,7 @@ mod tests {
 
     #[test]
     fn parses_find_free_attach() {
-        let options = parse_args(&["-f".to_string(), "disk.img".to_string()]).expect("parse");
+        let options = parse_args(&["-f".into(), "disk.img".into()]).expect("parse");
         match options.command {
             Command::Attach {
                 selector: LoopSelector::NextFree,
@@ -468,7 +468,7 @@ mod tests {
 
     #[test]
     fn parses_detach() {
-        let options = parse_args(&["-d".to_string(), "/dev/loop0".to_string()]).expect("parse");
+        let options = parse_args(&["-d".into(), "/dev/loop0".into()]).expect("parse");
         match options.command {
             Command::Detach { device } => assert_eq!(device, "/dev/loop0"),
             _ => panic!("unexpected command"),

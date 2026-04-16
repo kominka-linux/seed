@@ -7,11 +7,11 @@ use crate::common::process::list_processes;
 
 const APPLET: &str = "ps";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<(), Vec<AppletError>> {
     parse_args(args)?;
     let processes = list_processes().map_err(|message| vec![AppletError::new(APPLET, message)])?;
     let mut out = stdout();
@@ -33,7 +33,7 @@ fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
     Ok(())
 }
 
-fn parse_args(args: &[String]) -> Result<(), Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<(), Vec<AppletError>> {
     if args.is_empty() {
         Ok(())
     } else {
@@ -54,8 +54,8 @@ fn format_cpu_time(nanos: u64) -> String {
 mod tests {
     use super::{format_cpu_time, parse_args};
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

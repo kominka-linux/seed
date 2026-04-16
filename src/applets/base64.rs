@@ -3,13 +3,14 @@
 use std::io::{self, Read, Write};
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
 use crate::common::io::{open_input, stdout};
 
-pub fn main_base64(args: &[String]) -> i32 {
+pub fn main_base64(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args, Variant::B64))
 }
-pub fn main_base32(args: &[String]) -> i32 {
+pub fn main_base32(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args, Variant::B32))
 }
 
@@ -27,30 +28,20 @@ impl Variant {
     }
 }
 
-fn run(args: &[String], variant: Variant) -> AppletResult {
+fn run(args: &[std::ffi::OsString], variant: Variant) -> AppletResult {
     let applet = variant.name();
     let mut decode = false;
     let mut ignore_garbage = false;
     let mut wrap: usize = 76;
     let mut paths: Vec<&str> = Vec::new();
-    let mut i = 0;
+    let mut cursor = ArgCursor::new(args);
 
-    while i < args.len() {
-        let arg = &args[i];
-        match arg.as_str() {
-            "--" => {
-                for arg in &args[i + 1..] {
-                    paths.push(arg);
-                }
-                break;
-            }
+    while let Some(arg) = cursor.next_token(applet)? {
+        match arg {
             "-d" | "--decode" => decode = true,
             "-i" | "--ignore-garbage" => ignore_garbage = true,
             "-w" | "--wrap" => {
-                i += 1;
-                let val = args
-                    .get(i)
-                    .ok_or_else(|| vec![AppletError::option_requires_arg(applet, "-w")])?;
+                let val = cursor.next_value(applet, "-w")?;
                 wrap = val.parse().map_err(|_| {
                     vec![AppletError::new(
                         applet,
@@ -84,7 +75,6 @@ fn run(args: &[String], variant: Variant) -> AppletResult {
             }
             a => paths.push(a),
         }
-        i += 1;
     }
 
     let paths: Vec<&str> = if paths.is_empty() { vec!["-"] } else { paths };
@@ -363,9 +353,10 @@ fn b32_decode(data: &[u8]) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
 
-    fn args(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
+    fn args(v: &[&str]) -> Vec<OsString> {
+        v.iter().map(OsString::from).collect()
     }
 
     // RFC 4648 §10 base64 test vectors

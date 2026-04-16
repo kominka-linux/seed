@@ -1,16 +1,18 @@
 use std::io::Write;
 
-use crate::common::applet::{AppletResult, finish};
+use crate::common::applet::{finish, AppletResult};
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET: &str = "echo";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
+    let args = argv_to_strings(APPLET, args)?;
     let mut newline = true;
     let mut escape = false;
     let mut start = 0;

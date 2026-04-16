@@ -1,6 +1,7 @@
 use std::fs::OpenOptions;
 use std::os::fd::AsRawFd;
 
+use crate::common::args::ArgCursor;
 use crate::common::applet::finish;
 use crate::common::error::AppletError;
 
@@ -164,11 +165,11 @@ const CONTROL_CHARS: &[ControlCharSetting] = &[
     },
 ];
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<(), Vec<AppletError>> {
     let options = parse_args(args)?;
     let (fd, _file) = open_target(options.device.as_deref())?;
     let mut termios = read_termios(fd)?;
@@ -187,27 +188,19 @@ fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
     Ok(())
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
+    let mut cursor = ArgCursor::new(args);
     let mut options = Options::default();
-    let mut index = 0;
 
-    while index < args.len() {
-        let arg = &args[index];
-        index += 1;
-        match arg.as_str() {
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        match arg {
             "-a" => options.all = true,
             "-g" => options.machine = true,
             "-F" => {
-                let Some(value) = args.get(index) else {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "F")]);
-                };
-                index += 1;
-                options.device = Some(value.clone());
+                let value = cursor.next_value(APPLET, "F")?;
+                options.device = Some(value.to_string());
             }
-            _ if arg.starts_with('-') => {
-                options.settings.push(arg.clone());
-            }
-            _ => options.settings.push(arg.clone()),
+            _ => options.settings.push(arg.to_string()),
         }
     }
 
@@ -647,9 +640,10 @@ const SPEED_TABLE: &[(u32, libc::speed_t)] = &[
 #[cfg(test)]
 mod tests {
     use super::{Options, decode_state, parse_args, parse_control_char, zeroed_termios};
+    use std::ffi::OsString;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(OsString::from).collect()
     }
 
     #[test]

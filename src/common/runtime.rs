@@ -1,4 +1,4 @@
-use std::ffi::CString;
+use std::ffi::OsString;
 
 pub fn install_signal_handlers() {
     // SAFETY: `signal` is called with a valid signal number and the process-wide
@@ -8,13 +8,6 @@ pub fn install_signal_handlers() {
     }
 }
 
-pub fn argv() -> Vec<String> {
-    std::env::args_os()
-        .map(|arg| {
-            CString::new(arg.as_encoded_bytes())
-                .ok()
-                .and_then(|cstr| cstr.into_string().ok())
-                .unwrap_or_else(|| String::from_utf8_lossy(arg.as_encoded_bytes()).into_owned())
-        })
-        .collect()
+pub fn argv() -> Vec<OsString> {
+    std::env::args_os().collect()
 }

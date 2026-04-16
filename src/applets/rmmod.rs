@@ -1,6 +1,7 @@
 use std::fs;
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::modules::delete_module as delete_kernel_module;
 
@@ -14,12 +15,13 @@ struct Options {
     modules: Vec<String>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
-    let options = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
+    let args = argv_to_strings(APPLET, args)?;
+    let options = parse_args(&args)?;
     run_linux(options)
 }
 
@@ -100,8 +102,14 @@ fn delete_module(module: &str, flags: libc::c_int, name: Option<&str>) -> Result
 }
 
 fn unused_modules() -> Result<Vec<String>, Vec<AppletError>> {
-    let modules = fs::read_to_string("/proc/modules")
-        .map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some("/proc/modules"), err)])?;
+    let modules = fs::read_to_string("/proc/modules").map_err(|err| {
+        vec![AppletError::from_io(
+            APPLET,
+            "reading",
+            Some("/proc/modules"),
+            err,
+        )]
+    })?;
 
     Ok(modules
         .lines()
@@ -121,8 +129,8 @@ fn unused_modules() -> Result<Vec<String>, Vec<AppletError>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Options, parse_args};
     use super::delete_module_flags;
+    use super::{Options, parse_args};
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
@@ -155,6 +163,9 @@ mod tests {
             wait: false,
             modules: vec![String::from("mod")],
         };
-        assert_eq!(delete_module_flags(&options), libc::O_NONBLOCK | libc::O_TRUNC);
+        assert_eq!(
+            delete_module_flags(&options),
+            libc::O_NONBLOCK | libc::O_TRUNC
+        );
     }
 }

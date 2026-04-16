@@ -20,11 +20,11 @@ const DEFAULT_CONFIG: &str = "/etc/udhcpd.conf";
 const DEFAULT_LEASE_SECS: u32 = 600;
 const DEFAULT_DECLINE_TIME_SECS: u32 = 3600;
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args))
 }
 
-fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<i32, Vec<AppletError>> {
     let options = parse_args(args)?;
     let config = read_config(&options.config_path)?;
     let _pidfile = options
@@ -88,12 +88,12 @@ struct Lease {
     expires_at: u64,
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut cursor = ArgCursor::new(args);
     let mut config_path = None;
     let mut pidfile = None;
 
-    while let Some(arg) = cursor.next_arg() {
+    while let Some(arg) = cursor.next_arg(APPLET)? {
         match arg {
             ArgToken::Operand(value) => {
                 if config_path.is_some() {
@@ -573,8 +573,8 @@ mod tests {
     use std::net::Ipv4Addr;
     use std::path::PathBuf;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     fn sample_config() -> ServerConfig {

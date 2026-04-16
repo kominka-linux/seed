@@ -15,6 +15,7 @@ use flate2::write::GzEncoder;
 use lzma_rust2::{XzOptions, XzReader, XzWriter};
 use tar::{Archive, Builder, EntryType, Header};
 
+use crate::common::args::ArgCursor;
 use crate::common::applet::{AppletResult, finish};
 use crate::common::error::AppletError;
 use crate::common::fs::AtomicFile;
@@ -64,11 +65,11 @@ struct ArchiveName {
     stripped_prefix: Option<String>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let options = parse_args(args)?;
     match options.mode.expect("validated mode") {
         Mode::Create => create_archive(&options).map_err(|err| vec![err]),
@@ -77,22 +78,42 @@ fn run(args: &[String]) -> AppletResult {
     }
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut options = Options::default();
-    let mut parsing_flags = true;
     let mut pending_archive = false;
     let mut pending_chdir = false;
     let mut pending_exclude = false;
     let mut pending_strip_components = false;
     let mut active_dir: Option<PathBuf> = None;
+    let start = if let Some(first) = args.first() {
+        let first = crate::common::args::os_to_string(APPLET, first.as_os_str())?;
+        if !first.starts_with('-') {
+            let flags = first;
+            for flag in flags.chars() {
+                apply_short_flag(
+                    &mut options,
+                    flag,
+                    &mut pending_archive,
+                    &mut pending_chdir,
+                    &mut pending_exclude,
+                )?;
+            }
+            1
+        } else {
+            0
+        }
+    } else {
+        0
+    };
 
-    for (index, arg) in args.iter().enumerate() {
-        if parsing_flags && pending_archive {
-            options.archive = Some(arg.clone());
+    let mut cursor = ArgCursor::new(&args[start..]);
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        if pending_archive {
+            options.archive = Some(arg.to_string());
             pending_archive = false;
             continue;
         }
-        if parsing_flags && pending_chdir {
+        if pending_chdir {
             let dir = PathBuf::from(arg);
             active_dir = Some(match active_dir.take() {
                 Some(base) => base.join(dir),
@@ -102,28 +123,23 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
             options.chdir = active_dir.clone();
             continue;
         }
-        if parsing_flags && pending_exclude {
+        if pending_exclude {
             options.excludes.extend(read_exclude_file(arg)?);
             pending_exclude = false;
             continue;
         }
-        if parsing_flags && pending_strip_components {
+        if pending_strip_components {
             options.strip_components = parse_strip_components(arg)?;
             pending_strip_components = false;
             continue;
         }
 
-        if parsing_flags && arg == "--" {
-            parsing_flags = false;
-            continue;
-        }
-
-        if parsing_flags && arg.starts_with("--") {
+        if cursor.parsing_flags() && arg.starts_with("--") {
             if let Some(value) = arg.strip_prefix("--strip-components=") {
                 options.strip_components = parse_strip_components(value)?;
                 continue;
             }
-            match arg.as_str() {
+            match arg {
                 "--overwrite" => {
                     options.overwrite = true;
                     continue;
@@ -136,25 +152,15 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
             }
         }
 
-        let old_style = parsing_flags && index == 0 && !arg.starts_with('-');
-        if parsing_flags && ((arg.starts_with('-') && arg.len() > 1) || old_style) {
-            let flags = if old_style { arg.as_str() } else { &arg[1..] };
-            for flag in flags.chars() {
-                match flag {
-                    'c' => set_mode(&mut options, Mode::Create)?,
-                    'x' => set_mode(&mut options, Mode::Extract)?,
-                    't' => set_mode(&mut options, Mode::List)?,
-                    'f' => pending_archive = true,
-                    'j' => set_compression(&mut options, CompressionMode::Bzip2)?,
-                    'k' => options.keep_old = true,
-                    'O' => options.to_stdout = true,
-                    'v' => options.verbose = true,
-                    'C' => pending_chdir = true,
-                    'X' => pending_exclude = true,
-                    'J' => set_compression(&mut options, CompressionMode::Xz)?,
-                    'z' => set_compression(&mut options, CompressionMode::Gzip)?,
-                    _ => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
-                }
+        if cursor.parsing_flags() && arg.starts_with('-') && arg.len() > 1 {
+            for flag in arg[1..].chars() {
+                apply_short_flag(
+                    &mut options,
+                    flag,
+                    &mut pending_archive,
+                    &mut pending_chdir,
+                    &mut pending_exclude,
+                )?;
             }
             continue;
         }
@@ -162,9 +168,9 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
         match options.mode {
             Some(Mode::Create) => options.operands.push(Operand {
                 base_dir: active_dir.clone(),
-                name: arg.clone(),
+                name: arg.to_string(),
             }),
-            Some(Mode::Extract | Mode::List) => options.members.push(arg.clone()),
+            Some(Mode::Extract | Mode::List) => options.members.push(arg.to_string()),
             None => return Err(vec![AppletError::new(APPLET, "need at least one option")]),
         }
     }
@@ -181,6 +187,48 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     }
 
     Ok(options)
+}
+
+fn apply_short_flag(
+    options: &mut Options,
+    flag: char,
+    pending_archive: &mut bool,
+    pending_chdir: &mut bool,
+    pending_exclude: &mut bool,
+) -> Result<(), Vec<AppletError>> {
+    match flag {
+        'c' => set_mode(options, Mode::Create),
+        'x' => set_mode(options, Mode::Extract),
+        't' => set_mode(options, Mode::List),
+        'f' => {
+            *pending_archive = true;
+            Ok(())
+        }
+        'j' => set_compression(options, CompressionMode::Bzip2),
+        'k' => {
+            options.keep_old = true;
+            Ok(())
+        }
+        'O' => {
+            options.to_stdout = true;
+            Ok(())
+        }
+        'v' => {
+            options.verbose = true;
+            Ok(())
+        }
+        'C' => {
+            *pending_chdir = true;
+            Ok(())
+        }
+        'X' => {
+            *pending_exclude = true;
+            Ok(())
+        }
+        'J' => set_compression(options, CompressionMode::Xz),
+        'z' => set_compression(options, CompressionMode::Gzip),
+        _ => Err(vec![AppletError::invalid_option(APPLET, flag)]),
+    }
 }
 
 fn set_mode(options: &mut Options, mode: Mode) -> Result<(), Vec<AppletError>> {
@@ -1604,6 +1652,7 @@ mod tests {
     use bzip2::bufread::MultiBzDecoder;
     use flate2::bufread::MultiGzDecoder;
     use lzma_rust2::XzReader;
+    use std::ffi::OsString;
     use std::os::unix::fs::MetadataExt;
     use std::fs;
     use std::io::{self, BufReader, Cursor};
@@ -1612,7 +1661,7 @@ mod tests {
     fn parse(input: &[&str]) -> super::Options {
         let args = input
             .iter()
-            .map(|value| value.to_string())
+            .map(OsString::from)
             .collect::<Vec<_>>();
         parse_args(&args).expect("parse args")
     }

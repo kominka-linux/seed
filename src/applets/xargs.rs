@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::process::{Child, Command, ExitStatus};
 
+use crate::common::args::{ArgCursor, ArgToken};
 use crate::common::applet::{AppletResult, finish};
 use crate::common::error::AppletError;
 
@@ -36,11 +37,11 @@ impl Default for Options {
     }
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let (options, cmd_args) = parse_args(args)?;
 
     let (cmd, initial_args): (&str, &[String]) = if cmd_args.is_empty() {
@@ -69,90 +70,103 @@ fn run(args: &[String]) -> AppletResult {
     execute_invocations(cmd, invocations, &options)
 }
 
-fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<(Options, Vec<String>), Vec<AppletError>> {
+    let mut cursor = ArgCursor::new(args);
     let mut options = Options::default();
     let mut cmd_args = Vec::new();
-    let mut i = 0;
 
-    while i < args.len() {
-        let arg = &args[i];
-        match arg.as_str() {
-            "--" => {
-                i += 1;
-                while i < args.len() {
-                    cmd_args.push(args[i].clone());
-                    i += 1;
+    while let Some(arg) = cursor.next_arg(APPLET)? {
+        match arg {
+            ArgToken::Operand(value) => {
+                cmd_args.push(value.to_string());
+                for remaining in cursor.remaining() {
+                    cmd_args
+                        .push(crate::common::args::os_to_string(APPLET, remaining.as_os_str())?);
                 }
                 break;
             }
-            "-0" | "--null" => options.null_delim = true,
-            "-r" | "--no-run-if-empty" => options.no_run_if_empty = true,
-            "-t" | "--verbose" => options.verbose = true,
-            "-p" | "--interactive" => options.interactive = true,
-            "-n" | "--max-args" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "n")]);
+            ArgToken::ShortFlags(flags) => {
+                if let Some(long) = flags.strip_prefix('-') {
+                    match long {
+                        "null" => options.null_delim = true,
+                        "no-run-if-empty" => options.no_run_if_empty = true,
+                        "verbose" => options.verbose = true,
+                        "interactive" => options.interactive = true,
+                        "max-args" => {
+                            options.max_args = parse_usize(APPLET, "-n", cursor.next_value(APPLET, "n")?)?
+                        }
+                        "max-lines" => {
+                            options.max_lines = parse_usize(APPLET, "-L", cursor.next_value(APPLET, "L")?)?
+                        }
+                        "max-procs" => {
+                            options.max_procs = parse_usize(APPLET, "-P", cursor.next_value(APPLET, "P")?)?
+                        }
+                        "delimiter" => {
+                            options.delimiter = Some(parse_delimiter(APPLET, cursor.next_value(APPLET, "d")?)?)
+                        }
+                        _ => {
+                            return Err(vec![AppletError::invalid_option(APPLET, '-')]);
+                        }
+                    }
+                    continue;
                 }
-                options.max_args = parse_usize(APPLET, "-n", &args[i])?;
-            }
-            "-L" | "--max-lines" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "L")]);
+
+                let (flag, attached) = flags.split_at(1);
+
+                match flag {
+                    "0" if attached.is_empty() => options.null_delim = true,
+                    "r" if attached.is_empty() => options.no_run_if_empty = true,
+                    "t" if attached.is_empty() => options.verbose = true,
+                    "p" if attached.is_empty() => options.interactive = true,
+                    "n" => {
+                        let value = if attached.is_empty() {
+                            cursor.next_value(APPLET, "n")?
+                        } else {
+                            attached
+                        };
+                        options.max_args = parse_usize(APPLET, "-n", value)?;
+                    }
+                    "L" => {
+                        let value = if attached.is_empty() {
+                            cursor.next_value(APPLET, "L")?
+                        } else {
+                            attached
+                        };
+                        options.max_lines = parse_usize(APPLET, "-L", value)?;
+                    }
+                    "P" => {
+                        let value = if attached.is_empty() {
+                            cursor.next_value(APPLET, "P")?
+                        } else {
+                            attached
+                        };
+                        options.max_procs = parse_usize(APPLET, "-P", value)?;
+                    }
+                    "I" => {
+                        let value = if attached.is_empty() {
+                            cursor.next_value(APPLET, "I")?
+                        } else {
+                            attached
+                        };
+                        options.replace = Some(value.to_string());
+                    }
+                    "d" => {
+                        let value = if attached.is_empty() {
+                            cursor.next_value(APPLET, "d")?
+                        } else {
+                            attached
+                        };
+                        options.delimiter = Some(parse_delimiter(APPLET, value)?);
+                    }
+                    _ => {
+                        return Err(vec![AppletError::invalid_option(
+                            APPLET,
+                            flag.chars().next().unwrap_or('-'),
+                        )]);
+                    }
                 }
-                options.max_lines = parse_usize(APPLET, "-L", &args[i])?;
-            }
-            "-P" | "--max-procs" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "P")]);
-                }
-                options.max_procs = parse_usize(APPLET, "-P", &args[i])?;
-            }
-            "-I" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "I")]);
-                }
-                options.replace = Some(args[i].clone());
-            }
-            "-d" | "--delimiter" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "d")]);
-                }
-                options.delimiter = Some(parse_delimiter(APPLET, &args[i])?);
-            }
-            a if a.starts_with("-I") => {
-                options.replace = Some(a[2..].to_string());
-            }
-            a if a.starts_with("-n") && a.len() > 2 => {
-                options.max_args = parse_usize(APPLET, "-n", &a[2..])?;
-            }
-            a if a.starts_with("-L") && a.len() > 2 => {
-                options.max_lines = parse_usize(APPLET, "-L", &a[2..])?;
-            }
-            a if a.starts_with("-P") && a.len() > 2 => {
-                options.max_procs = parse_usize(APPLET, "-P", &a[2..])?;
-            }
-            a if a.starts_with('-') && a.len() > 1 => {
-                return Err(vec![AppletError::invalid_option(
-                    APPLET,
-                    a.chars().nth(1).unwrap_or('-'),
-                )]);
-            }
-            _ => {
-                cmd_args.push(arg.clone());
-                i += 1;
-                while i < args.len() {
-                    cmd_args.push(args[i].clone());
-                    i += 1;
-                }
-                break;
             }
         }
-        i += 1;
     }
 
     Ok((options, cmd_args))
@@ -518,8 +532,8 @@ mod tests {
     };
     use std::io::Cursor;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

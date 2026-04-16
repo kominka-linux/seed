@@ -21,11 +21,11 @@ const CODEC: Codec<'static> = Codec {
     process_reader_to_writer,
 };
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args, Invocation::default()))
 }
 
-pub fn main_bunzip2(args: &[String]) -> i32 {
+pub fn main_bunzip2(args: &[std::ffi::OsString]) -> i32 {
     finish(run(
         args,
         Invocation {
@@ -35,7 +35,7 @@ pub fn main_bunzip2(args: &[String]) -> i32 {
     ))
 }
 
-pub fn main_bzcat(args: &[String]) -> i32 {
+pub fn main_bzcat(args: &[std::ffi::OsString]) -> i32 {
     finish(run(
         args,
         Invocation {
@@ -45,13 +45,13 @@ pub fn main_bzcat(args: &[String]) -> i32 {
     ))
 }
 
-fn run(args: &[String], invocation: Invocation) -> Result<(), Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString], invocation: Invocation) -> Result<(), Vec<AppletError>> {
     compression::run_with_codec(&CODEC, args, invocation)
 }
 
 #[cfg(test)]
 fn parse_args(
-    args: &[String],
+    args: &[std::ffi::OsString],
     invocation: Invocation,
 ) -> Result<(Options, Vec<String>), Vec<AppletError>> {
     compression::parse_args_with_codec(&CODEC, args, invocation)
@@ -90,6 +90,7 @@ fn process_reader_to_writer(
 mod tests {
     use super::{APPLET, CODEC, DECOMPRESSED_SUFFIXES, Invocation, parse_args};
     use crate::applets::compression;
+    use std::ffi::OsString;
     use std::fs;
     use std::os::unix::ffi::OsStrExt;
     use std::path::Path;
@@ -97,7 +98,7 @@ mod tests {
     #[test]
     fn parse_aliases_seed_default_behavior() {
         let (options, files) = parse_args(
-            &["-c".to_string(), "archive.bz2".to_string()],
+            &[OsString::from("-c"), OsString::from("archive.bz2")],
             Invocation {
                 decompress: true,
                 stdout: true,
@@ -160,13 +161,13 @@ mod tests {
         let input = dir.join("hello.txt");
         fs::write(&input, b"hello bzip2\n").expect("write input");
 
-        let status = super::main(&[input.display().to_string()]);
+        let status = super::main(&[input.display().to_string().into()]);
         assert_eq!(status, 0);
 
         let compressed = dir.join("hello.txt.bz2");
         assert!(fs::read(&compressed).is_ok());
 
-        let status = super::main_bunzip2(&[compressed.display().to_string()]);
+        let status = super::main_bunzip2(&[compressed.display().to_string().into()]);
         assert_eq!(status, 0);
         assert_eq!(fs::read(&input).expect("read output"), b"hello bzip2\n");
 
@@ -179,7 +180,7 @@ mod tests {
         let input = dir.join("hello.txt");
         fs::write(&input, b"hello bzip2\n").expect("write input");
 
-        let status = super::main(&[input.display().to_string()]);
+        let status = super::main(&[input.display().to_string().into()]);
         assert_eq!(status, 0);
 
         let compressed = dir.join("hello.txt.bz2");
@@ -187,7 +188,7 @@ mod tests {
         data.truncate(data.len().saturating_sub(4));
         fs::write(&compressed, data).expect("truncate compressed");
 
-        let status = super::main_bunzip2(&[compressed.display().to_string()]);
+        let status = super::main_bunzip2(&[compressed.display().to_string().into()]);
         assert_ne!(status, 0);
         assert!(!dir.join("hello.txt").exists());
 

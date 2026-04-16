@@ -8,6 +8,7 @@ use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::common::applet::finish;
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "cpio";
@@ -84,13 +85,19 @@ struct ArchiveEntry {
     data: Vec<u8>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> Result<(), Vec<AppletError>> {
-    let options = parse_args(args)?;
-    match options.mode.clone().ok_or_else(|| vec![AppletError::new(APPLET, "need at least one of -i, -o, -t or -p")])? {
+fn run(args: &[std::ffi::OsString]) -> Result<(), Vec<AppletError>> {
+    let args = argv_to_strings(APPLET, args)?;
+    let options = parse_args(&args)?;
+    match options.mode.clone().ok_or_else(|| {
+        vec![AppletError::new(
+            APPLET,
+            "need at least one of -i, -o, -t or -p",
+        )]
+    })? {
         Mode::Create => create_archive(&options),
         Mode::Extract => extract_archive(&options, Path::new(".")),
         Mode::List => list_archive(&options),
@@ -133,7 +140,10 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
                 'H' => {
                     let value = attached_or_next(arg, &mut offset, args, &mut index, "H")?;
                     if value != "newc" && value != "crc" {
-                        return Err(vec![AppletError::new(APPLET, format!("unsupported archive format '{value}'"))]);
+                        return Err(vec![AppletError::new(
+                            APPLET,
+                            format!("unsupported archive format '{value}'"),
+                        )]);
                     }
                     options.format_newc = true;
                     break;
@@ -167,7 +177,10 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
     }
 
     if matches!(options.mode, Some(Mode::Create)) && !options.format_newc {
-        return Err(vec![AppletError::new(APPLET, "archive format must be specified as -H newc")]);
+        return Err(vec![AppletError::new(
+            APPLET,
+            "archive format must be specified as -H newc",
+        )]);
     }
 
     Ok(options)
@@ -233,7 +246,9 @@ fn is_short_flag_without_arg(flag: char) -> bool {
 }
 
 fn parse_owner(value: &str) -> Result<Owner, Vec<AppletError>> {
-    let (user, group) = value.split_once(':').map_or((value, None), |(u, g)| (u, Some(g)));
+    let (user, group) = value
+        .split_once(':')
+        .map_or((value, None), |(u, g)| (u, Some(g)));
     let (uid, default_gid) = lookup_user(user)?;
     let gid = match group {
         Some(group) => lookup_group(group)?,
@@ -246,11 +261,15 @@ fn lookup_user(value: &str) -> Result<(u32, u32), Vec<AppletError>> {
     if let Ok(uid) = value.parse::<u32>() {
         return Ok((uid, uid));
     }
-    let name = CString::new(value).map_err(|_| vec![AppletError::new(APPLET, "owner contains NUL byte")])?;
+    let name = CString::new(value)
+        .map_err(|_| vec![AppletError::new(APPLET, "owner contains NUL byte")])?;
     // SAFETY: `name` is a valid NUL-terminated username.
     let passwd = unsafe { libc::getpwnam(name.as_ptr()) };
     if passwd.is_null() {
-        return Err(vec![AppletError::new(APPLET, format!("unknown user '{value}'"))]);
+        return Err(vec![AppletError::new(
+            APPLET,
+            format!("unknown user '{value}'"),
+        )]);
     }
     // SAFETY: `passwd` is valid for the duration of this call.
     Ok(unsafe { ((*passwd).pw_uid, (*passwd).pw_gid) })
@@ -260,11 +279,15 @@ fn lookup_group(value: &str) -> Result<u32, Vec<AppletError>> {
     if let Ok(gid) = value.parse::<u32>() {
         return Ok(gid);
     }
-    let name = CString::new(value).map_err(|_| vec![AppletError::new(APPLET, "group contains NUL byte")])?;
+    let name = CString::new(value)
+        .map_err(|_| vec![AppletError::new(APPLET, "group contains NUL byte")])?;
     // SAFETY: `name` is a valid NUL-terminated group name.
     let group = unsafe { libc::getgrnam(name.as_ptr()) };
     if group.is_null() {
-        return Err(vec![AppletError::new(APPLET, format!("unknown group '{value}'"))]);
+        return Err(vec![AppletError::new(
+            APPLET,
+            format!("unknown group '{value}'"),
+        )]);
     }
     // SAFETY: `group` is valid for the duration of this call.
     Ok(unsafe { (*group).gr_gid })
@@ -273,8 +296,14 @@ fn lookup_group(value: &str) -> Result<u32, Vec<AppletError>> {
 fn create_archive(options: &Options) -> Result<(), Vec<AppletError>> {
     let names = read_input_names(options)?;
     let mut seen_links = HashMap::<(u64, u64), String>::new();
-    let mut writer = open_output_writer(options)
-        .map_err(|err| vec![AppletError::from_io(APPLET, "opening", options.file.as_deref(), err)])?;
+    let mut writer = open_output_writer(options).map_err(|err| {
+        vec![AppletError::from_io(
+            APPLET,
+            "opening",
+            options.file.as_deref(),
+            err,
+        )]
+    })?;
 
     for name in names {
         let archive_name = normalize_archive_name(&name)?;
@@ -291,7 +320,14 @@ fn create_archive(options: &Options) -> Result<(), Vec<AppletError>> {
         if options.verbose {
             eprintln!("{archive_name}");
         }
-        write_entry(&mut writer, &entry).map_err(|err| vec![AppletError::from_io(APPLET, "writing", options.file.as_deref(), err)])?;
+        write_entry(&mut writer, &entry).map_err(|err| {
+            vec![AppletError::from_io(
+                APPLET,
+                "writing",
+                options.file.as_deref(),
+                err,
+            )]
+        })?;
     }
 
     let trailer = ArchiveEntry {
@@ -308,8 +344,22 @@ fn create_archive(options: &Options) -> Result<(), Vec<AppletError>> {
         name: TRAILER.to_string(),
         data: Vec::new(),
     };
-    write_entry(&mut writer, &trailer).map_err(|err| vec![AppletError::from_io(APPLET, "writing", options.file.as_deref(), err)])?;
-    writer.flush().map_err(|err| vec![AppletError::from_io(APPLET, "writing", options.file.as_deref(), err)])?;
+    write_entry(&mut writer, &trailer).map_err(|err| {
+        vec![AppletError::from_io(
+            APPLET,
+            "writing",
+            options.file.as_deref(),
+            err,
+        )]
+    })?;
+    writer.flush().map_err(|err| {
+        vec![AppletError::from_io(
+            APPLET,
+            "writing",
+            options.file.as_deref(),
+            err,
+        )]
+    })?;
     Ok(())
 }
 
@@ -337,8 +387,14 @@ fn pass_through(options: &Options, destination: &Path) -> Result<(), Vec<AppletE
 }
 
 fn list_archive(options: &Options) -> Result<(), Vec<AppletError>> {
-    let mut reader = open_input_reader(options)
-        .map_err(|err| vec![AppletError::from_io(APPLET, "opening", options.file.as_deref(), err)])?;
+    let mut reader = open_input_reader(options).map_err(|err| {
+        vec![AppletError::from_io(
+            APPLET,
+            "opening",
+            options.file.as_deref(),
+            err,
+        )]
+    })?;
     loop {
         let Some(entry) = read_entry(&mut reader)? else {
             break;
@@ -354,8 +410,14 @@ fn list_archive(options: &Options) -> Result<(), Vec<AppletError>> {
 }
 
 fn extract_archive(options: &Options, base: &Path) -> Result<(), Vec<AppletError>> {
-    let mut reader = open_input_reader(options)
-        .map_err(|err| vec![AppletError::from_io(APPLET, "opening", options.file.as_deref(), err)])?;
+    let mut reader = open_input_reader(options).map_err(|err| {
+        vec![AppletError::from_io(
+            APPLET,
+            "opening",
+            options.file.as_deref(),
+            err,
+        )]
+    })?;
     let mut hardlinks = HashMap::<(u32, u32, u32), PathBuf>::new();
 
     loop {
@@ -381,12 +443,23 @@ fn should_process_member(options: &Options, name: &str) -> bool {
 }
 
 fn read_input_names(options: &Options) -> Result<Vec<String>, Vec<AppletError>> {
-    let mut reader = open_name_reader(options)
-        .map_err(|err| vec![AppletError::from_io(APPLET, "opening", options.file.as_deref(), err)])?;
+    let mut reader = open_name_reader(options).map_err(|err| {
+        vec![AppletError::from_io(
+            APPLET,
+            "opening",
+            options.file.as_deref(),
+            err,
+        )]
+    })?;
     let mut buffer = Vec::new();
-    reader
-        .read_to_end(&mut buffer)
-        .map_err(|err| vec![AppletError::from_io(APPLET, "reading", options.file.as_deref(), err)])?;
+    reader.read_to_end(&mut buffer).map_err(|err| {
+        vec![AppletError::from_io(
+            APPLET,
+            "reading",
+            options.file.as_deref(),
+            err,
+        )]
+    })?;
 
     let separator = if options.nul_terminated { b'\0' } else { b'\n' };
     Ok(buffer
@@ -480,19 +553,33 @@ fn build_archive_entry(
         .map(|owner| (owner.uid, owner.gid))
         .unwrap_or((metadata.uid(), metadata.gid()));
     let key = (metadata.dev(), metadata.ino());
-    let repeated_hardlink = metadata.nlink() > 1 && file_type.is_file() && seen_links.contains_key(&key);
+    let repeated_hardlink =
+        metadata.nlink() > 1 && file_type.is_file() && seen_links.contains_key(&key);
 
     let data = if repeated_hardlink {
         Vec::new()
     } else if file_type.is_symlink() && !dereference {
         fs::read_link(source_name)
-            .map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some(source_name), err)])?
+            .map_err(|err| {
+                vec![AppletError::from_io(
+                    APPLET,
+                    "reading",
+                    Some(source_name),
+                    err,
+                )]
+            })?
             .as_os_str()
             .as_bytes()
             .to_vec()
     } else if file_type.is_file() {
-        fs::read(source_name)
-            .map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some(source_name), err)])?
+        fs::read(source_name).map_err(|err| {
+            vec![AppletError::from_io(
+                APPLET,
+                "reading",
+                Some(source_name),
+                err,
+            )]
+        })?
     } else {
         Vec::new()
     };
@@ -561,7 +648,8 @@ fn read_entry(reader: &mut dyn Read) -> Result<Option<ArchiveEntry>, Vec<AppletE
         read += count;
     }
 
-    let magic = std::str::from_utf8(&header[..6]).map_err(|_| vec![AppletError::new(APPLET, "invalid cpio magic")])?;
+    let magic = std::str::from_utf8(&header[..6])
+        .map_err(|_| vec![AppletError::new(APPLET, "invalid cpio magic")])?;
     if magic != "070701" && magic != "070702" {
         return Err(vec![AppletError::new(
             APPLET,
@@ -584,9 +672,14 @@ fn read_entry(reader: &mut dyn Read) -> Result<Option<ArchiveEntry>, Vec<AppletE
 
     let actual_name = String::from_utf8_lossy(&name[..namesize - 1]).into_owned();
     let mut data = vec![0_u8; filesize];
-    reader
-        .read_exact(&mut data)
-        .map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some(&actual_name), err)])?;
+    reader.read_exact(&mut data).map_err(|err| {
+        vec![AppletError::from_io(
+            APPLET,
+            "reading",
+            Some(&actual_name),
+            err,
+        )]
+    })?;
     consume_padding(reader, filesize)?;
 
     Ok(Some(ArchiveEntry {
@@ -606,7 +699,8 @@ fn read_entry(reader: &mut dyn Read) -> Result<Option<ArchiveEntry>, Vec<AppletE
 }
 
 fn parse_header_fields(bytes: &[u8]) -> Result<[u32; 13], Vec<AppletError>> {
-    let text = std::str::from_utf8(bytes).map_err(|_| vec![AppletError::new(APPLET, "invalid cpio header")])?;
+    let text = std::str::from_utf8(bytes)
+        .map_err(|_| vec![AppletError::new(APPLET, "invalid cpio header")])?;
     let mut fields = [0_u32; 13];
     for (index, field) in fields.iter_mut().enumerate() {
         let start = index * 8;
@@ -648,8 +742,14 @@ fn extract_entry(
 
     if entry.name == "." {
         if !base.exists() {
-            fs::create_dir_all(base)
-                .map_err(|err| vec![AppletError::from_io(APPLET, "creating", Some(&base.display().to_string()), err)])?;
+            fs::create_dir_all(base).map_err(|err| {
+                vec![AppletError::from_io(
+                    APPLET,
+                    "creating",
+                    Some(&base.display().to_string()),
+                    err,
+                )]
+            })?;
         }
         apply_metadata(base, entry, options, true)?;
         return Ok(());
@@ -661,23 +761,47 @@ fn extract_entry(
     let link_key = (entry.dev_major, entry.dev_minor, entry.ino);
     match mode_kind {
         S_IFDIR => {
-            fs::create_dir_all(&output)
-                .map_err(|err| vec![AppletError::from_io(APPLET, "creating", Some(&entry.name), err)])?;
+            fs::create_dir_all(&output).map_err(|err| {
+                vec![AppletError::from_io(
+                    APPLET,
+                    "creating",
+                    Some(&entry.name),
+                    err,
+                )]
+            })?;
             apply_metadata(&output, entry, options, true)?;
         }
         S_IFLNK => {
             let target = PathBuf::from(String::from_utf8_lossy(&entry.data).into_owned());
-            symlink(&target, &output)
-                .map_err(|err| vec![AppletError::from_io(APPLET, "creating", Some(&entry.name), err)])?;
+            symlink(&target, &output).map_err(|err| {
+                vec![AppletError::from_io(
+                    APPLET,
+                    "creating",
+                    Some(&entry.name),
+                    err,
+                )]
+            })?;
             apply_metadata(&output, entry, options, false)?;
         }
         S_IFREG if entry.nlink > 1 && entry.data.is_empty() => {
             if let Some(target) = hardlinks.get(&link_key) {
-                fs::hard_link(target, &output)
-                    .map_err(|err| vec![AppletError::from_io(APPLET, "creating", Some(&entry.name), err)])?;
+                fs::hard_link(target, &output).map_err(|err| {
+                    vec![AppletError::from_io(
+                        APPLET,
+                        "creating",
+                        Some(&entry.name),
+                        err,
+                    )]
+                })?;
             } else {
-                File::create(&output)
-                    .map_err(|err| vec![AppletError::from_io(APPLET, "creating", Some(&entry.name), err)])?;
+                File::create(&output).map_err(|err| {
+                    vec![AppletError::from_io(
+                        APPLET,
+                        "creating",
+                        Some(&entry.name),
+                        err,
+                    )]
+                })?;
                 hardlinks.insert(link_key, output.clone());
             }
             apply_metadata(&output, entry, options, false)?;
@@ -688,9 +812,22 @@ fn extract_entry(
                 .truncate(true)
                 .write(true)
                 .open(&output)
-                .map_err(|err| vec![AppletError::from_io(APPLET, "creating", Some(&entry.name), err)])?;
-            file.write_all(&entry.data)
-                .map_err(|err| vec![AppletError::from_io(APPLET, "writing", Some(&entry.name), err)])?;
+                .map_err(|err| {
+                    vec![AppletError::from_io(
+                        APPLET,
+                        "creating",
+                        Some(&entry.name),
+                        err,
+                    )]
+                })?;
+            file.write_all(&entry.data).map_err(|err| {
+                vec![AppletError::from_io(
+                    APPLET,
+                    "writing",
+                    Some(&entry.name),
+                    err,
+                )]
+            })?;
             hardlinks.insert(link_key, output.clone());
             apply_metadata(&output, entry, options, false)?;
         }
@@ -754,8 +891,14 @@ fn ensure_parent_dirs(base: &Path, path: &Path, create_dirs: bool) -> Result<(),
                 )]);
             }
             Err(err) if err.kind() == io::ErrorKind::NotFound && create_dirs => {
-                fs::create_dir(&current)
-                    .map_err(|io_err| vec![AppletError::from_io(APPLET, "creating", Some(&current.display().to_string()), io_err)])?;
+                fs::create_dir(&current).map_err(|io_err| {
+                    vec![AppletError::from_io(
+                        APPLET,
+                        "creating",
+                        Some(&current.display().to_string()),
+                        io_err,
+                    )]
+                })?;
             }
             Err(err) if err.kind() == io::ErrorKind::NotFound => {
                 return Err(vec![AppletError::new(
@@ -776,7 +919,11 @@ fn ensure_parent_dirs(base: &Path, path: &Path, create_dirs: bool) -> Result<(),
     Ok(())
 }
 
-fn remove_existing_if_needed(path: &Path, overwrite: bool, want_dir: bool) -> Result<(), Vec<AppletError>> {
+fn remove_existing_if_needed(
+    path: &Path,
+    overwrite: bool,
+    want_dir: bool,
+) -> Result<(), Vec<AppletError>> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
@@ -801,11 +948,23 @@ fn remove_existing_if_needed(path: &Path, overwrite: bool, want_dir: bool) -> Re
     }
 
     if metadata.is_dir() && !metadata.file_type().is_symlink() {
-        fs::remove_dir_all(path)
-            .map_err(|err| vec![AppletError::from_io(APPLET, "removing", Some(&path.display().to_string()), err)])?;
+        fs::remove_dir_all(path).map_err(|err| {
+            vec![AppletError::from_io(
+                APPLET,
+                "removing",
+                Some(&path.display().to_string()),
+                err,
+            )]
+        })?;
     } else {
-        fs::remove_file(path)
-            .map_err(|err| vec![AppletError::from_io(APPLET, "removing", Some(&path.display().to_string()), err)])?;
+        fs::remove_file(path).map_err(|err| {
+            vec![AppletError::from_io(
+                APPLET,
+                "removing",
+                Some(&path.display().to_string()),
+                err,
+            )]
+        })?;
     }
     Ok(())
 }
@@ -821,15 +980,32 @@ fn create_special_file(path: &Path, entry: &ArchiveEntry) -> Result<(), Vec<Appl
     } else {
         Err(vec![AppletError::new(
             APPLET,
-            format!("creating {}: {}", path.display(), io::Error::last_os_error()),
+            format!(
+                "creating {}: {}",
+                path.display(),
+                io::Error::last_os_error()
+            ),
         )])
     }
 }
 
-fn apply_metadata(path: &Path, entry: &ArchiveEntry, options: &Options, is_dir: bool) -> Result<(), Vec<AppletError>> {
+fn apply_metadata(
+    path: &Path,
+    entry: &ArchiveEntry,
+    options: &Options,
+    is_dir: bool,
+) -> Result<(), Vec<AppletError>> {
     if entry.mode & MODE_MASK != S_IFLNK {
-        fs::set_permissions(path, fs::Permissions::from_mode(entry.mode & 0o7777))
-            .map_err(|err| vec![AppletError::from_io(APPLET, "chmod", Some(&path.display().to_string()), err)])?;
+        fs::set_permissions(path, fs::Permissions::from_mode(entry.mode & 0o7777)).map_err(
+            |err| {
+                vec![AppletError::from_io(
+                    APPLET,
+                    "chmod",
+                    Some(&path.display().to_string()),
+                    err,
+                )]
+            },
+        )?;
     }
 
     if options.preserve_mtime {
@@ -885,7 +1061,11 @@ fn set_mtime(path: &Path, seconds: i64, symlink_path: bool) -> Result<(), Vec<Ap
             tv_nsec: 0,
         },
     ];
-    let flags = if symlink_path { libc::AT_SYMLINK_NOFOLLOW } else { 0 };
+    let flags = if symlink_path {
+        libc::AT_SYMLINK_NOFOLLOW
+    } else {
+        0
+    };
     // SAFETY: `c_path` is NUL-terminated and `times` points to two valid timestamps.
     let rc = unsafe { libc::utimensat(libc::AT_FDCWD, c_path.as_ptr(), times.as_ptr(), flags) };
     if rc == 0 {
@@ -893,7 +1073,11 @@ fn set_mtime(path: &Path, seconds: i64, symlink_path: bool) -> Result<(), Vec<Ap
     } else {
         Err(vec![AppletError::new(
             APPLET,
-            format!("utimensat {}: {}", path.display(), io::Error::last_os_error()),
+            format!(
+                "utimensat {}: {}",
+                path.display(),
+                io::Error::last_os_error()
+            ),
         )])
     }
 }

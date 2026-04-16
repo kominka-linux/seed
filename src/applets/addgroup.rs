@@ -21,11 +21,11 @@ enum Command {
     },
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let command = parse_args(args)?;
     let paths = account_paths();
     let passwd = read_passwd(&paths.passwd)
@@ -45,13 +45,13 @@ fn run(args: &[String]) -> AppletResult {
         .map_err(|err| vec![AppletError::from_io(APPLET, "writing", Some("group"), err)])
 }
 
-fn parse_args(args: &[String]) -> Result<Command, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Command, Vec<AppletError>> {
     let mut cursor = ArgCursor::new(args);
     let mut gid = None;
     let mut system = false;
     let mut operands = Vec::new();
 
-    while let Some(arg) = cursor.next_arg() {
+    while let Some(arg) = cursor.next_arg(APPLET)? {
         match arg {
             ArgToken::Operand(value) => operands.push(value.to_string()),
             ArgToken::ShortFlags(flags) => {
@@ -169,9 +169,10 @@ fn parse_id(value: &str, kind: &str) -> Result<u32, Vec<AppletError>> {
 mod tests {
     use super::{Command, add_user_to_group, create_group, parse_args};
     use crate::common::account::{GroupEntry, GroupRecord, PasswdEntry, PasswdRecord};
+    use std::ffi::OsString;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(OsString::from).collect()
     }
 
     fn passwd_record(name: &str) -> PasswdRecord {

@@ -1,12 +1,13 @@
 use std::io::Write;
 
 use crate::common::applet::fail;
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::io::stdout;
 
 const APPLET: &str = "expr";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     match run(args) {
         Ok(value) => {
             let mut out = stdout();
@@ -18,18 +19,23 @@ pub fn main(args: &[String]) -> i32 {
                 eprintln!("{APPLET}: writing stdout failed");
                 return 2;
             }
-            if value.is_truthy() { 0 } else { 1 }
+            if value.is_truthy() {
+                0
+            } else {
+                1
+            }
         }
         Err(errors) => fail(errors, 2),
     }
 }
 
-fn run(args: &[String]) -> Result<Value, Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<Value, Vec<AppletError>> {
+    let args = argv_to_strings(APPLET, args)?;
     if args.is_empty() {
         return Err(vec![AppletError::new(APPLET, "missing operand")]);
     }
 
-    let mut parser = Parser::new(args);
+    let mut parser = Parser::new(&args);
     let value = parser.parse_or()?;
     if parser.peek().is_some() {
         return Err(vec![AppletError::new(APPLET, "syntax error")]);
@@ -224,10 +230,10 @@ fn compare_values(left: &Value, op: &str, right: &Value) -> Result<bool, Vec<App
 
 #[cfg(test)]
 mod tests {
-    use super::{Value, run};
+    use super::{run, Value};
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

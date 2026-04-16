@@ -8,11 +8,11 @@ const APPLET: &str = "man";
 const MAN_PATH: &str = "/usr/bin/man";
 const MAN_PROGRAM_ENV: &str = "SEED_MAN_PROGRAM";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args))
 }
 
-fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
+fn run(args: &[std::ffi::OsString]) -> Result<i32, Vec<AppletError>> {
     if args.is_empty() {
         return Err(vec![AppletError::new(APPLET, "missing operand")]);
     }
@@ -24,7 +24,7 @@ fn man_program() -> String {
     std::env::var(MAN_PROGRAM_ENV).unwrap_or_else(|_| MAN_PATH.to_string())
 }
 
-fn run_with_program(program: &str, args: &[String]) -> Result<i32, Vec<AppletError>> {
+fn run_with_program(program: &str, args: &[std::ffi::OsString]) -> Result<i32, Vec<AppletError>> {
     let status = Command::new(program)
         .args(args)
         .status()
@@ -52,8 +52,8 @@ mod tests {
 
     use super::{MAN_PATH, man_program, run, run_with_program};
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
     }
 
     #[test]

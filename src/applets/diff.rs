@@ -3,6 +3,7 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::path::Path;
 
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 use crate::common::io::open_input;
 
@@ -37,7 +38,7 @@ enum Outcome {
     Different,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     match run(args) {
         Ok(code) => code,
         Err(message) => {
@@ -47,8 +48,9 @@ pub fn main(args: &[String]) -> i32 {
     }
 }
 
-fn run(args: &[String]) -> Result<i32, String> {
-    let (options, paths) = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> Result<i32, String> {
+    let args = argv_to_strings(APPLET, args).map_err(|errors| errors[0].to_string())?;
+    let (options, paths) = parse_args(&args)?;
     if paths.len() != 2 {
         return Err("missing operand".to_owned());
     }

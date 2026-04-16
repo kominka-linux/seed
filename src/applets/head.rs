@@ -1,49 +1,33 @@
 use std::io::{self, BufRead, BufReader, Read, Write};
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
 use crate::common::io::{BUFFER_SIZE, open_input, stdout};
 
 const APPLET: &str = "head";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let mut lines: Option<i64> = None;
     let mut bytes: Option<i64> = None;
     let mut quiet = false;
     let mut verbose = false;
     let mut paths: Vec<&str> = Vec::new();
-    let mut i = 0;
+    let mut cursor = ArgCursor::new(args);
 
-    while i < args.len() {
-        let arg = &args[i];
-        match arg.as_str() {
-            "--" => {
-                i += 1;
-                while i < args.len() {
-                    paths.push(&args[i]);
-                    i += 1;
-                }
-                break;
-            }
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        match arg {
             "-q" | "--quiet" | "--silent" => quiet = true,
             "-v" | "--verbose" => verbose = true,
             "-n" | "--lines" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "n")]);
-                }
-                lines = Some(parse_count(APPLET, &args[i])?);
+                lines = Some(parse_count(APPLET, cursor.next_value(APPLET, "n")?)?);
             }
             "-c" | "--bytes" => {
-                i += 1;
-                if i >= args.len() {
-                    return Err(vec![AppletError::option_requires_arg(APPLET, "c")]);
-                }
-                bytes = Some(parse_count(APPLET, &args[i])?);
+                bytes = Some(parse_count(APPLET, cursor.next_value(APPLET, "c")?)?);
             }
             // -NUM shorthand: head -5 ≡ head -n 5
             a if a.starts_with('-')
@@ -63,7 +47,6 @@ fn run(args: &[String]) -> AppletResult {
             }
             _ => paths.push(arg),
         }
-        i += 1;
     }
 
     let n = lines.unwrap_or(10);

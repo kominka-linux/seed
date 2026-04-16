@@ -2,16 +2,18 @@ use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::Command;
 
 use crate::common::applet::finish_code;
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "setsid";
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args))
 }
 
-fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
-    let (command, rest) = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> Result<i32, Vec<AppletError>> {
+    let args = argv_to_strings(APPLET, args)?;
+    let (command, rest) = parse_args(&args)?;
     let mut child = Command::new(command);
     child.args(rest);
 
@@ -54,10 +56,16 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
+
     use super::{parse_args, run};
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
+    }
+
+    fn os_args(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(OsString::from).collect()
     }
 
     #[test]
@@ -70,7 +78,7 @@ mod tests {
 
     #[test]
     fn propagates_child_exit_code() {
-        let code = run(&args(&["sh", "-c", "exit 7"])).expect("run setsid");
+        let code = run(&os_args(&["sh", "-c", "exit 7"])).expect("run setsid");
         assert_eq!(code, 7);
     }
 }

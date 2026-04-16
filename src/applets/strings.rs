@@ -1,35 +1,26 @@
 use std::io::Read;
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::ArgCursor;
 use crate::common::error::AppletError;
 use crate::common::io::{open_input, stdout};
 
 const APPLET: &str = "strings";
 const DEFAULT_MIN_LEN: usize = 4;
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let mut min_len = DEFAULT_MIN_LEN;
     let mut paths: Vec<&str> = Vec::new();
-    let mut i = 0;
+    let mut cursor = ArgCursor::new(args);
 
-    while i < args.len() {
-        let arg = &args[i];
-        match arg.as_str() {
-            "--" => {
-                for arg in &args[i + 1..] {
-                    paths.push(arg);
-                }
-                break;
-            }
+    while let Some(arg) = cursor.next_token(APPLET)? {
+        match arg {
             "-n" | "--bytes" => {
-                i += 1;
-                let val = args
-                    .get(i)
-                    .ok_or_else(|| vec![AppletError::option_requires_arg(APPLET, "-n")])?;
+                let val = cursor.next_value(APPLET, "-n")?;
                 min_len = val.parse().map_err(|_| {
                     vec![AppletError::new(
                         APPLET,
@@ -65,7 +56,6 @@ fn run(args: &[String]) -> AppletResult {
             }
             a => paths.push(a),
         }
-        i += 1;
     }
 
     let paths: Vec<&str> = if paths.is_empty() { vec!["-"] } else { paths };
@@ -133,9 +123,10 @@ fn extract_strings<W: std::io::Write>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
 
-    fn args(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
+    fn args(v: &[&str]) -> Vec<OsString> {
+        v.iter().map(OsString::from).collect()
     }
 
     fn extract(data: &[u8], min_len: usize) -> String {

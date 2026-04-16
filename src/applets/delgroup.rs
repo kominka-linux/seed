@@ -1,8 +1,9 @@
 use crate::common::account::{
-    GroupRecord, account_paths, find_group, group_has_member, passwd_entries, read_group,
-    read_passwd, write_group,
+    account_paths, find_group, group_has_member, passwd_entries, read_group, read_passwd,
+    write_group, GroupRecord,
 };
-use crate::common::applet::{AppletResult, finish};
+use crate::common::applet::{finish, AppletResult};
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "delgroup";
@@ -13,12 +14,13 @@ enum Command {
     RemoveUser { user: String, group: String },
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
-    let command = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
+    let args = argv_to_strings(APPLET, args)?;
+    let command = parse_args(&args)?;
     let paths = account_paths();
     let passwd = read_passwd(&paths.passwd)
         .map_err(|err| vec![AppletError::from_io(APPLET, "reading", Some("passwd"), err)])?;
@@ -27,7 +29,9 @@ fn run(args: &[String]) -> AppletResult {
 
     match command {
         Command::DeleteGroup { group: name } => delete_group(&passwd, &mut group, &name)?,
-        Command::RemoveUser { user, group: name } => remove_user_from_group(&mut group, &user, &name)?,
+        Command::RemoveUser { user, group: name } => {
+            remove_user_from_group(&mut group, &user, &name)?
+        }
     }
 
     write_group(&paths.group, &group)
@@ -63,7 +67,10 @@ fn delete_group(
     if let Some(user) = passwd_entries(passwd).find(|user| user.gid == entry.gid) {
         return Err(vec![AppletError::new(
             APPLET,
-            format!("'{name}' still has '{}' as their primary group!", user.username),
+            format!(
+                "'{name}' still has '{}' as their primary group!",
+                user.username
+            ),
         )]);
     }
 
@@ -94,7 +101,7 @@ fn remove_user_from_group(group: &mut [GroupRecord], user: &str, name: &str) -> 
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, parse_args};
+    use super::{parse_args, Command};
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()

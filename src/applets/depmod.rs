@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::common::applet::{AppletResult, finish};
+use crate::common::args::{ParsedArg, Parser};
 use crate::common::error::AppletError;
 use crate::common::modules::{ModuleIndex, module_tree_dir};
 
@@ -13,11 +14,11 @@ struct Options {
     release: Option<String>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish(run(args))
 }
 
-fn run(args: &[String]) -> AppletResult {
+fn run(args: &[std::ffi::OsString]) -> AppletResult {
     let options = parse_args(args)?;
     let root = module_tree_dir(options.release.as_deref()).map_err(|err| vec![map_module_error(err)])?;
     let index = ModuleIndex::scan(&root)
@@ -36,19 +37,28 @@ fn run(args: &[String]) -> AppletResult {
     Ok(())
 }
 
-fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut options = Options::default();
-    for arg in args {
-        match arg.as_str() {
-            "-n" => options.dry_run = true,
-            _ if arg.starts_with('-') => {
-                return Err(vec![AppletError::invalid_option(
+    let mut parser = Parser::new(APPLET, args);
+    while let Some(arg) = parser.next_arg()? {
+        match arg {
+            ParsedArg::Short('n') => options.dry_run = true,
+            ParsedArg::Short(flag) => return Err(vec![AppletError::invalid_option(APPLET, flag)]),
+            ParsedArg::Long(name) => {
+                return Err(vec![AppletError::unrecognized_option(
                     APPLET,
-                    arg.chars().nth(1).unwrap_or('-'),
-                )]);
+                    &format!("--{name}"),
+                )])
             }
-            _ if options.release.is_none() => options.release = Some(arg.clone()),
-            _ => return Err(vec![AppletError::new(APPLET, "extra operand")]),
+            ParsedArg::Value(arg) if options.release.is_none() => {
+                options.release = Some(arg.into_string().map_err(|arg| {
+                    vec![AppletError::new(
+                        APPLET,
+                        format!("argument is invalid unicode: {:?}", arg),
+                    )]
+                })?)
+            }
+            ParsedArg::Value(_) => return Err(vec![AppletError::new(APPLET, "extra operand")]),
         }
     }
     Ok(options)

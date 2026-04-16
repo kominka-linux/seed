@@ -1,9 +1,11 @@
 
 use std::collections::BTreeSet;
+use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
 
 use crate::common::applet::finish_code;
+use crate::common::args::Parser;
 use crate::common::error::AppletError;
 use crate::common::fstab;
 
@@ -30,15 +32,15 @@ struct Options {
     devices: Vec<String>,
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(Action::Swapon, args))
 }
 
-pub fn main_swapoff(args: &[String]) -> i32 {
+pub fn main_swapoff(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(Action::Swapoff, args))
 }
 
-fn run(action: Action, args: &[String]) -> Result<i32, Vec<AppletError>> {
+fn run(action: Action, args: &[std::ffi::OsString]) -> Result<i32, Vec<AppletError>> {
     let options = parse_args(action, args)?;
     let devices = selected_devices(action, &options)?;
     if devices.is_empty() {
@@ -63,21 +65,21 @@ fn run(action: Action, args: &[String]) -> Result<i32, Vec<AppletError>> {
     Ok(exit_code)
 }
 
-fn parse_args(action: Action, args: &[String]) -> Result<Options, Vec<AppletError>> {
+fn parse_args(action: Action, args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> {
     let mut options = Options::default();
-    let mut index = 0;
+    let mut parser = Parser::new(action.applet_name(), args);
+    let mut args = parser.raw_args()?;
 
-    while index < args.len() {
-        let arg = &args[index];
-        index += 1;
+    while let Some(arg) = args.next() {
+        let arg = to_string(action.applet_name(), arg)?;
         match arg.as_str() {
             "-a" => options.all = true,
             "-e" if action == Action::Swapon => options.if_exists = true,
             "-p" if action == Action::Swapon => {
-                let Some(value) = args.get(index) else {
+                let Some(value) = args.next() else {
                     return Err(vec![AppletError::option_requires_arg(APPLET_SWAPON, "p")]);
                 };
-                index += 1;
+                let value = to_string(action.applet_name(), value)?;
                 options.priority = Some(value.parse::<i32>().map_err(|_| {
                     vec![AppletError::new(
                         APPLET_SWAPON,
@@ -111,6 +113,15 @@ fn parse_args(action: Action, args: &[String]) -> Result<Options, Vec<AppletErro
     }
 
     Ok(options)
+}
+
+fn to_string(applet: &'static str, value: OsString) -> Result<String, Vec<AppletError>> {
+    value.into_string().map_err(|value| {
+        vec![AppletError::new(
+            applet,
+            format!("argument is invalid unicode: {:?}", value),
+        )]
+    })
 }
 
 fn selected_devices(action: Action, options: &Options) -> Result<Vec<String>, Vec<AppletError>> {
@@ -262,10 +273,11 @@ unsafe extern "C" {
 mod tests {
     use super::{Action, Options, effective_swapon_flags, parse_args, selected_devices, swapon_flags};
     use crate::common::test_env;
+    use std::ffi::OsString;
     use std::fs;
 
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn args(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(|value| OsString::from(value)).collect()
     }
 
     #[test]

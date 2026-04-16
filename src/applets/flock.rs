@@ -4,6 +4,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::process::Command;
 
 use crate::common::applet::finish_code;
+use crate::common::args::argv_to_strings;
 use crate::common::error::AppletError;
 
 const APPLET: &str = "flock";
@@ -28,12 +29,13 @@ enum CommandSpec {
     Shell(String),
 }
 
-pub fn main(args: &[String]) -> i32 {
+pub fn main(args: &[std::ffi::OsString]) -> i32 {
     finish_code(run(args))
 }
 
-fn run(args: &[String]) -> Result<i32, Vec<AppletError>> {
-    let options = parse_args(args)?;
+fn run(args: &[std::ffi::OsString]) -> Result<i32, Vec<AppletError>> {
+    let args = argv_to_strings(APPLET, args)?;
+    let options = parse_args(&args)?;
     let file = OpenOptions::new()
         .read(true)
         .write(true)
@@ -169,7 +171,7 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{CommandSpec, LockMode, Options, parse_args};
+    use super::{parse_args, CommandSpec, LockMode, Options};
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()

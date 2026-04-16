@@ -1,0 +1,8 @@
+mkdir src dst
+printf 'ok\n' > src/file
+
+busybox cp -RT src dst
+
+test -f dst/file
+test ! -e dst/src
+cmp -s src/file dst/file

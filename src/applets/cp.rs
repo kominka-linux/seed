@@ -16,6 +16,7 @@ struct Options {
     preserve_mode: bool,
     preserve_timestamps: bool,
     parents: bool,
+    no_target_directory: bool,
 }
 
 pub fn main(args: &[String]) -> i32 {
@@ -25,9 +26,10 @@ pub fn main(args: &[String]) -> i32 {
 fn run(args: &[String]) -> AppletResult {
     let (options, sources, destination) = parse_args(args)?;
     let destination_path = Path::new(&destination);
-    let dest_is_dir = fs::metadata(destination_path)
-        .map(|metadata| metadata.is_dir())
-        .unwrap_or(false);
+    let dest_is_dir = !options.no_target_directory
+        && fs::metadata(destination_path)
+            .map(|metadata| metadata.is_dir())
+            .unwrap_or(false);
 
     if sources.len() > 1 && !dest_is_dir {
         return Err(vec![AppletError::new(
@@ -88,6 +90,7 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>, String), Vec<App
     let mut preserve_mode = false;
     let mut preserve_timestamps = false;
     let mut parents = false;
+    let mut no_target_directory = false;
     let mut want_never = false;
     let mut want_command_line = false;
     let mut want_always = false;
@@ -102,6 +105,10 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>, String), Vec<App
 
         if parsing_flags && arg == "--parents" {
             parents = true;
+            continue;
+        }
+        if parsing_flags && (arg == "-T" || arg == "--no-target-directory") {
+            no_target_directory = true;
             continue;
         }
 
@@ -126,6 +133,7 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>, String), Vec<App
                         preserve_mode = true;
                         preserve_timestamps = true;
                     }
+                    'T' => no_target_directory = true,
                     'f' => {}
                     _ => {
                         return Err(vec![AppletError::invalid_option(APPLET, flag)]);
@@ -161,6 +169,7 @@ fn parse_args(args: &[String]) -> Result<(Options, Vec<String>, String), Vec<App
             preserve_mode,
             preserve_timestamps,
             parents,
+            no_target_directory,
         },
         paths,
         destination,
@@ -229,6 +238,15 @@ mod tests {
         let (options, _, _) = parse(&["-R", "src", "dest"]);
         assert!(options.recursive);
         assert_eq!(options.dereference, Dereference::Never);
+    }
+
+    #[test]
+    fn parses_no_target_directory() {
+        let (options, _, _) = parse(&["-T", "src", "dest"]);
+        assert!(options.no_target_directory);
+
+        let (options, _, _) = parse(&["--no-target-directory", "src", "dest"]);
+        assert!(options.no_target_directory);
     }
 
     #[test]

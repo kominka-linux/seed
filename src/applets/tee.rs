@@ -50,19 +50,19 @@ fn run(args: &[std::ffi::OsString]) -> AppletResult {
             break;
         }
         for writer in &mut writers {
-            writer
-                .write_all(&buf[..read])
-                .map_err(|err| vec![AppletError::from_io(APPLET, "writing", None, err)])?;
+            if let Err(err) = writer.write_all(&buf[..read]) {
+                errors.push(AppletError::from_io(APPLET, "writing", None, err));
+            }
         }
     }
 
     for writer in &mut writers {
-        writer
-            .flush()
-            .map_err(|err| vec![AppletError::from_io(APPLET, "flushing", None, err)])?;
+        if let Err(err) = writer.flush() {
+            errors.push(AppletError::from_io(APPLET, "flushing", None, err));
+        }
     }
 
-    Ok(())
+    if errors.is_empty() { Ok(()) } else { Err(errors) }
 }
 
 fn parse_args(args: &[String]) -> Result<(Options, Vec<String>), Vec<AppletError>> {

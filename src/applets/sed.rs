@@ -744,11 +744,11 @@ fn load_input_file(path: &str) -> Result<InputFile, String> {
 
 fn read_to_string(path: &str) -> Result<String, String> {
     let mut reader = open_input(path).map_err(|err| format!("reading {path}: {err}"))?;
-    let mut content = String::new();
+    let mut bytes = Vec::new();
     reader
-        .read_to_string(&mut content)
+        .read_to_end(&mut bytes)
         .map_err(|err| format!("reading {path}: {err}"))?;
-    Ok(content)
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 fn split_lines(content: &str) -> Vec<Line> {

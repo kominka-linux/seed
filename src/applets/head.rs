@@ -39,6 +39,13 @@ fn run(args: &[std::ffi::OsString]) -> AppletResult {
             {
                 lines = Some(parse_count(APPLET, &a[1..])?);
             }
+            // -n<N> and -c<N> attached forms: head -n1 ≡ head -n 1
+            a if a.starts_with("-n") && a.len() > 2 => {
+                lines = Some(parse_count(APPLET, &a[2..])?);
+            }
+            a if a.starts_with("-c") && a.len() > 2 => {
+                bytes = Some(parse_count(APPLET, &a[2..])?);
+            }
             a if a.starts_with('-') && a.len() > 1 => {
                 return Err(vec![AppletError::invalid_option(
                     APPLET,

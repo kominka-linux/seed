@@ -143,7 +143,26 @@ fn parse_atom(bytes: &[u8], index: &mut usize) -> Result<u8, Vec<AppletError>> {
     Ok(match escaped {
         b'n' => b'\n',
         b't' => b'\t',
+        b'r' => b'\r',
+        b'a' => b'\x07',
+        b'b' => b'\x08',
+        b'f' => b'\x0C',
+        b'v' => b'\x0B',
         b'\\' => b'\\',
+        d @ b'0'..=b'7' => {
+            // Octal escape: up to 3 digits total (the first was already consumed as `d`).
+            let mut val = (d - b'0') as u32;
+            for _ in 0..2 {
+                match bytes.get(*index) {
+                    Some(&d2 @ b'0'..=b'7') => {
+                        val = val * 8 + (d2 - b'0') as u32;
+                        *index += 1;
+                    }
+                    _ => break,
+                }
+            }
+            val as u8
+        }
         other => other,
     })
 }

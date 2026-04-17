@@ -152,10 +152,10 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_mul(&mut self) -> Result<Value, Vec<AppletError>> {
-        let mut value = self.parse_primary()?;
+        let mut value = self.parse_match()?;
         while let Some(op @ ("*" | "/" | "%")) = self.peek() {
             self.index += 1;
-            let rhs = self.parse_primary()?;
+            let rhs = self.parse_match()?;
             let left = value.as_int()?;
             let right = rhs.as_int()?;
             value = Value::Int(match op {
@@ -176,6 +176,17 @@ impl<'a> Parser<'a> {
             });
         }
         Ok(value)
+    }
+
+    fn parse_match(&mut self) -> Result<Value, Vec<AppletError>> {
+        let value = self.parse_primary()?;
+        if self.peek() != Some(":") {
+            return Ok(value);
+        }
+        self.index += 1;
+        let pattern = self.parse_primary()?;
+        bre_apply(value.text().as_bytes(), pattern.text().as_bytes())
+            .map_err(|e| vec![AppletError::new(APPLET, e)])
     }
 
     fn parse_primary(&mut self) -> Result<Value, Vec<AppletError>> {
@@ -228,9 +239,245 @@ fn compare_values(left: &Value, op: &str, right: &Value) -> Result<bool, Vec<App
     })
 }
 
+// BRE (Basic Regular Expressions) engine for the ':' operator.
+// Anchored at the start of the string; returns the captured group \(...\)
+// content if present, otherwise the match length.
+
+#[derive(Debug, Clone)]
+enum BreAtom {
+    Lit(u8),
+    Any,
+    Class { negated: bool, items: Vec<BreClassItem> },
+    Group(Vec<BreFrag>),
+}
+
+#[derive(Debug, Clone)]
+enum BreClassItem {
+    Byte(u8),
+    Range(u8, u8),
+}
+
+#[derive(Debug, Clone)]
+struct BreFrag {
+    atom: BreAtom,
+    star: bool,
+}
+
+fn bre_apply(s: &[u8], p: &[u8]) -> Result<Value, String> {
+    let frags = bre_parse(p)?;
+    let has_group = frags_have_group(&frags);
+    let mut cap_start: Option<usize> = None;
+    let mut cap_end: Option<usize> = None;
+
+    match bre_exec(&frags, s, 0, &mut cap_start, &mut cap_end) {
+        Some(match_end) => {
+            if has_group {
+                let text = match (cap_start, cap_end) {
+                    (Some(a), Some(b)) => String::from_utf8_lossy(&s[a..b]).into_owned(),
+                    _ => String::new(),
+                };
+                Ok(Value::Str(text))
+            } else {
+                Ok(Value::Int(match_end as i64))
+            }
+        }
+        None => {
+            if has_group {
+                Ok(Value::Str(String::new()))
+            } else {
+                Ok(Value::Int(0))
+            }
+        }
+    }
+}
+
+fn frags_have_group(frags: &[BreFrag]) -> bool {
+    frags.iter().any(|f| match &f.atom {
+        BreAtom::Group(_) => true,
+        _ => false,
+    })
+}
+
+fn bre_parse(p: &[u8]) -> Result<Vec<BreFrag>, String> {
+    let mut i = 0;
+    bre_parse_frags(p, &mut i, false)
+}
+
+fn bre_parse_frags(p: &[u8], i: &mut usize, in_group: bool) -> Result<Vec<BreFrag>, String> {
+    let mut frags = Vec::new();
+    while *i < p.len() {
+        // End of group: \)
+        if in_group && p[*i] == b'\\' && *i + 1 < p.len() && p[*i + 1] == b')' {
+            *i += 2;
+            return Ok(frags);
+        }
+
+        let atom = if p[*i] == b'.' {
+            *i += 1;
+            BreAtom::Any
+        } else if p[*i] == b'[' {
+            *i += 1;
+            let (items, negated, next) = bre_parse_class(p, *i)?;
+            *i = next;
+            BreAtom::Class { negated, items }
+        } else if p[*i] == b'\\' && *i + 1 < p.len() {
+            *i += 1;
+            match p[*i] {
+                b'(' => {
+                    *i += 1;
+                    let inner = bre_parse_frags(p, i, true)?;
+                    BreAtom::Group(inner)
+                }
+                b => {
+                    *i += 1;
+                    BreAtom::Lit(b)
+                }
+            }
+        } else {
+            let b = p[*i];
+            *i += 1;
+            BreAtom::Lit(b)
+        };
+
+        let star = *i < p.len() && p[*i] == b'*';
+        if star {
+            *i += 1;
+        }
+        frags.push(BreFrag { atom, star });
+    }
+
+    if in_group {
+        return Err("unterminated BRE group".to_owned());
+    }
+    Ok(frags)
+}
+
+fn bre_parse_class(p: &[u8], mut i: usize) -> Result<(Vec<BreClassItem>, bool, usize), String> {
+    let negated = i < p.len() && p[i] == b'^';
+    if negated {
+        i += 1;
+    }
+    let mut items = Vec::new();
+    // A `]` as the first char in the class is treated as a literal.
+    let mut first = true;
+    while i < p.len() {
+        if !first && p[i] == b']' {
+            return Ok((items, negated, i + 1));
+        }
+        first = false;
+        if p[i] == b'\\' && i + 1 < p.len() {
+            i += 1;
+            items.push(BreClassItem::Byte(p[i]));
+            i += 1;
+        } else if i + 2 < p.len() && p[i + 1] == b'-' && p[i + 2] != b']' {
+            items.push(BreClassItem::Range(p[i], p[i + 2]));
+            i += 3;
+        } else {
+            items.push(BreClassItem::Byte(p[i]));
+            i += 1;
+        }
+    }
+    Err("unterminated character class".to_owned())
+}
+
+fn bre_exec(
+    frags: &[BreFrag],
+    s: &[u8],
+    pos: usize,
+    cs: &mut Option<usize>,
+    ce: &mut Option<usize>,
+) -> Option<usize> {
+    if frags.is_empty() {
+        return Some(pos);
+    }
+    let frag = &frags[0];
+    let rest = &frags[1..];
+
+    if let BreAtom::Group(inner) = &frag.atom {
+        // Groups are not quantified in standard BRE; ignore frag.star.
+        let save_cs = *cs;
+        let save_ce = *ce;
+        *cs = Some(pos);
+        if let Some(end) = bre_exec(inner, s, pos, cs, ce) {
+            *ce = Some(end);
+            if let Some(result) = bre_exec(rest, s, end, cs, ce) {
+                return Some(result);
+            }
+        }
+        *cs = save_cs;
+        *ce = save_ce;
+        return None;
+    }
+
+    if frag.star {
+        // Greedy: collect all positions atom* can end at, try longest first.
+        let mut ends: Vec<usize> = vec![pos];
+        let mut cur = pos;
+        while let Some(next) = bre_match_atom(&frag.atom, s, cur) {
+            if next == cur {
+                break;
+            }
+            ends.push(next);
+            cur = next;
+        }
+        for &end in ends.iter().rev() {
+            let save_cs = *cs;
+            let save_ce = *ce;
+            if let Some(result) = bre_exec(rest, s, end, cs, ce) {
+                return Some(result);
+            }
+            *cs = save_cs;
+            *ce = save_ce;
+        }
+        return None;
+    }
+
+    let end = bre_match_atom(&frag.atom, s, pos)?;
+    bre_exec(rest, s, end, cs, ce)
+}
+
+fn bre_match_atom(atom: &BreAtom, s: &[u8], pos: usize) -> Option<usize> {
+    match atom {
+        BreAtom::Lit(b) => {
+            if pos < s.len() && s[pos] == *b {
+                Some(pos + 1)
+            } else {
+                None
+            }
+        }
+        BreAtom::Any => {
+            if pos < s.len() {
+                Some(pos + 1)
+            } else {
+                None
+            }
+        }
+        BreAtom::Class { negated, items } => {
+            if pos >= s.len() {
+                return None;
+            }
+            let matched = items.iter().any(|item| match item {
+                BreClassItem::Byte(b) => s[pos] == *b,
+                BreClassItem::Range(lo, hi) => s[pos] >= *lo && s[pos] <= *hi,
+            });
+            let matched = if *negated { !matched } else { matched };
+            if matched {
+                Some(pos + 1)
+            } else {
+                None
+            }
+        }
+        BreAtom::Group(inner) => {
+            let mut dummy_cs = None;
+            let mut dummy_ce = None;
+            bre_exec(inner, s, pos, &mut dummy_cs, &mut dummy_ce)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{run, Value};
+    use super::{Value, bre_apply, run};
 
     fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
         values.iter().map(std::ffi::OsString::from).collect()
@@ -258,5 +505,87 @@ mod tests {
             run(&args(&["-9223372036854775800", "<", "9223372036854775807"])).unwrap(),
             Value::Int(1)
         );
+    }
+
+    #[test]
+    fn match_length_with_no_group() {
+        // expr "Xfoo" : 'X.' → 2 (X + one char matched)
+        assert_eq!(bre_apply(b"Xfoo", b"X.").unwrap(), Value::Int(2));
+        // expr "Xfoo" : 'X' → 1
+        assert_eq!(bre_apply(b"Xfoo", b"X").unwrap(), Value::Int(1));
+        // no match → 0
+        assert_eq!(bre_apply(b"Xfoo", b"Y").unwrap(), Value::Int(0));
+    }
+
+    #[test]
+    fn match_group_capture() {
+        // expr "Xfoo" : 'X\(.*\)' → "foo"
+        assert_eq!(
+            bre_apply(b"Xfoo", b"X\\(.*\\)").unwrap(),
+            Value::Str("foo".to_owned())
+        );
+        // no match → ""
+        assert_eq!(
+            bre_apply(b"Xfoo", b"Y\\(.*\\)").unwrap(),
+            Value::Str(String::new())
+        );
+    }
+
+    #[test]
+    fn match_strip_trailing_slash() {
+        // autoconf pattern: strip trailing slash from "/path/"
+        assert_eq!(
+            bre_apply(b"X/path/", b"X\\(.*[^/]\\)").unwrap(),
+            Value::Str("/path".to_owned())
+        );
+        // no trailing slash — still matches
+        assert_eq!(
+            bre_apply(b"X/path", b"X\\(.*[^/]\\)").unwrap(),
+            Value::Str("/path".to_owned())
+        );
+        // root "/" — no non-slash char after X, no match
+        assert_eq!(
+            bre_apply(b"X/", b"X\\(.*[^/]\\)").unwrap(),
+            Value::Str(String::new())
+        );
+    }
+
+    #[test]
+    fn match_double_slash() {
+        // autoconf check for "//" path
+        assert_eq!(
+            bre_apply(b"X//", b"X\\(//\\)").unwrap(),
+            Value::Str("//".to_owned())
+        );
+        assert_eq!(
+            bre_apply(b"X/path/", b"X\\(//\\)").unwrap(),
+            Value::Str(String::new())
+        );
+    }
+
+    #[test]
+    fn match_colon_via_parser() {
+        assert_eq!(
+            run(&args(&["Xfoo", ":", "X\\(.*\\)"])).unwrap(),
+            Value::Str("foo".to_owned())
+        );
+        assert_eq!(
+            run(&args(&["Xfoo", ":", "X."])).unwrap(),
+            Value::Int(2)
+        );
+    }
+
+    #[test]
+    fn autoconf_or_chain() {
+        // expr "X/path/" : 'X\(.*[^/]\)' \| "X/path/" : 'X\(//\)' \| X.
+        // (shell \| becomes | when passed as separate arg)
+        let result = run(&args(&[
+            "X/path/", ":", "X\\(.*[^/]\\)",
+            "|",
+            "X/path/", ":", "X\\(//\\)",
+            "|",
+            "X.",
+        ])).unwrap();
+        assert_eq!(result, Value::Str("/path".to_owned()));
     }
 }

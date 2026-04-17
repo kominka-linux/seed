@@ -1232,6 +1232,11 @@ fn split_fields(record: &str, field_separator: &str) -> Result<Vec<String>, Vec<
             .map(str::to_owned)
             .collect::<Vec<_>>());
     }
+    // Single-character separators are always literal (POSIX: matches FS behavior).
+    let chars: Vec<char> = field_separator.chars().collect();
+    if chars.len() == 1 {
+        return Ok(record.split(chars[0]).map(str::to_owned).collect());
+    }
 
     let regex = Regex::compile(field_separator)
         .map_err(|message| vec![AppletError::new(APPLET, message)])?;
@@ -1816,10 +1821,12 @@ impl<'a> Parser<'a> {
                 self.expect(Token::LParen)?;
                 let condition = self.parse_expr()?;
                 self.expect(Token::RParen)?;
+                self.skip_separators()?;
                 let then_branch = self.parse_stmt()?;
                 self.skip_separators()?;
                 let else_branch = if matches!(self.current, Token::Else) {
                     self.bump()?;
+                    self.skip_separators()?;
                     Some(Box::new(self.parse_stmt()?))
                 } else {
                     None
@@ -1831,10 +1838,12 @@ impl<'a> Parser<'a> {
                 self.expect(Token::LParen)?;
                 let condition = self.parse_expr()?;
                 self.expect(Token::RParen)?;
+                self.skip_separators()?;
                 Ok(Stmt::While(condition, Box::new(self.parse_stmt()?)))
             }
             Token::Do => {
                 self.bump()?;
+                self.skip_separators()?;
                 let body = self.parse_stmt()?;
                 self.skip_separators()?;
                 self.expect(Token::While)?;
@@ -1886,6 +1895,7 @@ impl<'a> Parser<'a> {
                         let array = array.clone();
                         self.bump()?;
                         self.expect(Token::RParen)?;
+                        self.skip_separators()?;
                         return Ok(Stmt::ForIn(var, array, Box::new(self.parse_stmt()?)));
                     }
                     let init_stmt = self.parse_stmt_with_ident(var)?;
@@ -1902,6 +1912,7 @@ impl<'a> Parser<'a> {
                         Some(self.parse_expr()?)
                     };
                     self.expect(Token::RParen)?;
+                    self.skip_separators()?;
                     return Ok(Stmt::ForLoop(
                         Some(Box::new(init_stmt)),
                         condition,
@@ -1927,6 +1938,7 @@ impl<'a> Parser<'a> {
                     Some(self.parse_expr()?)
                 };
                 self.expect(Token::RParen)?;
+                self.skip_separators()?;
                 Ok(Stmt::ForLoop(
                     init,
                     condition,
@@ -2566,18 +2578,25 @@ impl<'a> Lexer<'a> {
 
     fn skip_space(&mut self) -> bool {
         let start = self.index;
-        while matches!(self.peek(), Some(' ' | '\t' | '\r')) {
-            self.index += 1;
+        loop {
+            match self.peek() {
+                Some(' ' | '\t' | '\r') => self.index += 1,
+                // Backslash-newline is a line continuation, treated as whitespace.
+                // autoconf config.status generates awk programs with this pattern
+                // for long substitution variable values split across 148-char lines.
+                Some('\\') if self.peek_n(1) == Some('\n') => self.index += 2,
+                _ => break,
+            }
         }
         self.index != start
     }
 
     fn skip_comment(&mut self) {
         while let Some(ch) = self.peek() {
-            self.index += 1;
             if ch == '\n' {
-                break;
+                break; // leave \n for tokenizer to emit Token::Semicolon
             }
+            self.index += 1;
         }
     }
 
@@ -2803,5 +2822,14 @@ mod tests {
                 .as_string(),
             "beta"
         );
+    }
+
+    #[test]
+    fn backslash_newline_continuation_in_program() {
+        // autoconf config.status generates awk programs with backslash-newline
+        // line continuations when substitution variable values exceed 148 chars,
+        // producing strings like: S["DEFS"]="first148chars"\<newline>"rest"
+        let program = parse_program("BEGIN {\n  x = \"part1\"\\\n\"part2\"\n}").expect("program");
+        assert_eq!(program.begin_rules.len(), 1);
     }
 }

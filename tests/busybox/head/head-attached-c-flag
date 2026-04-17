@@ -1,0 +1,4 @@
+printf 'hello world' > input
+printf 'hello' > expected
+busybox head -c5 input > actual
+cmp expected actual

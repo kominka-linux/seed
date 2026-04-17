@@ -709,6 +709,8 @@ run_old_style tests/busybox/split/split-by-bytes
 run_old_style tests/busybox/head/head-prints-first-lines
 run_old_style tests/busybox/head/head-prints-first-bytes
 run_old_style tests/busybox/head/head-omits-last-line-with-negative-count
+run_old_style tests/busybox/head/head-attached-n-flag
+run_old_style tests/busybox/head/head-attached-c-flag
 
 run_old_style tests/busybox/tar/tar-archives-multiple-files
 run_old_style tests/busybox/tar/tar--overwrite-preserves-hardlinks

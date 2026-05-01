@@ -1,5 +1,8 @@
 # TODO
 
+`cut` doesn't `-f1` but we should support that. `-f 1` is supported.
+In general our argparsing should more broadly support both short and longopts.
+
 ## Coverage
 
 - Expand `tar` coverage further in the default runner.

@@ -85,32 +85,37 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<(Options, Vec<String>), Vec
                 }
                 break;
             }
+            ArgToken::LongOption("null", None) => options.null_delim = true,
+            ArgToken::LongOption("no-run-if-empty", None) => options.no_run_if_empty = true,
+            ArgToken::LongOption("verbose", None) => options.verbose = true,
+            ArgToken::LongOption("interactive", None) => options.interactive = true,
+            ArgToken::LongOption("max-args", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "n")?;
+                options.max_args = parse_usize(APPLET, "-n", value)?;
+            }
+            ArgToken::LongOption("max-lines", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "L")?;
+                options.max_lines = parse_usize(APPLET, "-L", value)?;
+            }
+            ArgToken::LongOption("max-procs", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "P")?;
+                options.max_procs = parse_usize(APPLET, "-P", value)?;
+            }
+            ArgToken::LongOption("replace", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "I")?;
+                options.replace = Some(value.to_string());
+            }
+            ArgToken::LongOption("delimiter", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "d")?;
+                options.delimiter = Some(parse_delimiter(APPLET, value)?);
+            }
+            ArgToken::LongOption(name, _) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET,
+                    &format!("--{name}"),
+                )]);
+            }
             ArgToken::ShortFlags(flags) => {
-                if let Some(long) = flags.strip_prefix('-') {
-                    match long {
-                        "null" => options.null_delim = true,
-                        "no-run-if-empty" => options.no_run_if_empty = true,
-                        "verbose" => options.verbose = true,
-                        "interactive" => options.interactive = true,
-                        "max-args" => {
-                            options.max_args = parse_usize(APPLET, "-n", cursor.next_value(APPLET, "n")?)?
-                        }
-                        "max-lines" => {
-                            options.max_lines = parse_usize(APPLET, "-L", cursor.next_value(APPLET, "L")?)?
-                        }
-                        "max-procs" => {
-                            options.max_procs = parse_usize(APPLET, "-P", cursor.next_value(APPLET, "P")?)?
-                        }
-                        "delimiter" => {
-                            options.delimiter = Some(parse_delimiter(APPLET, cursor.next_value(APPLET, "d")?)?)
-                        }
-                        _ => {
-                            return Err(vec![AppletError::invalid_option(APPLET, '-')]);
-                        }
-                    }
-                    continue;
-                }
-
                 let (flag, attached) = flags.split_at(1);
 
                 match flag {
@@ -584,6 +589,28 @@ mod tests {
             }
         );
         assert_eq!(command, vec![String::from("echo"), String::from("hi")]);
+    }
+
+    #[test]
+    fn parses_long_options_with_attached_values() {
+        let (options, command) = parse_args(&args(&[
+            "--interactive",
+            "--max-procs=4",
+            "--replace={}",
+            "echo",
+            "{}",
+        ]))
+        .expect("parse xargs");
+        assert_eq!(
+            options,
+            Options {
+                interactive: true,
+                max_procs: 4,
+                replace: Some(String::from("{}")),
+                ..Options::default()
+            }
+        );
+        assert_eq!(command, vec![String::from("echo"), String::from("{}")]);
     }
 
     #[test]

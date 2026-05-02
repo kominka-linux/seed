@@ -101,6 +101,19 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> 
                 }
                 options.user = Some(value.to_string());
             }
+            ArgToken::LongOption("algorithm", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "a")?;
+                options.algorithm = parse_algorithm(value)?;
+            }
+            ArgToken::LongOption("delete", None) => options.action = Action::Delete,
+            ArgToken::LongOption("lock", None) => options.action = Action::Lock,
+            ArgToken::LongOption("unlock", None) => options.action = Action::Unlock,
+            ArgToken::LongOption(name, _) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET,
+                    &format!("--{name}"),
+                )]);
+            }
             ArgToken::ShortFlags(flags) => {
                 let mut offset = 0;
                 for flag in flags.chars() {

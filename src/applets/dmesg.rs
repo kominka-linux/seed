@@ -41,6 +41,22 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> 
 
     while let Some(token) = cursor.next_arg(APPLET)? {
         match token {
+            ArgToken::LongOption("clear", None) => options.clear_after_read = true,
+            ArgToken::LongOption("raw", None) => options.raw = true,
+            ArgToken::LongOption("console-level", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "n")?;
+                options.console_level = Some(parse_number(value)?);
+            }
+            ArgToken::LongOption("buffer-size", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "s")?;
+                options.buffer_size = parse_number(value)?;
+            }
+            ArgToken::LongOption(name, _) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET,
+                    &format!("--{name}"),
+                )]);
+            }
             ArgToken::ShortFlags(flags) => parse_short_flags(flags, &mut cursor, &mut options)?,
             ArgToken::Operand(_) => {}
         }
@@ -168,7 +184,7 @@ mod tests {
     use super::{strip_syslog_prefix, strip_syslog_prefixes};
 
     fn args(values: &[&str]) -> Vec<OsString> {
-        values.iter().map(|value| OsString::from(value)).collect()
+        values.iter().map(OsString::from).collect()
     }
 
     #[test]

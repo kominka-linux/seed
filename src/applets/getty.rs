@@ -46,6 +46,41 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> 
     while let Some(arg) = cursor.next_arg(APPLET)? {
         match arg {
             ArgToken::Operand(value) => operands.push(value.to_string()),
+            ArgToken::LongOption("no-prompt", None) => no_prompt = true,
+            ArgToken::LongOption("no-issue", None) => no_issue = true,
+            ArgToken::LongOption("issue-file", attached) => {
+                issue_file = cursor
+                    .next_value_or_maybe_attached(attached, APPLET, "f")?
+                    .to_string();
+            }
+            ArgToken::LongOption("login-program", attached) => {
+                login = cursor
+                    .next_value_or_maybe_attached(attached, APPLET, "l")?
+                    .to_string();
+            }
+            ArgToken::LongOption("init-string", attached) => {
+                init_string = Some(
+                    cursor
+                        .next_value_or_maybe_attached(attached, APPLET, "I")?
+                        .to_string(),
+                );
+            }
+            ArgToken::LongOption("host", attached) => {
+                host = Some(
+                    cursor
+                        .next_value_or_maybe_attached(attached, APPLET, "H")?
+                        .to_string(),
+                );
+            }
+            ArgToken::LongOption("timeout", attached) => {
+                let _ = cursor.next_value_or_maybe_attached(attached, APPLET, "t")?;
+            }
+            ArgToken::LongOption(name, _) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET,
+                    &format!("--{name}"),
+                )]);
+            }
             ArgToken::ShortFlags(flags) => {
                 let mut offset = 0;
                 for flag in flags.chars() {

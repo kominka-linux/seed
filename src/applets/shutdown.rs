@@ -47,6 +47,21 @@ fn parse_args(
 
     while let Some(token) = cursor.next_arg(applet)? {
         match token {
+            ArgToken::LongOption("no-sync", None) => options.no_sync = true,
+            ArgToken::LongOption("force", None) => options.force = true,
+            ArgToken::LongOption("wtmp-only", None) => options.write_wtmp_only = true,
+            ArgToken::LongOption("delay", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, applet, "d")?;
+                options.delay_secs = value.parse::<u64>().map_err(|_| {
+                    vec![AppletError::new(applet, format!("invalid delay '{value}'"))]
+                })?;
+            }
+            ArgToken::LongOption(name, _) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    applet,
+                    &format!("--{name}"),
+                )]);
+            }
             ArgToken::ShortFlags(flags) => {
                 parse_short_flags(applet, flags, &mut cursor, &mut options)?
             }
@@ -167,7 +182,7 @@ mod tests {
     use super::{Options, parse_args};
 
     fn args(values: &[&str]) -> Vec<OsString> {
-        values.iter().map(|value| OsString::from(value)).collect()
+        values.iter().map(OsString::from).collect()
     }
 
     #[test]

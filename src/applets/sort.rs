@@ -99,6 +99,33 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<(Options, Vec<String>), Vec
 
     while let Some(arg) = cursor.next_arg(APPLET)? {
         match arg {
+            ArgToken::LongOption("numeric-sort", None) => options.mode = SortMode::Numeric,
+            ArgToken::LongOption("reverse", None) => options.reverse = true,
+            ArgToken::LongOption("unique", None) => options.unique = true,
+            ArgToken::LongOption("zero-terminated", None) => options.zero_terminated = true,
+            ArgToken::LongOption("stable", None) => options.stable = true,
+            ArgToken::LongOption("human-numeric-sort", None) => {
+                options.mode = SortMode::HumanNumeric;
+            }
+            ArgToken::LongOption("month-sort", None) => options.mode = SortMode::Month,
+            ArgToken::LongOption("key", attached) => {
+                let spec = cursor.next_value_or_maybe_attached(attached, APPLET, "k")?;
+                options.keys.push(parse_key_spec(spec)?);
+            }
+            ArgToken::LongOption("output", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "o")?;
+                options.output = Some(value.to_owned());
+            }
+            ArgToken::LongOption("field-separator", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "t")?;
+                options.delimiter = Some(parse_delimiter(value)?);
+            }
+            ArgToken::LongOption(name, _) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET,
+                    &format!("--{name}"),
+                )]);
+            }
             ArgToken::ShortFlags(flags) => {
                 let mut chars = flags.chars();
                 while let Some(flag) = chars.next() {

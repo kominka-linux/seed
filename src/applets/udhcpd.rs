@@ -101,6 +101,19 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> 
                 }
                 config_path = Some(PathBuf::from(value));
             }
+            ArgToken::LongOption("foreground", None) => {}
+            ArgToken::LongOption("syslog", None) => {}
+            ArgToken::LongOption("pidfile", attached) => {
+                pidfile = Some(PathBuf::from(
+                    cursor.next_value_or_maybe_attached(attached, APPLET, "p")?,
+                ));
+            }
+            ArgToken::LongOption(name, _) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET,
+                    &format!("--{name}"),
+                )]);
+            }
             ArgToken::ShortFlags(flags) => {
                 let mut offset = 0;
                 for flag in flags.chars() {

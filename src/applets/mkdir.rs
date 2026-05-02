@@ -54,8 +54,20 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<(bool, Option<u32>, Vec<Str
     let mut cursor = ArgCursor::new(args);
 
     while let Some(arg) = cursor.next_token(APPLET)? {
-        if cursor.parsing_flags() && arg == "-m" {
+        if cursor.parsing_flags() && (arg == "-m" || arg == "--mode") {
             let value = cursor.next_value(APPLET, "m")?;
+            mode = Some(parse_mode(value)?);
+            continue;
+        }
+
+        if cursor.parsing_flags() && arg.starts_with("--mode=") {
+            let value = &arg["--mode=".len()..];
+            mode = Some(parse_mode(value)?);
+            continue;
+        }
+
+        if cursor.parsing_flags() && arg.starts_with("-m") && arg.len() > 2 {
+            let value = &arg[2..];
             mode = Some(parse_mode(value)?);
             continue;
         }
@@ -88,4 +100,26 @@ fn parse_mode(mode: &str) -> Result<u32, Vec<AppletError>> {
 #[allow(dead_code)]
 fn _path_exists(path: &Path) -> bool {
     path.exists()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_args;
+
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
+    }
+
+    #[test]
+    fn parses_attached_and_long_mode() {
+        let (parents, mode, paths) =
+            parse_args(&args(&["-p", "--mode=700", "one", "two"])).expect("parse mkdir");
+        assert!(parents);
+        assert_eq!(mode, Some(0o700));
+        assert_eq!(paths, vec!["one", "two"]);
+
+        let (_, mode, paths) = parse_args(&args(&["-m755", "dir"])).expect("parse mkdir");
+        assert_eq!(mode, Some(0o755));
+        assert_eq!(paths, vec!["dir"]);
+    }
 }

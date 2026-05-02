@@ -24,6 +24,17 @@ fn run(args: &[std::ffi::OsString]) -> AppletResult {
 
     while let Some(arg) = cursor.next_arg(APPLET)? {
         match arg {
+            ArgToken::LongOption("user", None) => show_uid = true,
+            ArgToken::LongOption("group", None) => show_gid = true,
+            ArgToken::LongOption("groups", None) => show_groups = true,
+            ArgToken::LongOption("name", None) => name_only = true,
+            ArgToken::LongOption("real", None) => real_only = true,
+            ArgToken::LongOption(name, _) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET,
+                    &format!("--{name}"),
+                )]);
+            }
             ArgToken::ShortFlags(flags) => {
                 for ch in flags.chars() {
                     match ch {

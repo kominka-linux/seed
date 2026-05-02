@@ -93,13 +93,49 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> 
         if cursor.parsing_flags() && arg.starts_with('-') && arg.len() > 1 {
             match arg {
                 "-A" => options.check_all = true,
+                "--all" => options.check_all = true,
                 "-N" => options.no_execute = true,
+                "--no-execute" => options.no_execute = true,
                 "-P" => options.parallel = true,
+                "--parallel" => options.parallel = true,
                 "-R" => options.skip_root = true,
+                "--skip-root" => options.skip_root = true,
                 "-T" => options.no_title = true,
+                "--no-title" => options.no_title = true,
                 "-V" => options.verbose = true,
+                "--verbose" => options.verbose = true,
                 "-t" => {
                     let value = cursor.next_value(APPLET, "t")?;
+                    options.type_filter = Some(
+                        value
+                            .split(',')
+                            .filter(|item| !item.is_empty())
+                            .map(str::to_string)
+                            .collect(),
+                    );
+                }
+                "--type" => {
+                    let value = cursor.next_value(APPLET, "type")?;
+                    options.type_filter = Some(
+                        value
+                            .split(',')
+                            .filter(|item| !item.is_empty())
+                            .map(str::to_string)
+                            .collect(),
+                    );
+                }
+                a if a.starts_with("--type=") => {
+                    let value = &a["--type=".len()..];
+                    options.type_filter = Some(
+                        value
+                            .split(',')
+                            .filter(|item| !item.is_empty())
+                            .map(str::to_string)
+                            .collect(),
+                    );
+                }
+                a if a.starts_with("-t") && a.len() > 2 => {
+                    let value = &a[2..];
                     options.type_filter = Some(
                         value
                             .split(',')
@@ -321,5 +357,15 @@ mod tests {
         assert!(requests[0].program.contains("fsck.ext4"));
         assert_eq!(requests[0].passno, 1);
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn parses_long_type_filter() {
+        let options = parse_args(&args(&["--all", "--type=ext4,xfs"])).unwrap();
+        assert!(options.check_all);
+        assert_eq!(
+            options.type_filter,
+            Some(vec![String::from("ext4"), String::from("xfs")])
+        );
     }
 }

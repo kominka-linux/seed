@@ -78,6 +78,45 @@ fn parse_args(applet: &'static str, family: Family, args: &[std::ffi::OsString])
 
     while let Some(token) = cursor.next_arg(applet)? {
         match token {
+            ArgToken::LongOption("ipv4", None) => options.family = Family::Inet4,
+            ArgToken::LongOption("ipv6", None) => options.family = Family::Inet6,
+            ArgToken::LongOption("quiet", None) => options.quiet = true,
+            ArgToken::LongOption("count", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, applet, "c")?;
+                options.count = Some(parse_u32(applet, "count", value)?);
+            }
+            ArgToken::LongOption("timeout", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, applet, "W")?;
+                options.timeout = Duration::from_secs(parse_u32(applet, "timeout", value)? as u64);
+            }
+            ArgToken::LongOption("deadline", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, applet, "w")?;
+                options.deadline =
+                    Some(Duration::from_secs(parse_u32(applet, "deadline", value)? as u64));
+            }
+            ArgToken::LongOption("interval", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, applet, "i")?;
+                options.interval =
+                    Duration::from_secs(parse_u32(applet, "interval", value)? as u64);
+            }
+            ArgToken::LongOption("size", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, applet, "s")?;
+                options.payload_size = parse_u32(applet, "size", value)? as usize;
+            }
+            ArgToken::LongOption("interface", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, applet, "I")?;
+                options.interface = Some(value.to_string());
+            }
+            ArgToken::LongOption("ttl", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, applet, "t")?;
+                options.ttl = Some(parse_u32(applet, "ttl", value)?);
+            }
+            ArgToken::LongOption(name, _) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    applet,
+                    &format!("--{name}"),
+                )]);
+            }
             ArgToken::ShortFlags(flags) => {
                 for (index, flag) in flags.char_indices() {
                     match flag {
@@ -219,11 +258,11 @@ fn ping(options: &Options) -> AppletCodeResult {
 
     println!();
     println!("--- {} ping statistics ---", options.host);
-    let loss = if transmitted == 0 {
-        0
-    } else {
-        ((transmitted - received) * 100) / transmitted
-    };
+    let loss = transmitted
+        .checked_sub(received)
+        .and_then(|lost| lost.checked_mul(100))
+        .and_then(|lost| lost.checked_div(transmitted))
+        .unwrap_or(0);
     println!(
         "{} packets transmitted, {} packets received, {}% packet loss",
         transmitted, received, loss

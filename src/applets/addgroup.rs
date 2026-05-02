@@ -54,6 +54,17 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<Command, Vec<AppletError>> 
     while let Some(arg) = cursor.next_arg(APPLET)? {
         match arg {
             ArgToken::Operand(value) => operands.push(value.to_string()),
+            ArgToken::LongOption("gid", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "g")?;
+                gid = Some(parse_id(value, "gid")?);
+            }
+            ArgToken::LongOption("system", None) => system = true,
+            ArgToken::LongOption(name, _) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET,
+                    &format!("--{name}"),
+                )]);
+            }
             ArgToken::ShortFlags(flags) => {
                 let mut offset = 0;
                 for flag in flags.chars() {
@@ -200,6 +211,18 @@ mod tests {
     fn parses_create_mode() {
         assert_eq!(
             parse_args(&args(&["-S", "-g", "123", "staff"])).unwrap(),
+            Command::Create {
+                name: String::from("staff"),
+                gid: Some(123),
+                system: true,
+            }
+        );
+    }
+
+    #[test]
+    fn parses_long_create_mode() {
+        assert_eq!(
+            parse_args(&args(&["--system", "--gid=123", "staff"])).unwrap(),
             Command::Create {
                 name: String::from("staff"),
                 gid: Some(123),

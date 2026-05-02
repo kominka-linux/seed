@@ -292,10 +292,7 @@ fn bre_apply(s: &[u8], p: &[u8]) -> Result<Value, String> {
 }
 
 fn frags_have_group(frags: &[BreFrag]) -> bool {
-    frags.iter().any(|f| match &f.atom {
-        BreAtom::Group(_) => true,
-        _ => false,
-    })
+    frags.iter().any(|f| matches!(&f.atom, BreAtom::Group(_)))
 }
 
 fn bre_parse(p: &[u8]) -> Result<Vec<BreFrag>, String> {

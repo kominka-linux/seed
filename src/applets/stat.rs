@@ -43,6 +43,16 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<(String, Vec<String>), Vec<
 
     while let Some(arg) = cursor.next_arg(APPLET)? {
         match arg {
+            ArgToken::LongOption("format", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "c")?;
+                format = Some(value.to_owned());
+            }
+            ArgToken::LongOption(name, _) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET,
+                    &format!("--{name}"),
+                )]);
+            }
             ArgToken::ShortFlags(flags) => {
                 let mut chars = flags.chars();
                 let Some(flag) = chars.next() else {

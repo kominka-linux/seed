@@ -70,6 +70,51 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> 
 
     while let Some(arg) = cursor.next_arg(APPLET)? {
         match arg {
+            ArgToken::LongOption("date", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "d")?;
+                assign_time_source(&mut options.display_time, value.to_owned())?;
+            }
+            ArgToken::LongOption("set", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "s")?;
+                assign_time_source(&mut options.set_time, value.to_owned())?;
+            }
+            ArgToken::LongOption("reference", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "r")?;
+                if options.reference_file.is_some() {
+                    return Err(vec![AppletError::new(
+                        APPLET,
+                        "multiple reference files specified",
+                    )]);
+                }
+                options.reference_file = Some(value.to_owned());
+            }
+            ArgToken::LongOption("input-format", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "D")?;
+                if options.input_format.is_some() {
+                    return Err(vec![AppletError::new(
+                        APPLET,
+                        "multiple input formats specified",
+                    )]);
+                }
+                options.input_format = Some(value.to_owned());
+            }
+            ArgToken::LongOption("iso-8601", attached) => {
+                let spec = match attached {
+                    Some(value) if !value.is_empty() => parse_iso_spec(value)?,
+                    _ => IsoSpec::Date,
+                };
+                assign_iso_spec(&mut options, spec)?;
+            }
+            ArgToken::LongOption("rfc-2822", None) | ArgToken::LongOption("rfc-email", None) => {
+                options.rfc2822 = true;
+            }
+            ArgToken::LongOption("utc", None) => options.utc = true,
+            ArgToken::LongOption(name, _) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET,
+                    &format!("--{name}"),
+                )]);
+            }
             ArgToken::ShortFlags(flags) => {
                 let mut chars = flags.chars();
                 while let Some(flag) = chars.next() {

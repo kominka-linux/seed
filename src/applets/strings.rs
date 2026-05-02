@@ -183,4 +183,10 @@ mod tests {
     fn nonexistent_file_fails() {
         assert!(run(&args(&["__no_such_file__"])).is_err());
     }
+
+    #[test]
+    fn parses_long_and_attached_byte_count() {
+        assert!(run(&args(&["--bytes=3"])).is_ok());
+        assert!(run(&args(&["-n3"])).is_ok());
+    }
 }

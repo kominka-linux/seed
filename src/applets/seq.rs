@@ -24,8 +24,20 @@ fn run(args: &[std::ffi::OsString]) -> AppletResult {
             "-s" | "--separator" => {
                 separator = unescape(cursor.next_value(APPLET, "s")?);
             }
+            a if a.starts_with("--separator=") => {
+                separator = unescape(&a["--separator=".len()..]);
+            }
+            a if a.starts_with("-s") && a.len() > 2 => {
+                separator = unescape(&a[2..]);
+            }
             "-f" | "--format" => {
                 format = Some(cursor.next_value(APPLET, "f")?.to_string());
+            }
+            a if a.starts_with("--format=") => {
+                format = Some(a["--format=".len()..].to_string());
+            }
+            a if a.starts_with("-f") && a.len() > 2 => {
+                format = Some(a[2..].to_string());
             }
             // Negative numbers are positional operands, not flags
             a if a.starts_with('-') && a.len() > 1 && !looks_like_number(a) => {
@@ -300,5 +312,23 @@ mod tests {
         assert!(looks_like_number("-2"));
         assert!(looks_like_number("-.5"));
         assert!(!looks_like_number("-x"));
+    }
+
+    #[test]
+    fn supports_attached_separator_and_format_options() {
+        assert!(run(&[
+            OsString::from("-s,"),
+            OsString::from("-f%.1f"),
+            OsString::from("1"),
+            OsString::from("2"),
+        ])
+        .is_ok());
+        assert!(run(&[
+            OsString::from("--separator=,"),
+            OsString::from("--format=%.1f"),
+            OsString::from("1"),
+            OsString::from("2"),
+        ])
+        .is_ok());
     }
 }

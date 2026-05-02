@@ -1,0 +1,3 @@
+printf 'a:b:c\n' > input
+test x"`busybox cut -d: -f1 input`" = xa
+test x"`busybox cut --delimiter=: --fields=1 input`" = xa

@@ -383,7 +383,7 @@ mod tests {
     use std::ffi::OsString;
 
     fn args(values: &[&str]) -> Vec<OsString> {
-        values.iter().map(|value| OsString::from(value)).collect()
+        values.iter().map(OsString::from).collect()
     }
 
     #[test]

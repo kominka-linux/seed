@@ -23,6 +23,7 @@ fn run(args: &[std::ffi::OsString]) -> AppletResult {
                 size_spec = Some(cursor.next_value(APPLET, "s")?);
             }
             a if a.starts_with("--size=") => size_spec = Some(&a["--size=".len()..]),
+            a if a.starts_with("-s") && a.len() > 2 => size_spec = Some(&a[2..]),
             a if a.starts_with('-') && a.len() > 1 => {
                 return Err(vec![AppletError::invalid_option(
                     APPLET,
@@ -87,7 +88,7 @@ fn truncate_file(path: &str, spec: &str, no_create: bool) -> Result<(), AppletEr
             if size == 0 {
                 0
             } else {
-                (current_len / size) * size
+                current_len.checked_div(size).unwrap_or(0) * size
             }
         }
         SizeOp::RoundUp => {
@@ -150,7 +151,11 @@ fn parse_bytes(s: &str) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{SizeOp, parse_bytes, parse_size_spec};
+    use super::{SizeOp, parse_bytes, parse_size_spec, run};
+
+    fn args(values: &[&str]) -> Vec<std::ffi::OsString> {
+        values.iter().map(std::ffi::OsString::from).collect()
+    }
 
     #[test]
     fn plain_bytes() {
@@ -205,6 +210,16 @@ mod tests {
         super::truncate_file(path.to_str().unwrap(), "+3", false).unwrap();
         assert_eq!(std::fs::metadata(&path).unwrap().len(), 8);
 
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn parses_attached_short_size() {
+        let dir = crate::common::unix::temp_dir("truncate-test");
+        let path = dir.join("f");
+        std::fs::write(&path, b"hello").unwrap();
+        run(&args(&["-s2", path.to_str().unwrap()])).expect("run truncate");
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), 2);
         std::fs::remove_dir_all(dir).ok();
     }
 }

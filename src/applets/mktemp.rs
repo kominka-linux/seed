@@ -27,14 +27,14 @@ fn run(args: &[std::ffi::OsString]) -> AppletResult {
             "-d" | "--directory" => dir_mode = true,
             "-q" | "--quiet" => quiet = true,
             "-u" | "--dry-run" => dry_run = true,
-            "-p" => {
+            "-p" | "--tmpdir" => {
                 tmpdir_opt = Some(PathBuf::from(cursor.next_value(APPLET, "p")?));
-            }
-            "--tmpdir" => {
-                tmpdir_opt = Some(PathBuf::from(cursor.next_value(APPLET, "tmpdir")?));
             }
             a if a.starts_with("--tmpdir=") => {
                 tmpdir_opt = Some(PathBuf::from(&a["--tmpdir=".len()..]));
+            }
+            a if a.starts_with("-p") && a.len() > 2 => {
+                tmpdir_opt = Some(PathBuf::from(&a[2..]));
             }
             a if a.starts_with('-') && a.len() > 1 => {
                 return Err(vec![AppletError::invalid_option(
@@ -199,6 +199,16 @@ mod tests {
         run(&args(&["-u", template.to_str().unwrap()])).unwrap();
         let mut entries = std::fs::read_dir(&dir).unwrap();
         assert!(entries.next().is_none());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn attached_tmpdir_creates_below_requested_directory() {
+        let dir = crate::common::unix::temp_dir("mktemp-test");
+        let arg = format!("-p{}", dir.display());
+        run(&[arg.into(), "temp.XXXXXX".into()]).unwrap();
+        let mut entries = std::fs::read_dir(&dir).unwrap();
+        assert!(entries.next().is_some());
         std::fs::remove_dir_all(dir).ok();
     }
 }

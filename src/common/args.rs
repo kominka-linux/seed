@@ -4,7 +4,23 @@ use crate::common::error::AppletError;
 
 pub enum ArgToken<'a> {
     ShortFlags(&'a str),
+    LongOption(&'a str, Option<&'a str>),
     Operand(&'a str),
+}
+
+pub fn split_long_option(flags: &str) -> Option<(&str, Option<&str>)> {
+    let long = flags.strip_prefix('-')?;
+    let Some((name, value)) = long.split_once('=') else {
+        return Some((long, None));
+    };
+    Some((name, Some(value)))
+}
+
+pub fn split_short_option(flags: &str) -> Option<(char, &str)> {
+    let mut chars = flags.char_indices();
+    let (_, flag) = chars.next()?;
+    let attached_start = chars.next().map_or(flags.len(), |(index, _)| index);
+    Some((flag, &flags[attached_start..]))
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -185,7 +201,14 @@ impl<'a, S: AsRef<OsStr>> ArgCursor<'a, S> {
             return Ok(None);
         };
         Ok(Some(
-            if self.parsing_flags && arg.starts_with('-') && arg.len() > 1 {
+            if self.parsing_flags && arg.starts_with("--") && arg.len() > 2 {
+                let long = &arg[2..];
+                let (name, attached) = match long.split_once('=') {
+                    Some((name, value)) => (name, Some(value)),
+                    None => (long, None),
+                };
+                ArgToken::LongOption(name, attached)
+            } else if self.parsing_flags && arg.starts_with('-') && arg.len() > 1 {
                 ArgToken::ShortFlags(&arg[1..])
             } else {
                 ArgToken::Operand(arg)
@@ -216,10 +239,18 @@ impl<'a, S: AsRef<OsStr>> ArgCursor<'a, S> {
         applet: &'static str,
         option: &str,
     ) -> Result<&'a str, Vec<AppletError>> {
-        if attached.is_empty() {
-            self.next_value(applet, option)
-        } else {
-            Ok(attached)
+        self.next_value_or_maybe_attached(Some(attached), applet, option)
+    }
+
+    pub fn next_value_or_maybe_attached(
+        &mut self,
+        attached: Option<&'a str>,
+        applet: &'static str,
+        option: &str,
+    ) -> Result<&'a str, Vec<AppletError>> {
+        match attached {
+            Some(value) if !value.is_empty() => Ok(value),
+            _ => self.next_value(applet, option),
         }
     }
 
@@ -242,7 +273,7 @@ impl<'a, S: AsRef<OsStr>> ArgCursor<'a, S> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ArgCursor, ArgToken, ParsedArg, Parser};
+    use super::{ArgCursor, ArgToken, ParsedArg, Parser, split_long_option, split_short_option};
     use std::ffi::OsString;
 
     #[test]
@@ -292,6 +323,23 @@ mod tests {
             "value"
         );
         assert_eq!(cursor.remaining(), &[String::from("file")]);
+    }
+
+    #[test]
+    fn parses_long_option_with_optional_attached_value() {
+        let args = vec!["--flag=value".to_string(), "--other".to_string()];
+        let mut cursor = ArgCursor::new(&args);
+        match cursor.next_arg("test").expect("arg") {
+            Some(ArgToken::LongOption(name, Some(value))) => {
+                assert_eq!(name, "flag");
+                assert_eq!(value, "value");
+            }
+            _ => panic!("expected long option"),
+        }
+        match cursor.next_arg("test").expect("arg") {
+            Some(ArgToken::LongOption(name, None)) => assert_eq!(name, "other"),
+            _ => panic!("expected long option"),
+        }
     }
 
     #[test]
@@ -363,5 +411,17 @@ mod tests {
         let mut parser = Parser::new("test", &args);
         let raw = parser.try_raw_args().expect("raw args");
         assert_eq!(raw.peek().and_then(|arg| arg.to_str()), Some("-12"));
+    }
+
+    #[test]
+    fn splits_long_option_with_attached_value() {
+        assert_eq!(split_long_option("-fields=1"), Some(("fields", Some("1"))));
+        assert_eq!(split_long_option("-fields"), Some(("fields", None)));
+    }
+
+    #[test]
+    fn splits_short_option_with_attached_value() {
+        assert_eq!(split_short_option("f1"), Some(('f', "1")));
+        assert_eq!(split_short_option("s"), Some(('s', "")));
     }
 }

@@ -303,11 +303,10 @@ fn validate_branch_targets(commands: &[Command], labels: &HashMap<String, usize>
 
 fn validate_branch_target_command(command: &Command, labels: &HashMap<String, usize>) -> Result<(), String> {
     match &command.kind {
-        CommandKind::Branch(Some(label)) | CommandKind::Test(Some(label)) | CommandKind::TestNot(Some(label)) => {
-            if !labels.contains_key(label) {
+        CommandKind::Branch(Some(label)) | CommandKind::Test(Some(label)) | CommandKind::TestNot(Some(label))
+            if !labels.contains_key(label) => {
                 return Err(format!("undefined label: {label}"));
             }
-        }
         CommandKind::Block(commands) => validate_branch_targets(commands, labels)?,
         _ => {}
     }

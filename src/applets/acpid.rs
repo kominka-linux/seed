@@ -195,13 +195,46 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> 
                 options.debug = true;
                 options.foreground = true;
             }
+            "--debug" => {
+                options.debug = true;
+                options.foreground = true;
+            }
             "-f" => options.foreground = true,
+            "--foreground" => options.foreground = true,
             "-c" => options.conf_dir = PathBuf::from(cursor.next_value(APPLET, "c")?),
+            "--confdir" => options.conf_dir = PathBuf::from(cursor.next_value(APPLET, "confdir")?),
+            a if a.starts_with("--confdir=") => {
+                options.conf_dir = PathBuf::from(&a["--confdir=".len()..]);
+            }
             "-e" => options.event_file = Some(PathBuf::from(cursor.next_value(APPLET, "e")?)),
+            "--eventfile" => {
+                options.event_file = Some(PathBuf::from(cursor.next_value(APPLET, "eventfile")?));
+            }
+            a if a.starts_with("--eventfile=") => {
+                options.event_file = Some(PathBuf::from(&a["--eventfile=".len()..]));
+            }
             "-l" => options.log_file = PathBuf::from(cursor.next_value(APPLET, "l")?),
+            "--logfile" => options.log_file = PathBuf::from(cursor.next_value(APPLET, "logfile")?),
+            a if a.starts_with("--logfile=") => {
+                options.log_file = PathBuf::from(&a["--logfile=".len()..]);
+            }
             "-a" => options.action_file = PathBuf::from(cursor.next_value(APPLET, "a")?),
+            "--actionfile" => {
+                options.action_file = PathBuf::from(cursor.next_value(APPLET, "actionfile")?);
+            }
+            a if a.starts_with("--actionfile=") => {
+                options.action_file = PathBuf::from(&a["--actionfile=".len()..]);
+            }
             "-M" => options.map_file = PathBuf::from(cursor.next_value(APPLET, "M")?),
+            "--mapfile" => options.map_file = PathBuf::from(cursor.next_value(APPLET, "mapfile")?),
+            a if a.starts_with("--mapfile=") => {
+                options.map_file = PathBuf::from(&a["--mapfile=".len()..]);
+            }
             "-p" => options.pid_file = PathBuf::from(cursor.next_value(APPLET, "p")?),
+            "--pidfile" => options.pid_file = PathBuf::from(cursor.next_value(APPLET, "pidfile")?),
+            a if a.starts_with("--pidfile=") => {
+                options.pid_file = PathBuf::from(&a["--pidfile=".len()..]);
+            }
             "-g" | "-m" | "-s" | "-S" | "-v" => {
                 if matches!(arg, "-g" | "-m" | "-s" | "-S") && !cursor.remaining().is_empty() {
                     let _ = cursor.next_value(APPLET, &arg[1..])?;
@@ -611,8 +644,9 @@ impl Drop for SignalGuard {
 #[cfg(test)]
 mod tests {
     use super::{
-        ActionRule, InputEvent, MapRule, default_action_rules, default_map_rules, read_action_rules,
-        read_map_rules, resolve_binary_event, resolve_text_event, trim_text_event_tail,
+        ActionRule, InputEvent, MapRule, default_action_rules, default_map_rules, parse_args,
+        read_action_rules, read_map_rules, resolve_binary_event, resolve_text_event,
+        trim_text_event_tail,
     };
     use std::fs;
 
@@ -677,5 +711,20 @@ mod tests {
         assert_eq!(rules[0].event_type, 1);
         assert_eq!(rules[0].event_code, 116);
         assert_eq!(rules[0].desc, "button/power PWRF 00000080");
+    }
+
+    #[test]
+    fn parse_args_supports_long_forms() {
+        let options = parse_args(&[
+            "--debug".into(),
+            "--confdir=/tmp/conf".into(),
+            "--pidfile".into(),
+            "/tmp/pid".into(),
+        ])
+        .unwrap();
+        assert!(options.debug);
+        assert!(options.foreground);
+        assert_eq!(options.conf_dir, std::path::PathBuf::from("/tmp/conf"));
+        assert_eq!(options.pid_file, std::path::PathBuf::from("/tmp/pid"));
     }
 }

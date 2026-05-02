@@ -403,6 +403,7 @@ run_old_style tests/busybox/cpio/cpio-create-requires-newc
 run_old_style tests/busybox/cut/cut-selects-bytes
 run_old_style tests/busybox/cut/cut-selects-fields
 run_old_style tests/busybox/cut/cut-suppresses-undelimited-lines
+run_old_style tests/busybox/cut/cut-supports-attached-option-values
 
 run_old_style tests/busybox/date/date-@-works
 run_old_style tests/busybox/date/date-D-works

@@ -52,12 +52,29 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> 
     let mut cursor = ArgCursor::new(args);
 
     while let Some(arg) = cursor.next_token(APPLET)? {
-        if cursor.parsing_flags() && arg == "-d" {
+        if cursor.parsing_flags() && (arg == "-d" || arg == "--directory") {
             directory = Some(PathBuf::from(cursor.next_value(APPLET, "d")?));
             continue;
         }
 
+        if cursor.parsing_flags() && arg.starts_with("--directory=") {
+            directory = Some(PathBuf::from(&arg["--directory=".len()..]));
+            continue;
+        }
+
         if cursor.parsing_flags() && arg.starts_with('-') && arg.len() > 1 {
+            if arg == "--list" {
+                mode = select_mode(mode, Mode::List)?;
+                continue;
+            }
+            if arg == "--overwrite" {
+                overwrite = true;
+                continue;
+            }
+            if arg == "--pipe" {
+                mode = select_mode(mode, Mode::Stdout)?;
+                continue;
+            }
             for flag in arg[1..].chars() {
                 match flag {
                     'l' => mode = select_mode(mode, Mode::List)?,
@@ -424,6 +441,19 @@ mod tests {
             err[0].to_string(),
             "unzip: only one of -l or -p may be specified"
         );
+    }
+
+    #[test]
+    fn parse_args_supports_long_options() {
+        let options = parse_args(&args(&[
+            "--overwrite",
+            "--directory=out",
+            "archive.zip",
+            "hello.txt",
+        ]))
+        .expect("parse unzip");
+        assert_eq!(options.directory, Some("out".into()));
+        assert!(options.overwrite);
     }
 
     #[test]

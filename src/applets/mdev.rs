@@ -165,6 +165,15 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> 
 
     while let Some(token) = cursor.next_arg(APPLET)? {
         match token {
+            ArgToken::LongOption("scan", None) => options.scan = true,
+            ArgToken::LongOption("daemon", None) => options.daemon = true,
+            ArgToken::LongOption("foreground", None) => options.foreground = true,
+            ArgToken::LongOption(name, _) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET,
+                    &format!("--{name}"),
+                )]);
+            }
             ArgToken::ShortFlags(flags) => {
                 for flag in flags.chars() {
                     match flag {

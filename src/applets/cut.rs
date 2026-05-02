@@ -1,6 +1,6 @@
 use std::io::{self, BufRead, BufReader, Write};
 
-use crate::common::args::{ArgCursor, ArgToken};
+use crate::common::args::{ArgCursor, ArgToken, split_short_option};
 use crate::common::applet::{AppletResult, finish};
 use crate::common::error::AppletError;
 use crate::common::io::{open_input, stdout};
@@ -39,20 +39,57 @@ fn run(args: &[std::ffi::OsString]) -> AppletResult {
     while let Some(arg) = cursor.next_arg(APPLET)? {
         match arg {
             ArgToken::Operand(path) => paths.push(path),
+            ArgToken::LongOption("bytes", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "b")?;
+                mode_kind = Some(("b", parse_ranges(value)?));
+            }
+            ArgToken::LongOption("characters", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "c")?;
+                mode_kind = Some(("c", parse_ranges(value)?));
+            }
+            ArgToken::LongOption("fields", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "f")?;
+                mode_kind = Some(("f", parse_ranges(value)?));
+            }
+            ArgToken::LongOption("delimiter", attached) => {
+                let s = cursor.next_value_or_maybe_attached(attached, APPLET, "d")?;
+                if s.len() != 1 {
+                    return Err(vec![AppletError::new(
+                        APPLET,
+                        "the delimiter must be a single character",
+                    )]);
+                }
+                delim = s.as_bytes()[0];
+            }
+            ArgToken::LongOption("only-delimited", None) => suppress = true,
+            ArgToken::LongOption(name, _) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET,
+                    &format!("--{name}"),
+                )]);
+            }
             ArgToken::ShortFlags(flags) => {
-                if let Some(long) = flags.strip_prefix('-') {
-                    match long {
-                        "bytes" => {
-                            mode_kind = Some(("b", parse_ranges(cursor.next_value(APPLET, "b")?)?))
+                let mut remaining = flags;
+                while !remaining.is_empty() {
+                    let (flag, attached) = split_short_option(remaining).unwrap();
+                    match flag {
+                        'b' => {
+                            let value = cursor.next_value_or_attached(attached, APPLET, "b")?;
+                            mode_kind = Some(("b", parse_ranges(value)?));
+                            break;
                         }
-                        "characters" => {
-                            mode_kind = Some(("c", parse_ranges(cursor.next_value(APPLET, "c")?)?))
+                        'c' => {
+                            let value = cursor.next_value_or_attached(attached, APPLET, "c")?;
+                            mode_kind = Some(("c", parse_ranges(value)?));
+                            break;
                         }
-                        "fields" => {
-                            mode_kind = Some(("f", parse_ranges(cursor.next_value(APPLET, "f")?)?))
+                        'f' => {
+                            let value = cursor.next_value_or_attached(attached, APPLET, "f")?;
+                            mode_kind = Some(("f", parse_ranges(value)?));
+                            break;
                         }
-                        "delimiter" => {
-                            let s = cursor.next_value(APPLET, "d")?;
+                        'd' => {
+                            let s = cursor.next_value_or_attached(attached, APPLET, "d")?;
                             if s.len() != 1 {
                                 return Err(vec![AppletError::new(
                                     APPLET,
@@ -60,39 +97,13 @@ fn run(args: &[std::ffi::OsString]) -> AppletResult {
                                 )]);
                             }
                             delim = s.as_bytes()[0];
+                            break;
                         }
-                        "only-delimited" => suppress = true,
-                        _ => {
-                            return Err(vec![AppletError::invalid_option(APPLET, '-')]);
+                        's' => {
+                            suppress = true;
+                            remaining = attached;
                         }
-                    }
-                    continue;
-                }
-
-                if flags.len() != 1 {
-                    return Err(vec![AppletError::invalid_option(
-                        APPLET,
-                        flags.chars().next().unwrap_or('-'),
-                    )]);
-                }
-
-                match flags.as_bytes()[0] as char {
-                    'b' => mode_kind = Some(("b", parse_ranges(cursor.next_value(APPLET, "b")?)?)),
-                    'c' => mode_kind = Some(("c", parse_ranges(cursor.next_value(APPLET, "c")?)?)),
-                    'f' => mode_kind = Some(("f", parse_ranges(cursor.next_value(APPLET, "f")?)?)),
-                    'd' => {
-                        let s = cursor.next_value(APPLET, "d")?;
-                        if s.len() != 1 {
-                            return Err(vec![AppletError::new(
-                                APPLET,
-                                "the delimiter must be a single character",
-                            )]);
-                        }
-                        delim = s.as_bytes()[0];
-                    }
-                    's' => suppress = true,
-                    other => {
-                        return Err(vec![AppletError::invalid_option(APPLET, other)]);
+                        other => return Err(vec![AppletError::invalid_option(APPLET, other)]),
                     }
                 }
             }

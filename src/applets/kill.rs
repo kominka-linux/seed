@@ -25,6 +25,9 @@ fn run(args: &[std::ffi::OsString]) -> AppletResult {
             "-s" | "--signal" => {
                 signal = parse_signal(APPLET, cursor.next_value(APPLET, "s")?)?;
             }
+            a if a.starts_with("--signal=") => {
+                signal = parse_signal(APPLET, &a["--signal=".len()..])?;
+            }
             a if a.starts_with('-') && a.len() > 1 => {
                 // -N or -SIGNAME or -NAME
                 signal = parse_signal(APPLET, &a[1..])?;
@@ -277,5 +280,11 @@ mod tests {
         // Send signal 0 (existence check) to ourselves — should succeed.
         let pid = std::process::id().to_string();
         assert!(run(&args(&["-s", "0", &pid])).is_ok());
+    }
+
+    #[test]
+    fn signal_to_self_with_long_equals() {
+        let pid = std::process::id().to_string();
+        assert!(run(&args(&["--signal=0", &pid])).is_ok());
     }
 }

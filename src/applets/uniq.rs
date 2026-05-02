@@ -38,11 +38,29 @@ fn run(args: &[std::ffi::OsString]) -> AppletResult {
             "-f" | "--skip-fields" => {
                 opts.skip_fields = parse_usize(APPLET, cursor.next_value(APPLET, "f")?)?;
             }
+            a if a.starts_with("--skip-fields=") => {
+                opts.skip_fields = parse_usize(APPLET, &a["--skip-fields=".len()..])?;
+            }
+            a if a.starts_with("-f") && a.len() > 2 => {
+                opts.skip_fields = parse_usize(APPLET, &a[2..])?;
+            }
             "-s" | "--skip-chars" => {
                 opts.skip_chars = parse_usize(APPLET, cursor.next_value(APPLET, "s")?)?;
             }
+            a if a.starts_with("--skip-chars=") => {
+                opts.skip_chars = parse_usize(APPLET, &a["--skip-chars=".len()..])?;
+            }
+            a if a.starts_with("-s") && a.len() > 2 => {
+                opts.skip_chars = parse_usize(APPLET, &a[2..])?;
+            }
             "-w" | "--check-chars" => {
                 opts.check_chars = Some(parse_usize(APPLET, cursor.next_value(APPLET, "w")?)?);
+            }
+            a if a.starts_with("--check-chars=") => {
+                opts.check_chars = Some(parse_usize(APPLET, &a["--check-chars=".len()..])?);
+            }
+            a if a.starts_with("-w") && a.len() > 2 => {
+                opts.check_chars = Some(parse_usize(APPLET, &a[2..])?);
             }
             a if a.starts_with('-') && a.len() > 1 => {
                 return Err(vec![AppletError::invalid_option(
@@ -206,7 +224,7 @@ fn parse_usize(applet: &'static str, s: &str) -> Result<usize, Vec<AppletError>>
 mod tests {
     use std::io::{BufReader, Cursor};
 
-    use super::{Options, make_key, process, skip_fields};
+    use super::{Options, make_key, process, run, skip_fields};
 
     #[test]
     fn basic_key() {
@@ -299,5 +317,21 @@ mod tests {
             },
         );
         assert_eq!(skip_and_width, "1 key-one\n3 other\n");
+    }
+
+    #[test]
+    fn supports_attached_and_long_count_options() {
+        assert!(run(&[
+            std::ffi::OsString::from("-f1"),
+            std::ffi::OsString::from("-s2"),
+            std::ffi::OsString::from("-w3"),
+        ])
+        .is_ok());
+        assert!(run(&[
+            std::ffi::OsString::from("--skip-fields=1"),
+            std::ffi::OsString::from("--skip-chars=2"),
+            std::ffi::OsString::from("--check-chars=3"),
+        ])
+        .is_ok());
     }
 }

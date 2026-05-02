@@ -70,6 +70,29 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> 
                     operands.push(value.to_string());
                 }
             }
+            ArgToken::LongOption("login", None) => login = true,
+            ArgToken::LongOption("preserve-environment", None)
+            | ArgToken::LongOption("preserve-env", None) => preserve_env = true,
+            ArgToken::LongOption("shell", attached) => {
+                shell = Some(
+                    cursor
+                        .next_value_or_maybe_attached(attached, APPLET, "s")?
+                        .to_string(),
+                );
+            }
+            ArgToken::LongOption("command", attached) => {
+                command = Some(
+                    cursor
+                        .next_value_or_maybe_attached(attached, APPLET, "c")?
+                        .to_string(),
+                );
+            }
+            ArgToken::LongOption(name, _) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET,
+                    &format!("--{name}"),
+                )]);
+            }
             ArgToken::ShortFlags(flags) => {
                 let mut offset = 0;
                 for flag in flags.chars() {

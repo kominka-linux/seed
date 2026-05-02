@@ -40,8 +40,20 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> 
     let mut cursor = ArgCursor::new(args);
 
     while let Some(arg) = cursor.next_token(APPLET)? {
-        if cursor.parsing_flags() && arg == "-m" {
+        if cursor.parsing_flags() && (arg == "-m" || arg == "--mode") {
             let value = cursor.next_value(APPLET, "m")?;
+            mode = parse_mode(value)?;
+            continue;
+        }
+
+        if cursor.parsing_flags() && arg.starts_with("--mode=") {
+            let value = &arg["--mode=".len()..];
+            mode = parse_mode(value)?;
+            continue;
+        }
+
+        if cursor.parsing_flags() && arg.starts_with("-m") && arg.len() > 2 {
+            let value = &arg[2..];
             mode = parse_mode(value)?;
             continue;
         }
@@ -105,6 +117,16 @@ mod tests {
         let options = parse_args(&args(&["-m", "600", "first", "second"])).expect("parse mkfifo");
         assert_eq!(options.mode, 0o600);
         assert_eq!(options.paths, vec!["first", "second"]);
+    }
+
+    #[test]
+    fn parses_attached_and_long_mode() {
+        let options = parse_args(&args(&["--mode=640", "pipe"])).expect("parse mkfifo");
+        assert_eq!(options.mode, 0o640);
+        assert_eq!(options.paths, vec!["pipe"]);
+
+        let options = parse_args(&args(&["-m600", "pipe"])).expect("parse mkfifo");
+        assert_eq!(options.mode, 0o600);
     }
 
     #[test]

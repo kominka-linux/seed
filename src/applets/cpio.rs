@@ -395,10 +395,7 @@ fn list_archive(options: &Options) -> Result<(), Vec<AppletError>> {
             err,
         )]
     })?;
-    loop {
-        let Some(entry) = read_entry(&mut reader)? else {
-            break;
-        };
+    while let Some(entry) = read_entry(&mut reader)? {
         if entry.name == TRAILER {
             break;
         }
@@ -420,10 +417,7 @@ fn extract_archive(options: &Options, base: &Path) -> Result<(), Vec<AppletError
     })?;
     let mut hardlinks = HashMap::<(u32, u32, u32), PathBuf>::new();
 
-    loop {
-        let Some(entry) = read_entry(&mut reader)? else {
-            break;
-        };
+    while let Some(entry) = read_entry(&mut reader)? {
         if entry.name == TRAILER {
             break;
         }

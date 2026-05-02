@@ -169,6 +169,47 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> 
                     format!("unexpected operand '{value}'"),
                 )]);
             }
+            ArgToken::LongOption("debug", None) => {
+                options.verbose = options.verbose.saturating_add(1);
+            }
+            ArgToken::LongOption("quit", None) => options.quit_after_sync = true,
+            ArgToken::LongOption("wait", None) => {
+                options.query_only = true;
+                options.quit_after_sync = true;
+            }
+            ArgToken::LongOption("listen", None) => options.listen = true,
+            ArgToken::LongOption("script", attached) => {
+                options.script = Some(
+                    cursor
+                        .next_value_or_maybe_attached(attached, APPLET, "S")?
+                        .to_string(),
+                );
+            }
+            ArgToken::LongOption("peer", attached) => {
+                options.peers.push(
+                    cursor
+                        .next_value_or_maybe_attached(attached, APPLET, "p")?
+                        .to_string(),
+                );
+            }
+            ArgToken::LongOption("interface", attached) => {
+                options.interface = Some(
+                    cursor
+                        .next_value_or_maybe_attached(attached, APPLET, "I")?
+                        .to_string(),
+                );
+            }
+            ArgToken::LongOption("keyfile", attached) => {
+                options.keyfile = Some(PathBuf::from(
+                    cursor.next_value_or_maybe_attached(attached, APPLET, "k")?,
+                ));
+            }
+            ArgToken::LongOption(name, _) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET,
+                    &format!("--{name}"),
+                )]);
+            }
             ArgToken::ShortFlags(flags) => {
                 let mut offset = 0;
                 for flag in flags.chars() {

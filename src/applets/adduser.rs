@@ -96,6 +96,54 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<Command, Vec<AppletError>> 
     while let Some(arg) = cursor.next_arg(APPLET)? {
         match arg {
             ArgToken::Operand(value) => operands.push(value.to_string()),
+            ArgToken::LongOption("home", attached) => {
+                options.home = Some(
+                    cursor
+                        .next_value_or_maybe_attached(attached, APPLET, "h")?
+                        .to_string(),
+                );
+            }
+            ArgToken::LongOption("gecos", attached) => {
+                options.gecos = Some(
+                    cursor
+                        .next_value_or_maybe_attached(attached, APPLET, "g")?
+                        .to_string(),
+                );
+            }
+            ArgToken::LongOption("shell", attached) => {
+                options.shell = Some(
+                    cursor
+                        .next_value_or_maybe_attached(attached, APPLET, "s")?
+                        .to_string(),
+                );
+            }
+            ArgToken::LongOption("ingroup", attached) => {
+                options.group = Some(
+                    cursor
+                        .next_value_or_maybe_attached(attached, APPLET, "G")?
+                        .to_string(),
+                );
+            }
+            ArgToken::LongOption("uid", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "u")?;
+                options.uid = Some(parse_uid(value)?);
+            }
+            ArgToken::LongOption("skel", attached) => {
+                options.skel = Some(
+                    cursor
+                        .next_value_or_maybe_attached(attached, APPLET, "k")?
+                        .to_string(),
+                );
+            }
+            ArgToken::LongOption("system", None) => options.system = true,
+            ArgToken::LongOption("disabled-password", None) => options.no_password = true,
+            ArgToken::LongOption("no-create-home", None) => options.no_home = true,
+            ArgToken::LongOption(name, _) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET,
+                    &format!("--{name}"),
+                )]);
+            }
             ArgToken::ShortFlags(flags) => {
                 let mut offset = 0;
                 for flag in flags.chars() {

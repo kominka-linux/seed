@@ -49,6 +49,19 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<(Options, Vec<String>), Vec
 
     while let Some(arg) = cursor.next_arg(APPLET)? {
         match arg {
+            ArgToken::LongOption("compare", None) => {}
+            ArgToken::LongOption("directory", None) => options.create_directories = true,
+            ArgToken::LongOption("parents", None) => options.create_parents = true,
+            ArgToken::LongOption("mode", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "m")?;
+                options.mode = Some(parse_mode(value)?);
+            }
+            ArgToken::LongOption(name, _) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET,
+                    &format!("--{name}"),
+                )]);
+            }
             ArgToken::ShortFlags(flags) => {
                 let mut chars = flags.chars();
                 while let Some(flag) = chars.next() {

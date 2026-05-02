@@ -83,6 +83,31 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> 
     while let Some(arg) = cursor.next_arg(APPLET)? {
         match arg {
             ArgToken::Operand(value) => options.operands.push(value.to_string()),
+            ArgToken::LongOption("all", None) => options.all = true,
+            ArgToken::LongOption("fake", None) => options.dry_run = true,
+            ArgToken::LongOption("internal-only", None) => options.ignore_helpers = true,
+            ArgToken::LongOption("verbose", None) => options.verbose = true,
+            ArgToken::LongOption("read-only", None) | ArgToken::LongOption("readonly", None) => {
+                options.readonly = true;
+            }
+            ArgToken::LongOption("types", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "t")?;
+                options.type_filter = Some(split_csv(value));
+            }
+            ArgToken::LongOption("test-opts", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "O")?;
+                options.option_filter = Some(split_csv(value));
+            }
+            ArgToken::LongOption("options", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "o")?;
+                options.mount_options.extend(split_csv(value));
+            }
+            ArgToken::LongOption(name, _) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET,
+                    &format!("--{name}"),
+                )]);
+            }
             ArgToken::ShortFlags(flags) => {
                 if flags.starts_with('-') {
                     return Err(vec![AppletError::invalid_option(APPLET, '-')]);

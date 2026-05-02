@@ -45,6 +45,16 @@ fn parse_args(args: &[String]) -> Result<Options, Vec<AppletError>> {
 
     while let Some(arg) = cursor.next_arg(APPLET)? {
         match arg {
+            ArgToken::LongOption("interval", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "n")?;
+                interval = parse_interval(value)?;
+            }
+            ArgToken::LongOption(name, _) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET,
+                    &format!("--{name}"),
+                )]);
+            }
             ArgToken::ShortFlags(flags) => {
                 let mut chars = flags.chars();
                 let Some(flag) = chars.next() else {
@@ -138,6 +148,13 @@ mod tests {
     #[test]
     fn parses_attached_interval() {
         let options = parse_args(&args(&["-n0.5", "echo"])).expect("parse watch");
+        assert_eq!(options.interval, 0.5);
+        assert_eq!(options.command, vec![String::from("echo")]);
+    }
+
+    #[test]
+    fn parses_long_interval() {
+        let options = parse_args(&args(&["--interval=0.5", "echo"])).expect("parse watch");
         assert_eq!(options.interval, 0.5);
         assert_eq!(options.command, vec![String::from("echo")]);
     }

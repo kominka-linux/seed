@@ -79,8 +79,36 @@ fn run(args: &[std::ffi::OsString]) -> AppletResult {
                     })?);
                     continue;
                 }
+                a if a.starts_with("-n") && a.len() > 2 => {
+                    let val = &a[2..];
+                    head_count = Some(val.parse().map_err(|_| {
+                        vec![AppletError::new(APPLET, format!("invalid count '{val}'"))]
+                    })?);
+                    continue;
+                }
+                "--head-count" => {
+                    let val = cursor.next_value(APPLET, "head-count")?;
+                    head_count = Some(val.parse().map_err(|_| {
+                        vec![AppletError::new(APPLET, format!("invalid count '{val}'"))]
+                    })?);
+                    continue;
+                }
                 "-i" => {
                     let val = cursor.next_value(APPLET, "-i")?;
+                    input_range = Some(parse_range(val).ok_or_else(|| {
+                        vec![AppletError::new(APPLET, format!("invalid range '{val}'"))]
+                    })?);
+                    continue;
+                }
+                a if a.starts_with("-i") && a.len() > 2 => {
+                    let val = &a[2..];
+                    input_range = Some(parse_range(val).ok_or_else(|| {
+                        vec![AppletError::new(APPLET, format!("invalid range '{val}'"))]
+                    })?);
+                    continue;
+                }
+                "--input-range" => {
+                    let val = cursor.next_value(APPLET, "input-range")?;
                     input_range = Some(parse_range(val).ok_or_else(|| {
                         vec![AppletError::new(APPLET, format!("invalid range '{val}'"))]
                     })?);
@@ -259,5 +287,13 @@ mod tests {
     #[test]
     fn nonexistent_file_fails() {
         assert!(run(&args(&["__no_such_file__"])).is_err());
+    }
+
+    #[test]
+    fn supports_attached_and_separate_count_forms() {
+        assert!(run(&args(&["-n1", "-e", "a", "b"])).is_ok());
+        assert!(run(&args(&["--head-count", "1", "-e", "a", "b"])).is_ok());
+        assert!(run(&args(&["-i1-3", "-n1"])).is_ok());
+        assert!(run(&args(&["--input-range", "1-3", "--head-count=1"])).is_ok());
     }
 }

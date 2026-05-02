@@ -52,6 +52,12 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<(Options<'_>, Vec<&str>), V
             "-r" | "--reference" => {
                 options.reference = Some(cursor.next_value(APPLET, "r")?);
             }
+            a if a.starts_with("--reference=") => {
+                options.reference = Some(&a["--reference=".len()..]);
+            }
+            a if a.starts_with("-r") && a.len() > 2 => {
+                options.reference = Some(&a[2..]);
+            }
             a if a.starts_with('-') && a.len() > 1 => {
                 return Err(vec![AppletError::invalid_option(
                     APPLET,
@@ -184,6 +190,16 @@ mod tests {
         assert!(!modify_only);
         assert_eq!(reference.as_deref(), Some("ref"));
         assert_eq!(paths, vec!["file"]);
+    }
+
+    #[test]
+    fn parses_attached_and_long_reference() {
+        let (_, _, _, reference, paths) = parse(&["--reference=ref", "file"]);
+        assert_eq!(reference.as_deref(), Some("ref"));
+        assert_eq!(paths, vec!["file"]);
+
+        let (_, _, _, reference, _) = parse(&["-rref", "file"]);
+        assert_eq!(reference.as_deref(), Some("ref"));
     }
 
     #[test]

@@ -38,8 +38,20 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> 
     let mut cursor = ArgCursor::new(args);
 
     while let Some(arg) = cursor.next_token(APPLET)? {
-        if cursor.parsing_flags() && arg == "-m" {
+        if cursor.parsing_flags() && (arg == "-m" || arg == "--mode") {
             let value = cursor.next_value(APPLET, "m")?;
+            mode = parse_mode(value)?;
+            continue;
+        }
+
+        if cursor.parsing_flags() && arg.starts_with("--mode=") {
+            let value = &arg["--mode=".len()..];
+            mode = parse_mode(value)?;
+            continue;
+        }
+
+        if cursor.parsing_flags() && arg.starts_with("-m") && arg.len() > 2 {
+            let value = &arg[2..];
             mode = parse_mode(value)?;
             continue;
         }
@@ -184,5 +196,28 @@ mod tests {
         assert_eq!(options.node_type, NodeType::Fifo);
         assert_eq!(options.major, None);
         assert_eq!(options.minor, None);
+    }
+
+    #[test]
+    fn parses_attached_and_long_mode() {
+        let options = parse_args(&[
+            "--mode=640".into(),
+            "null".into(),
+            "c".into(),
+            "1".into(),
+            "3".into(),
+        ])
+        .expect("parse mknod args");
+        assert_eq!(options.mode, 0o640);
+
+        let options = parse_args(&[
+            "-m600".into(),
+            "null".into(),
+            "c".into(),
+            "1".into(),
+            "3".into(),
+        ])
+        .expect("parse mknod args");
+        assert_eq!(options.mode, 0o600);
     }
 }

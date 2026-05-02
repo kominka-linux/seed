@@ -123,6 +123,29 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> 
 
     while let Some(token) = cursor.next_arg(APPLET)? {
         match token {
+            ArgToken::LongOption("list", None) => options.list = true,
+            ArgToken::LongOption("getsz", None) | ArgToken::LongOption("size", None) => {
+                options.size = true;
+            }
+            ArgToken::LongOption("sector-size", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "b")?;
+                let parsed = value.parse::<u64>().map_err(|_| {
+                    vec![AppletError::new(APPLET, format!("invalid number '{value}'"))]
+                })?;
+                if parsed < 512 || !parsed.is_power_of_two() {
+                    return Err(vec![AppletError::new(
+                        APPLET,
+                        format!("invalid sector size '{value}'"),
+                    )]);
+                }
+                options.sector_size_override = Some(parsed);
+            }
+            ArgToken::LongOption(name, _) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET,
+                    &format!("--{name}"),
+                )]);
+            }
             ArgToken::ShortFlags(flags) => {
                 let mut chars = flags.char_indices().peekable();
                 while let Some((index, flag)) = chars.next() {

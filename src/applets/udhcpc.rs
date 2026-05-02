@@ -131,6 +131,96 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> 
                     format!("unexpected operand '{value}'"),
                 )]);
             }
+            ArgToken::LongOption("foreground", None) => {}
+            ArgToken::LongOption("syslog", None) => {}
+            ArgToken::LongOption("background", None) => {}
+            ArgToken::LongOption("broadcast", None) => broadcast = true,
+            ArgToken::LongOption("now", None) => exit_if_no_lease = true,
+            ArgToken::LongOption("quit", None) => quit_after_lease = true,
+            ArgToken::LongOption("release", None) => release_on_exit = true,
+            ArgToken::LongOption("no-client-id", None) => omit_client_id = true,
+            ArgToken::LongOption("interface", attached) => {
+                interface = cursor
+                    .next_value_or_maybe_attached(attached, APPLET, "i")?
+                    .to_string();
+            }
+            ArgToken::LongOption("script", attached) => {
+                script = Some(
+                    cursor
+                        .next_value_or_maybe_attached(attached, APPLET, "s")?
+                        .to_string(),
+                );
+            }
+            ArgToken::LongOption("pidfile", attached) => {
+                pidfile = Some(PathBuf::from(
+                    cursor.next_value_or_maybe_attached(attached, APPLET, "p")?,
+                ));
+            }
+            ArgToken::LongOption("retries", attached) => {
+                discover_attempts = parse_u32(
+                    cursor.next_value_or_maybe_attached(attached, APPLET, "t")?,
+                    "t",
+                )?;
+            }
+            ArgToken::LongOption("timeout", attached) => {
+                retry_interval_secs = u64::from(parse_u32(
+                    cursor.next_value_or_maybe_attached(attached, APPLET, "T")?,
+                    "T",
+                )?);
+            }
+            ArgToken::LongOption("tryagain", attached) => {
+                retry_wait_secs = u64::from(parse_u32(
+                    cursor.next_value_or_maybe_attached(attached, APPLET, "A")?,
+                    "A",
+                )?);
+            }
+            ArgToken::LongOption("request", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "r")?;
+                request_ip = Some(parse_ipv4(value)?);
+            }
+            ArgToken::LongOption("no-default-options", None) => {
+                request_options.clear();
+                suppress_default_request_options = true;
+            }
+            ArgToken::LongOption("request-option", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "O")?;
+                let Some(code) = option_code(value) else {
+                    return Err(vec![AppletError::new(
+                        APPLET,
+                        format!("unknown DHCP option '{value}'"),
+                    )]);
+                };
+                if !request_options.contains(&code) {
+                    request_options.push(code);
+                }
+            }
+            ArgToken::LongOption("send-option", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "x")?;
+                let (code, encoded) = parse_extra_option(value)?;
+                send_options.insert(code, encoded);
+            }
+            ArgToken::LongOption("hostname", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "F")?;
+                send_options.insert(OPTION_HOSTNAME, value.as_bytes().to_vec());
+            }
+            ArgToken::LongOption("vendorclass", attached) => {
+                let value = cursor.next_value_or_maybe_attached(attached, APPLET, "V")?;
+                send_options.insert(OPTION_VENDOR_CLASS_ID, value.as_bytes().to_vec());
+            }
+            ArgToken::LongOption("arping", attached) => {
+                arp_probe_timeout_ms = Some(match attached {
+                    Some(value) if !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()) => {
+                        parse_u32(value, "a")?
+                    }
+                    _ => DEFAULT_ARP_TIMEOUT_MILLIS,
+                });
+            }
+            ArgToken::LongOption(name, _) => {
+                return Err(vec![AppletError::unrecognized_option(
+                    APPLET,
+                    &format!("--{name}"),
+                )]);
+            }
             ArgToken::ShortFlags(flags) => {
                 let mut offset = 0;
                 for flag in flags.chars() {

@@ -61,11 +61,10 @@ fn parse_args(args: &[std::ffi::OsString]) -> Result<Options, Vec<AppletError>> 
         }
     }
 
-    if options.all && options.interface.is_none() {
-        if let Some(token) = cursor.next_token(APPLET)? {
+    if options.all && options.interface.is_none()
+        && let Some(token) = cursor.next_token(APPLET)? {
             options.interface = Some(token.to_string());
         }
-    }
 
     while let Some(arg) = cursor.next_token(APPLET)? {
         match arg {

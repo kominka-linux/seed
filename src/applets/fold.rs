@@ -26,6 +26,9 @@ fn run(args: &[std::ffi::OsString]) -> AppletResult {
             "-w" | "--width" => {
                 width = parse_width(APPLET, cursor.next_value(APPLET, "w")?)?;
             }
+            a if a.starts_with("--width=") => {
+                width = parse_width(APPLET, &a["--width=".len()..])?;
+            }
             a if a.starts_with("-w") && a.len() > 2 => {
                 width = parse_width(APPLET, &a[2..])?;
             }
@@ -228,7 +231,7 @@ fn count_columns(data: &[u8]) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{count_columns, fold_bytes, fold_columns};
+    use super::{count_columns, fold_bytes, fold_columns, run};
 
     fn fold_b(data: &str, width: usize, break_spaces: bool) -> String {
         let mut out = Vec::new();
@@ -285,5 +288,10 @@ mod tests {
         assert_eq!(fold_c("abcd\t", 8, false), "abcd\t");
         // 9 chars must wrap at 8
         assert_eq!(fold_c("abcdefghi", 8, false), "abcdefgh\ni");
+    }
+
+    #[test]
+    fn parses_long_width_equals() {
+        assert!(run(&[std::ffi::OsString::from("--width=5")]).is_ok());
     }
 }

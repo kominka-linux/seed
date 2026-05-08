@@ -5,10 +5,10 @@ edition = "2024"
 autobins = false
 
 [features]
-default = ["multicall", "wget"]
+default = ["multicall"]
 multicall = []
 docgen = []
-wget = ["dep:rustls", "dep:ureq"]
+deprecated-applets = ["dep:rustls", "dep:ureq"]
 
 [[bin]]
 name = "seed"
@@ -18,7 +18,7 @@ required-features = ["multicall"]
 [[bin]]
 name = "wget"
 path = "src/bin/wget.rs"
-required-features = ["wget"]
+required-features = ["deprecated-applets"]
 
 [[bin]]
 name = "seed-docgen"
@@ -54,6 +54,3 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
-[profile.release-wget]
-inherits = "release"
-opt-level = "z"

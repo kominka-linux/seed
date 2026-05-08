@@ -16,6 +16,7 @@ macro_rules! define_applet_modules {
         pub mod bzip2;
         #[cfg(feature = "deprecated-applets")]
         pub mod cat;
+        #[cfg(all(target_os = "linux", feature = "deprecated-applets"))]
         pub mod chattr;
         #[cfg(feature = "deprecated-applets")]
         pub mod chgrp;
@@ -41,11 +42,11 @@ macro_rules! define_applet_modules {
         pub mod deluser;
         #[cfg(target_os = "linux")]
         pub mod depmod;
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", feature = "deprecated-applets"))]
         pub mod df;
         #[cfg(feature = "deprecated-applets")]
         pub mod diff;
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", feature = "deprecated-applets"))]
         pub mod dmesg;
         #[cfg(feature = "deprecated-applets")]
         pub mod du;
@@ -63,6 +64,7 @@ macro_rules! define_applet_modules {
         pub mod flock;
         #[cfg(feature = "deprecated-applets")]
         pub mod fold;
+        #[cfg(feature = "deprecated-applets")]
         pub mod free;
         pub mod fsck;
         #[cfg(feature = "deprecated-applets")]
@@ -98,7 +100,7 @@ macro_rules! define_applet_modules {
         pub mod kill;
         #[cfg(feature = "deprecated-applets")]
         pub mod killall;
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", feature = "deprecated-applets"))]
         pub mod killall5;
         pub mod less;
         #[cfg(feature = "deprecated-applets")]
@@ -110,8 +112,9 @@ macro_rules! define_applet_modules {
         pub mod losetup;
         #[cfg(feature = "deprecated-applets")]
         pub mod ls;
+        #[cfg(all(target_os = "linux", feature = "deprecated-applets"))]
         pub mod lsattr;
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", feature = "deprecated-applets"))]
         pub mod lsmod;
         #[cfg(target_os = "linux")]
         pub mod lsof;
@@ -133,7 +136,7 @@ macro_rules! define_applet_modules {
         pub mod modprobe;
         #[cfg(target_os = "linux")]
         pub mod mount;
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", feature = "deprecated-applets"))]
         pub mod mountpoint;
         #[cfg(feature = "deprecated-applets")]
         pub mod mv;
@@ -222,7 +225,7 @@ macro_rules! define_applet_modules {
         pub mod switch_root;
         #[cfg(feature = "deprecated-applets")]
         pub mod sync;
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", feature = "deprecated-applets"))]
         pub mod sysctl;
         #[cfg(feature = "deprecated-applets")]
         pub mod tail;
@@ -246,6 +249,7 @@ macro_rules! define_applet_modules {
         pub mod true_false;
         #[cfg(feature = "deprecated-applets")]
         pub mod truncate;
+        #[cfg(feature = "deprecated-applets")]
         pub mod tty;
         #[cfg(feature = "deprecated-applets")]
         pub mod udhcpc;
@@ -259,7 +263,7 @@ macro_rules! define_applet_modules {
         pub mod uniq;
         #[cfg(feature = "deprecated-applets")]
         pub mod unzip;
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", feature = "deprecated-applets"))]
         pub mod uptime;
         #[cfg(feature = "deprecated-applets")]
         pub mod watch;
@@ -341,6 +345,7 @@ macro_rules! define_applet_entries {
                 name: "cat",
                 main: applets::cat::main,
             },
+            #[cfg(all(target_os = "linux", feature = "deprecated-applets"))]
             $entry {
                 name: "chattr",
                 main: applets::chattr::main,
@@ -408,12 +413,12 @@ macro_rules! define_applet_entries {
                 name: "deluser",
                 main: applets::deluser::main,
             },
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", feature = "deprecated-applets"))]
             $entry {
                 name: "df",
                 main: applets::df::main,
             },
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", feature = "deprecated-applets"))]
             $entry {
                 name: "dmesg",
                 main: applets::dmesg::main,
@@ -492,6 +497,7 @@ macro_rules! define_applet_entries {
                 name: "fsync",
                 main: applets::sync::main_fsync,
             },
+            #[cfg(feature = "deprecated-applets")]
             $entry {
                 name: "free",
                 main: applets::free::main,
@@ -605,7 +611,7 @@ macro_rules! define_applet_entries {
                 name: "killall",
                 main: applets::killall::main,
             },
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", feature = "deprecated-applets"))]
             $entry {
                 name: "killall5",
                 main: applets::killall5::main,
@@ -638,11 +644,12 @@ macro_rules! define_applet_entries {
                 name: "ls",
                 main: applets::ls::main,
             },
+            #[cfg(all(target_os = "linux", feature = "deprecated-applets"))]
             $entry {
                 name: "lsattr",
                 main: applets::lsattr::main,
             },
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", feature = "deprecated-applets"))]
             $entry {
                 name: "lsmod",
                 main: applets::lsmod::main,
@@ -686,7 +693,7 @@ macro_rules! define_applet_entries {
                 name: "mknod",
                 main: applets::mknod::main,
             },
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", feature = "deprecated-applets"))]
             $entry {
                 name: "mountpoint",
                 main: applets::mountpoint::main,
@@ -960,7 +967,7 @@ macro_rules! define_applet_entries {
                 name: "sync",
                 main: applets::sync::main_sync,
             },
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", feature = "deprecated-applets"))]
             $entry {
                 name: "sysctl",
                 main: applets::sysctl::main,
@@ -1030,6 +1037,7 @@ macro_rules! define_applet_entries {
                 name: "truncate",
                 main: applets::truncate::main,
             },
+            #[cfg(feature = "deprecated-applets")]
             $entry {
                 name: "tty",
                 main: applets::tty::main,
@@ -1069,7 +1077,7 @@ macro_rules! define_applet_entries {
                 name: "umount",
                 main: applets::umount::main,
             },
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", feature = "deprecated-applets"))]
             $entry {
                 name: "uptime",
                 main: applets::uptime::main,
